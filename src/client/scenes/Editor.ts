@@ -120,6 +120,7 @@ export class Editor extends Phaser.Scene {
   private stepsText: Phaser.GameObjects.Text | null = null;
   private feedbackText: Phaser.GameObjects.Text | null = null;
   private titleInput: HTMLInputElement | null = null;
+  private titleInputY = 62;
 
   constructor() { super('Editor'); }
 
@@ -149,7 +150,8 @@ export class Editor extends Phaser.Scene {
     this.buildHeader(cx, width);
 
     // Title DOM input overlaid on canvas
-    this.titleInput = this.createTitleInput(cx, 62, Math.min(width - 96, 260));
+    this.titleInput = this.createTitleInput(cx, this.titleInputY, Math.min(width - 96, 260));
+    this.scale.on('resize', this.onResize, this);
 
     // Goal slime panel
     const slimeSize = Math.min(width * 0.28, 120);
@@ -524,18 +526,8 @@ export class Editor extends Phaser.Scene {
     input.maxLength   = 60;
     input.value       = this.titleValue;
 
-    const canvas = this.game.canvas;
-    const rect   = canvas.getBoundingClientRect();
-    const sx     = rect.width  / this.scale.width;
-    const sy     = rect.height / this.scale.height;
-
     Object.assign(input.style, {
       position:    'fixed',
-      left:        `${rect.left + (cx - w / 2) * sx}px`,
-      top:         `${rect.top  + (y - 13) * sy}px`,
-      width:       `${w * sx}px`,
-      height:      `${26 * sy}px`,
-      fontSize:    `${13 * Math.min(sx, sy)}px`,
       padding:     '0 8px',
       boxSizing:   'border-box',
       background:  '#2d1b4e',
@@ -547,13 +539,38 @@ export class Editor extends Phaser.Scene {
       fontFamily:  'Arial, sans-serif',
     });
 
+    const canvas = this.game.canvas;
     const parent = canvas.parentElement ?? document.body;
     parent.appendChild(input);
+    this.positionTitleInput(input, cx, y, w);
     input.addEventListener('input', () => { this.titleValue = input.value; });
     return input;
   }
 
+  private positionTitleInput(input: HTMLInputElement, cx: number, y: number, w: number) {
+    const canvas = this.game.canvas;
+    const rect   = canvas.getBoundingClientRect();
+    const sx     = rect.width  / this.scale.width;
+    const sy     = rect.height / this.scale.height;
+    const scale  = Math.min(sx, sy);
+
+    Object.assign(input.style, {
+      left:     `${rect.left + (cx - w / 2) * sx}px`,
+      top:      `${rect.top  + (y - 13) * sy}px`,
+      width:    `${w * sx}px`,
+      height:   `${26 * sy}px`,
+      fontSize: `${13 * scale}px`,
+    });
+  }
+
+  private onResize() {
+    if (!this.titleInput) return;
+    const { width } = this.scale;
+    this.positionTitleInput(this.titleInput, width / 2, this.titleInputY, Math.min(width - 96, 260));
+  }
+
   shutdown() {
+    this.scale.off('resize', this.onResize, this);
     this.titleInput?.remove();
     this.titleInput = null;
   }
