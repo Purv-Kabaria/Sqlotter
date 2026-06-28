@@ -128,7 +128,7 @@ export class Shop extends Phaser.Scene {
         color: id === this.activeCategory ? '#1a0a2e' : C.TEXT,
       }).setOrigin(0.5);
 
-      const c = this.add.container(tx, ty, [bg, txt]).setDepth(10).setSize(catW - 6, 30);
+      const c = this.add.container(tx, ty, [bg, txt]).setDepth(10).setSize(catW - 6, 44);
       c.setInteractive({ useHandCursor: true });
       c.on('pointerup', () => {
         if (this.activeCategory === id) return;
@@ -304,6 +304,7 @@ export class Shop extends Phaser.Scene {
   }
 
   private buildIconBtn(x: number, y: number, icon: string, size: number, cb: () => void) {
+    const hitSize = Math.max(size, 44);
     const g = this.add.graphics().setDepth(15);
     g.fillStyle(0x000000, 0.4);
     g.fillRoundedRect(x - size / 2, y - size / 2, size, size, 8);
@@ -311,7 +312,7 @@ export class Shop extends Phaser.Scene {
       fontSize: `${Math.round(size * 0.65)}px`,
       color: '#ffffff',
     }).setOrigin(0.5, 0.45).setDepth(16);
-    this.add.zone(x, y, size, size).setDepth(16).setInteractive({ useHandCursor: true })
+    this.add.zone(x, y, hitSize, hitSize).setDepth(16).setInteractive({ useHandCursor: true })
       .on('pointerup', cb)
       .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
       .on('pointerout', () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));

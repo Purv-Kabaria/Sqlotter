@@ -198,6 +198,11 @@
   box-shadow: 0 2px 10px rgba(109,212,0,0.3);
 }
 
+.play-btn:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 4px;
+}
+
 @keyframes btnGlow {
   0%, 100% { box-shadow: 0 4px 20px rgba(109,212,0,0.45), 0 2px 6px rgba(0,0,0,0.3); }
   50%       { box-shadow: 0 4px 32px rgba(109,212,0,0.7), 0 2px 6px rgba(0,0,0,0.3); }
@@ -212,4 +217,15 @@
   color: var(--dim);
   font-family: Arial, sans-serif;
   font-weight: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

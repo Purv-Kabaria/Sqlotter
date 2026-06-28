@@ -59,6 +59,7 @@ export class Game extends Phaser.Scene {
   private loadingText:  Phaser.GameObjects.Text      | null = null;
 
   private paletteCards: Phaser.GameObjects.Container[] = [];
+  private paletteContainer: Phaser.GameObjects.Container | null = null;
   private bgLayers:     Phaser.GameObjects.Image[]    = [];
 
   constructor() { super('Game'); }
@@ -71,10 +72,12 @@ export class Game extends Phaser.Scene {
     this.isPreview    = !!data?.previewData;
     this.winHandled   = false;
     this.paletteCards = [];
+    this.paletteContainer = null;
     this.bgLayers     = [];
   }
 
   create() {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(300, 26, 10, 46);
     this.buildBackground();
@@ -230,6 +233,7 @@ export class Game extends Phaser.Scene {
   }
 
   private buildIconBtn(x: number, y: number, icon: string, size: number, cb: () => void) {
+    const hitSize = Math.max(size, 44);
     const g = this.add.graphics().setDepth(15);
     g.fillStyle(0x000000, 0.4);
     g.fillRoundedRect(x - size / 2, y - size / 2, size, size, 8);
@@ -237,7 +241,7 @@ export class Game extends Phaser.Scene {
       fontSize: `${Math.round(size * 0.65)}px`,
       color: '#ffffff',
     }).setOrigin(0.5, 0.45).setDepth(16);
-    this.add.zone(x, y, size, size).setDepth(16).setInteractive({ useHandCursor: true })
+    this.add.zone(x, y, hitSize, hitSize).setDepth(16).setInteractive({ useHandCursor: true })
       .on('pointerup', cb)
       .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
       .on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
@@ -283,8 +287,12 @@ export class Game extends Phaser.Scene {
   // ── Modifier palette ──────────────────────────────────────
   private buildPalette() {
     if (!this.level) return;
+    this.paletteContainer?.destroy(true);
+    this.paletteCards = [];
+
     const { width, height } = this.scale;
     const isPortrait = height > width;
+    this.paletteContainer = this.add.container(0, 0).setDepth(4);
 
     const paletteY = isPortrait ? height * 0.52 : 80;
     const paletteX = isPortrait ? 0 : width * 0.65;
@@ -296,12 +304,14 @@ export class Game extends Phaser.Scene {
     pbg.fillRoundedRect(paletteX, paletteY, paletteW, paletteH, isPortrait ? 20 : 0);
     pbg.lineStyle(1, 0x6dd400, 0.2);
     pbg.strokeRoundedRect(paletteX, paletteY, paletteW, paletteH, isPortrait ? 20 : 0);
+    this.paletteContainer.add(pbg);
 
-    this.add.text(paletteX + paletteW / 2, paletteY + 18, 'Modifiers', {
+    const title = this.add.text(paletteX + paletteW / 2, paletteY + 18, 'Modifiers', {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '15px',
       color: C.ACCENT,
     }).setOrigin(0.5).setDepth(5);
+    this.paletteContainer.add(title);
 
     this.hintText = this.add.text(paletteX + paletteW / 2, paletteY + paletteH - 20, '', {
       fontFamily: 'Arial, sans-serif',
@@ -310,6 +320,7 @@ export class Game extends Phaser.Scene {
       wordWrap: { width: paletteW - 20 },
       align: 'center',
     }).setOrigin(0.5, 1).setDepth(5).setAlpha(0);
+    this.paletteContainer.add(this.hintText);
 
     const cols    = isPortrait ? 3 : 2;
     const cardW   = isPortrait ? (paletteW - 32) / cols : paletteW - 24;
@@ -322,7 +333,9 @@ export class Game extends Phaser.Scene {
       const row = Math.floor(i / cols);
       const cx  = paletteX + 16 + col * (cardW + gap) + cardW / 2;
       const cy  = startY + row * (cardH + gap) + cardH / 2;
-      this.paletteCards.push(this.buildModCard(cx, cy, cardW, cardH, mod));
+      const card = this.buildModCard(cx, cy, cardW, cardH, mod);
+      this.paletteCards.push(card);
+      this.paletteContainer?.add(card);
     });
   }
 
@@ -409,9 +422,7 @@ export class Game extends Phaser.Scene {
     if (this.engine.isGogglesSpent) {
       this.goggleWarning?.setVisible(true);
       this.time.delayedCall(2500, () => this.goggleWarning?.setVisible(false));
-      // Rebuild palette so goggle cards show the "used" state
-      this.paletteCards.forEach(card => card.destroy());
-      this.paletteCards = [];
+      // Rebuild palette so goggle cards show the "used" state.
       this.buildPalette();
     }
 
@@ -490,8 +501,6 @@ export class Game extends Phaser.Scene {
     }
     this.stepsText?.setText('Steps: 0');
     this.goggleWarning?.setVisible(false);
-    this.paletteCards.forEach(c => c.destroy());
-    this.paletteCards = [];
     this.buildPalette();
   }
 
@@ -552,6 +561,7 @@ export class Game extends Phaser.Scene {
 
   shutdown() {
     this.timerEvent?.destroy();
+    this.paletteContainer?.destroy(true);
     this.scale.off('resize', undefined, this);
   }
 }

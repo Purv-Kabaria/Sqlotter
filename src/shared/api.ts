@@ -14,7 +14,6 @@ export type InitResponse = {
 
 // ── Levels ────────────────────────────────────────────────
 export type LevelsListResponse = {
-  type: 'levels';
   levels: LevelData[];
 };
 
@@ -28,15 +27,14 @@ export type CommunityLevelsResponse = {
 };
 
 export type LevelResponse = {
-  type: 'level';
   level: LevelData;
 };
 
 export type DailyResponse = {
-  type: 'daily';
   date: string;
+  levelId: string;
   level: LevelData;
-  completionCount: number;
+  completionCount?: number;
 };
 
 // ── Completion ────────────────────────────────────────────

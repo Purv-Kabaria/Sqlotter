@@ -32,6 +32,7 @@ schedulerRoutes.post('/daily-puzzle', async (c) => {
     const subredditName = (await redis.get('subreddit:name')) ?? '';
     if (subredditName) {
       const post = await reddit.submitCustomPost({
+        subredditName,
         title: `🟢 Daily Splot! Puzzle — ${today}`,
         entry: 'default',
         postData: { levelId },

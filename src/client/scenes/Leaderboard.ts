@@ -181,6 +181,7 @@ export class Leaderboard extends Phaser.Scene {
 
       const rankX = 12 + 30;
       const rankY = ry + rowH / 2;
+      const rowItems: Phaser.GameObjects.GameObject[] = [rbg];
 
       // Medal or rank number
       if (i < 3) {
@@ -188,14 +189,14 @@ export class Leaderboard extends Phaser.Scene {
         const medal = this.add.text(rankX, rankY, medals[i] ?? medals[2], {
           fontSize: '22px',
         }).setOrigin(0.5);
-        this.listContainer!.add(medal);
+        rowItems.push(medal);
       } else {
         const rankTxt = this.add.text(rankX, rankY, `${entry.rank}`, {
           fontFamily: '"Arial Black", sans-serif',
           fontSize: '15px',
           color: C.DIM,
         }).setOrigin(0.5);
-        this.listContainer!.add(rankTxt);
+        rowItems.push(rankTxt);
       }
 
       // Username
@@ -204,7 +205,7 @@ export class Leaderboard extends Phaser.Scene {
         fontSize: '15px',
         color: isMe ? '#6DD400' : C.TEXT,
       }).setOrigin(0, 0.5);
-      this.listContainer!.add(nameTxt);
+      rowItems.push(nameTxt);
 
       // Score
       const scoreTxt = this.add.text(12 + rowW - 16, rankY, `${entry.score}`, {
@@ -212,9 +213,9 @@ export class Leaderboard extends Phaser.Scene {
         fontSize: '16px',
         color: i === 0 ? '#FFD700' : C.TEXT,
       }).setOrigin(1, 0.5);
-      this.listContainer!.add(scoreTxt);
+      rowItems.push(scoreTxt);
 
-      const row = this.add.container(0, 0, [rbg]);
+      const row = this.add.container(0, 0, rowItems);
       row.setAlpha(0);
       this.tweens.add({ targets: row, alpha: 1, duration: 200, delay: i * 60 });
       this.listContainer!.add(row);
@@ -222,6 +223,7 @@ export class Leaderboard extends Phaser.Scene {
   }
 
   private buildIconBtn(x: number, y: number, icon: string, size: number, cb: () => void) {
+    const hitSize = Math.max(size, 44);
     const g = this.add.graphics().setDepth(15);
     g.fillStyle(0x000000, 0.4);
     g.fillRoundedRect(x - size / 2, y - size / 2, size, size, 8);
@@ -229,7 +231,7 @@ export class Leaderboard extends Phaser.Scene {
       fontSize: `${Math.round(size * 0.65)}px`,
       color: '#ffffff',
     }).setOrigin(0.5, 0.45).setDepth(16);
-    this.add.zone(x, y, size, size).setDepth(16).setInteractive({ useHandCursor: true })
+    this.add.zone(x, y, hitSize, hitSize).setDepth(16).setInteractive({ useHandCursor: true })
       .on('pointerup', cb)
       .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
       .on('pointerout', () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));

@@ -1,4 +1,5 @@
 import { GameObjects, Scene } from 'phaser';
+import { getLaunchLevelId } from '../launch';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -215,6 +216,13 @@ export class Preloader extends Scene {
 
   create() {
     if (this.tipText) this.tipText.setText('Ready!');
-    this.time.delayedCall(200, () => this.scene.start('MainMenu'));
+    const launchLevelId = getLaunchLevelId();
+    this.time.delayedCall(200, () => {
+      if (launchLevelId) {
+        this.scene.start('Game', { levelId: launchLevelId });
+      } else {
+        this.scene.start('MainMenu');
+      }
+    });
   }
 }

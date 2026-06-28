@@ -16,6 +16,7 @@ triggers.post('/on-app-install', async (c) => {
 
     // Create the initial welcome post
     const post = await reddit.submitCustomPost({
+      subredditName,
       title: '🟢 Splot! — The Slime Puzzle Game',
       entry: 'default',
       styles: {

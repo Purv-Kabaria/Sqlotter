@@ -131,6 +131,7 @@ export class Editor extends Phaser.Scene {
   }
 
   create() {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(300, 26, 10, 46);
 
@@ -268,15 +269,16 @@ export class Editor extends Phaser.Scene {
 
   private buildColorSwatch(x: number, y: number, d: number, mod: ModifierDef) {
     const col = parseInt((mod.color ?? '#ffffff').replace('#', ''), 16);
-    const c = this.add.circle(x, y, d / 2, col).setDepth(5).setInteractive({ useHandCursor: true });
+    const c = this.add.circle(x, y, d / 2, col).setDepth(5);
     c.setStrokeStyle(1.5, 0xffffff, 0.35);
-    c.on('pointerover', () => c.setStrokeStyle(2.5, 0x6dd400, 1));
-    c.on('pointerout',  () => c.setStrokeStyle(1.5, 0xffffff, 0.35));
-    c.on('pointerup', () => {
-      c.setStrokeStyle(3, 0x6dd400, 1);
-      this.applyGoalMod(mod);
-      this.time.delayedCall(200, () => c.setStrokeStyle(1.5, 0xffffff, 0.35));
-    });
+    this.add.zone(x, y, Math.max(d, 44), Math.max(d, 44)).setDepth(6).setInteractive({ useHandCursor: true })
+      .on('pointerover', () => c.setStrokeStyle(2.5, 0x6dd400, 1))
+      .on('pointerout',  () => c.setStrokeStyle(1.5, 0xffffff, 0.35))
+      .on('pointerup', () => {
+        c.setStrokeStyle(3, 0x6dd400, 1);
+        this.applyGoalMod(mod);
+        this.time.delayedCall(200, () => c.setStrokeStyle(1.5, 0xffffff, 0.35));
+      });
   }
 
   private buildModCard(cx: number, cy: number, w: number, h: number, mod: ModifierDef) {
@@ -354,13 +356,14 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildSmallBtn(x: number, y: number, w: number, h: number, label: string, cb: () => void) {
+    const hitH = Math.max(h, 44);
     const g = this.add.graphics().setDepth(5);
     g.fillStyle(0x000000, 0.4);
     g.fillRoundedRect(x - w / 2, y - h / 2, w, h, 5);
     g.lineStyle(1, 0x6dd400, 0.35);
     g.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 5);
     const txt = this.add.text(x, y, label, { fontFamily: 'Arial, sans-serif', fontSize: '11px', color: C.TEXT }).setOrigin(0.5).setDepth(6);
-    const zone = this.add.zone(x, y, w, h).setDepth(6).setInteractive({ useHandCursor: true });
+    const zone = this.add.zone(x, y, w, hitH).setDepth(6).setInteractive({ useHandCursor: true });
     zone.on('pointerup', cb);
     zone.on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.06, scaleY: 1.06, duration: 60 }));
     zone.on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 60 }));

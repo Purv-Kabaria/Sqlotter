@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { context, redis, reddit } from '@devvit/web/server';
 import type {
   InitResponse,
@@ -15,6 +16,9 @@ import type {
   LevelCreateRequest,
   LevelCreateResponse,
   CommunityLevelsResponse,
+  DailyResponse,
+  LevelsListResponse,
+  LevelResponse,
 } from '../../shared/api';
 import type { LevelData, ModifierDef, SlimeState, Stars } from '../../shared/types';
 import { CURATED_LEVELS } from '../../shared/levelData';
@@ -24,6 +28,14 @@ import { getShopItem } from '../../shared/shop';
 type Err = { status: 'error'; message: string };
 
 export const api = new Hono();
+
+async function readJsonBody<T>(c: Context): Promise<T | null> {
+  try {
+    return await c.req.json<T>();
+  } catch {
+    return null;
+  }
+}
 
 async function getLevel(levelId: string): Promise<LevelData | undefined> {
   const curated = CURATED_LEVELS.find((level) => level.id === levelId);
@@ -95,7 +107,7 @@ api.get('/daily', async (c) => {
   if (levelId) {
     const levelJson = await redis.get(`level:${levelId}`);
     if (levelJson) {
-      return c.json({ levelId, level: JSON.parse(levelJson), date: today });
+      return c.json<DailyResponse>({ levelId, level: JSON.parse(levelJson), date: today });
     }
   }
 
@@ -104,13 +116,13 @@ api.get('/daily', async (c) => {
     (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,
   );
   const fallback = CURATED_LEVELS[dayOfYear % CURATED_LEVELS.length] ?? CURATED_LEVELS[0];
-  if (!fallback) return c.json({ levelId: 'L01', date: today }, 200);
-  return c.json({ levelId: fallback.id, level: fallback, date: today });
+  if (!fallback) return c.json<Err>({ status: 'error', message: 'No daily fallback available' }, 404);
+  return c.json<DailyResponse>({ levelId: fallback.id, level: fallback, date: today });
 });
 
 // ── /api/levels/list ─────────────────────────────────────────
 api.get('/levels/list', async (c) => {
-  return c.json({ levels: CURATED_LEVELS });
+  return c.json<LevelsListResponse>({ levels: CURATED_LEVELS });
 });
 
 // ── /api/level/:id ───────────────────────────────────────────
@@ -119,11 +131,11 @@ api.get('/level/:id', async (c) => {
 
   // Check curated first
   const curated = CURATED_LEVELS.find(l => l.id === id);
-  if (curated) return c.json({ level: curated });
+  if (curated) return c.json<LevelResponse>({ level: curated });
 
   // Check Redis (UGC / daily generated)
   const json = await redis.get(`level:${id}`);
-  if (json) return c.json({ level: JSON.parse(json) });
+  if (json) return c.json<LevelResponse>({ level: JSON.parse(json) });
 
   return c.json<Err>({ status: 'error', message: 'Level not found' }, 404);
 });
@@ -133,7 +145,8 @@ api.post('/complete', async (c) => {
   const username = (await reddit.getCurrentUsername()) ?? '';
   if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
 
-  const body = await c.req.json<CompleteRequest>();
+  const body = await readJsonBody<CompleteRequest>(c);
+  if (!body) return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
   const { levelId, timeMs, actions } = body;
   if (typeof levelId !== 'string' || levelId.length < 1 || levelId.length > 120) {
     return c.json<Err>({ status: 'error', message: 'Invalid level id' }, 400);
@@ -291,7 +304,8 @@ api.post('/user/equip', async (c) => {
   const username = (await reddit.getCurrentUsername()) ?? '';
   if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
 
-  const body     = await c.req.json<EquipRequest>();
+  const body     = await readJsonBody<EquipRequest>(c);
+  if (!body) return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
   const userKey  = `user:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
   const item = typeof body.itemId === 'string' ? getShopItem(body.itemId) : undefined;
@@ -313,7 +327,8 @@ api.post('/user/buy', async (c) => {
   const username = (await reddit.getCurrentUsername()) ?? '';
   if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
 
-  const body    = await c.req.json<BuyRequest>();
+  const body    = await readJsonBody<BuyRequest>(c);
+  if (!body) return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
   const userKey = `user:${username}`;
   const item = typeof body.itemId === 'string' ? getShopItem(body.itemId) : undefined;
 
@@ -351,7 +366,8 @@ api.post('/level/create', async (c) => {
   const username = (await reddit.getCurrentUsername()) ?? '';
   if (!username) return c.json<Err>({ status: 'error', message: 'Login required to create levels' }, 401);
 
-  const body = await c.req.json<LevelCreateRequest>();
+  const body = await readJsonBody<LevelCreateRequest>(c);
+  if (!body) return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
   const { title, difficulty, goalState, palette, optimalSteps, solution, hint } = body;
 
   if (typeof title !== 'string' || !title.trim() || title.length > 60) {
@@ -421,6 +437,7 @@ api.post('/level/create', async (c) => {
   let postId: string | undefined;
   try {
     const post = await reddit.submitCustomPost({
+      subredditName: context.subredditName ?? '',
       title: `Splot Level by u/${username}: ${level.title}`,
       entry: 'default',
       postData: { levelId },

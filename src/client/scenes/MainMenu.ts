@@ -83,6 +83,7 @@ export class MainMenu extends Phaser.Scene {
   }
 
   create() {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG_DEEP);
     this.cameras.main.fadeIn(400, 10, 5, 46);
 

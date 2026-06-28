@@ -9,6 +9,7 @@ export const menu = new Hono();
 menu.post('/post-create', async (c) => {
   try {
     const post = await reddit.submitCustomPost({
+      subredditName: context.subredditName ?? '',
       title: '🟢 Splot! — The Slime Puzzle Game',
       entry: 'default',
       styles: {
@@ -41,6 +42,7 @@ menu.post('/post-daily', async (c) => {
     await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
 
     const post = await reddit.submitCustomPost({
+      subredditName: context.subredditName ?? '',
       title: `🟢 Daily Splot! Puzzle — ${today}`,
       entry: 'default',
       postData: { levelId },

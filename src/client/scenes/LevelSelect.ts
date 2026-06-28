@@ -30,7 +30,9 @@ export class LevelSelect extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private scrollContainer: Phaser.GameObjects.Container | null = null;
   private isDragging = false;
+  private dragMoved = false;
   private dragStartY = 0;
+  private pointerDownY = 0;
   private scrollY = 0;
   private maxScrollY = 0;
   private contentHeight = 0;
@@ -43,11 +45,13 @@ export class LevelSelect extends Phaser.Scene {
     this.bgLayers = [];
     this.scrollContainer = null;
     this.scrollY = 0;
+    this.dragMoved = false;
     this.completedLevels = {};
     this.communityLevels = [];
   }
 
   async create() {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(350, 26, 10, 46);
 
@@ -105,7 +109,7 @@ export class LevelSelect extends Phaser.Scene {
       fontSize: '28px', color: '#ffffff',
     }).setOrigin(0.5, 0.45);
     backBtn.add([backBg, backArrow]);
-    backBtn.setSize(40, 40).setInteractive({ useHandCursor: true })
+    backBtn.setSize(44, 44).setInteractive({ useHandCursor: true })
       .on('pointerup', () => {
         this.cameras.main.fadeOut(250, 26, 10, 46);
         this.time.delayedCall(260, () => this.scene.start('MainMenu'));
@@ -316,6 +320,7 @@ export class LevelSelect extends Phaser.Scene {
         this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 });
       });
       c.on('pointerup', () => {
+        if (this.dragMoved) return;
         this.cameras.main.fadeOut(250, 26, 10, 46);
         this.time.delayedCall(260, () => {
           this.scene.start('Game', { levelId: level.id });
@@ -381,7 +386,7 @@ export class LevelSelect extends Phaser.Scene {
     card.on('pointerover', () => draw(true));
     card.on('pointerout', () => draw(false));
     card.on('pointerup', () => {
-      if (this.isDragging) return;
+      if (this.dragMoved) return;
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => this.scene.start('Game', { levelId: level.id }));
     });
@@ -402,11 +407,14 @@ export class LevelSelect extends Phaser.Scene {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (p.y < headerH) return;
       this.isDragging = true;
+      this.dragMoved = false;
       this.dragStartY = p.y - this.scrollY;
+      this.pointerDownY = p.y;
     });
 
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (!this.isDragging) return;
+      if (Math.abs(p.y - this.pointerDownY) > 8) this.dragMoved = true;
       const newY = p.y - this.dragStartY;
       this.scrollY = Phaser.Math.Clamp(newY, -this.maxScrollY, 0);
       if (this.scrollContainer) this.scrollContainer.y = 60 + this.scrollY;
@@ -419,5 +427,9 @@ export class LevelSelect extends Phaser.Scene {
       this.scrollY = Phaser.Math.Clamp(this.scrollY - dy * 0.8, -this.maxScrollY, 0);
       if (this.scrollContainer) this.scrollContainer.y = 60 + this.scrollY;
     });
+  }
+
+  shutdown() {
+    this.input.removeAllListeners();
   }
 }
