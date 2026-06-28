@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { LevelEngine, calcStars } from '../engine/LevelEngine';
+import { addPixelButton, addPixelIconButton, addPixelPanel } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
 import type { LevelData, ModifierDef } from '../../shared/types';
@@ -195,39 +196,31 @@ export class Game extends Phaser.Scene {
     const cx = width / 2;
     const cy = height / 2;
 
-    const bg = this.add.graphics();
-    bg.fillStyle(0x1a1030, 0.96);
-    bg.fillRoundedRect(-panelW / 2, -panelH / 2, panelW, panelH, 18);
-    bg.lineStyle(2, C.RED, 0.8);
-    bg.strokeRoundedRect(-panelW / 2, -panelH / 2, panelW, panelH, 18);
+    const bg = addPixelPanel(this, 0, 0, panelW, panelH).setDepth(80);
 
-    const icon = this.add.image(0, -48, 'icon-warning').setDisplaySize(32, 32);
+    const icon = this.add.image(0, -48, 'icon-warning').setDisplaySize(32, 32).setDepth(81);
     const text = this.add.text(0, -10, message, {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '16px',
       color: '#ffb3b3',
       align: 'center',
       wordWrap: { width: panelW - 36 },
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setDepth(81);
 
-    const buttonBg = this.add.graphics();
-    buttonBg.fillStyle(C.GREEN, 1);
-    buttonBg.fillRoundedRect(-70, 38, 140, 42, 12);
-    const buttonText = this.add.text(0, 59, 'Try Again', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '15px',
-      color: '#1a0a2e',
-    }).setOrigin(0.5);
+    const button = addPixelButton(this, {
+      x: 0,
+      y: 59,
+      width: 148,
+      height: 44,
+      label: 'Try Again',
+      fontSize: 15,
+      onClick: retry,
+    }).setDepth(81);
 
-    const panel = this.add.container(cx, cy, [bg, icon, text, buttonBg, buttonText])
+    const panel = this.add.container(cx, cy, [bg, icon, text, button])
       .setDepth(80)
       .setAlpha(0)
       .setScale(0.96);
-
-    this.add.zone(cx, cy + 59, 140, 44).setDepth(81).setInteractive({ useHandCursor: true })
-      .on('pointerup', retry)
-      .on('pointerover', () => this.tweens.add({ targets: [buttonBg, buttonText], scaleX: 1.04, scaleY: 1.04, duration: 80 }))
-      .on('pointerout', () => this.tweens.add({ targets: [buttonBg, buttonText], scaleX: 1, scaleY: 1, duration: 80 }));
 
     this.tweens.add({
       targets: panel,
@@ -254,10 +247,10 @@ export class Game extends Phaser.Scene {
   private buildHUD() {
     const { width } = this.scale;
 
-    this.buildIconBtn(30, 30, '‹', 36, () => {
+    this.buildIconBtn(30, 30, 'icon-arrow', 36, () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => this.scene.start(this.isPreview ? 'Editor' : 'LevelSelect'));
-    });
+    }, 180);
 
     if (this.level) {
       const titleLabel = this.isPreview
@@ -285,8 +278,8 @@ export class Game extends Phaser.Scene {
       color: C.DIM,
     }).setOrigin(0.5, 0).setDepth(15);
 
-    this.buildIconBtn(width - 36, 58, '↺', 30, () => this.handleReset());
-    this.buildIconBtn(36, 58, '?', 30, () => this.showHint());
+    this.buildIconBtn(width - 36, 58, 'icon-reset', 30, () => this.handleReset());
+    this.buildIconBtn(36, 58, 'icon-help', 30, () => this.showHint());
 
     const div = this.add.graphics().setDepth(15);
     div.lineStyle(1, 0x6dd400, 0.2);
@@ -300,19 +293,15 @@ export class Game extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(15).setVisible(false);
   }
 
-  private buildIconBtn(x: number, y: number, icon: string, size: number, cb: () => void) {
-    const hitSize = Math.max(size, 44);
-    const g = this.add.graphics().setDepth(15);
-    g.fillStyle(0x000000, 0.4);
-    g.fillRoundedRect(x - size / 2, y - size / 2, size, size, 8);
-    const txt = this.add.text(x, y, icon, {
-      fontSize: `${Math.round(size * 0.65)}px`,
-      color: '#ffffff',
-    }).setOrigin(0.5, 0.45).setDepth(16);
-    this.add.zone(x, y, hitSize, hitSize).setDepth(16).setInteractive({ useHandCursor: true })
-      .on('pointerup', cb)
-      .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
-      .on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
+  private buildIconBtn(x: number, y: number, iconKey: string, size: number, cb: () => void, iconAngle = 0) {
+    addPixelIconButton(this, {
+      x,
+      y,
+      size,
+      iconKey,
+      iconAngle,
+      onClick: cb,
+    }).setDepth(15);
   }
 
   // ── Slime displays ────────────────────────────────────────
@@ -340,11 +329,7 @@ export class Game extends Phaser.Scene {
   }
 
   private buildSlimePanel(cx: number, cy: number, w: number, h: number, label: string) {
-    const g = this.add.graphics().setDepth(2);
-    g.fillStyle(C.PANEL, 0.85);
-    g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
-    g.lineStyle(1, 0x6dd400, 0.3);
-    g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
+    addPixelPanel(this, cx, cy, w, h).setDepth(2).setAlpha(0.94);
     this.add.text(cx, cy - h / 2 + 14, label, {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '13px',
@@ -367,11 +352,9 @@ export class Game extends Phaser.Scene {
     const paletteW = isPortrait ? width : width * 0.35;
     const paletteH = isPortrait ? height * 0.48 : height - 80;
 
-    const pbg = this.add.graphics().setDepth(4);
-    pbg.fillStyle(0x0d0620, 0.7);
-    pbg.fillRoundedRect(paletteX, paletteY, paletteW, paletteH, isPortrait ? 20 : 0);
-    pbg.lineStyle(1, 0x6dd400, 0.2);
-    pbg.strokeRoundedRect(paletteX, paletteY, paletteW, paletteH, isPortrait ? 20 : 0);
+    const pbg = addPixelPanel(this, paletteX + paletteW / 2, paletteY + paletteH / 2, paletteW, paletteH)
+      .setDepth(4)
+      .setAlpha(isPortrait ? 0.94 : 0.9);
     this.paletteContainer.add(pbg);
 
     const title = this.add.text(paletteX + paletteW / 2, paletteY + 18, 'Modifiers', {
@@ -411,27 +394,21 @@ export class Game extends Phaser.Scene {
     const isGoggle = mod.type === 'goggles';
     const spent    = isGoggle && (this.engine?.isGogglesSpent ?? false);
 
-    const bg = this.add.graphics();
-    const drawNormal = () => {
-      bg.clear();
-      if (spent) {
-        bg.fillStyle(0x1a1030, 0.9);
-        bg.lineStyle(1, 0x3a2060, 0.6);
-      } else {
-        bg.fillStyle(C.PANEL, 0.9);
-        bg.lineStyle(2, 0x6dd400, 0.5);
-      }
-      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    };
-    const drawHover = () => {
-      bg.clear();
-      bg.fillStyle(0x4a2c8a, 1);
-      bg.lineStyle(2, 0x6dd400, 1);
-      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    };
-    drawNormal();
+    const bg = this.add.nineslice(
+      0,
+      0,
+      spent ? 'ui-btn-disabled' : 'ui-btn-open',
+      undefined,
+      w,
+      h,
+      8,
+      8,
+      8,
+      8,
+    );
+    const setNormal = () => bg.setTexture(spent ? 'ui-btn-disabled' : 'ui-btn-open');
+    const setHover = () => bg.setTexture('ui-btn-hover');
+    const setPressed = () => bg.setTexture('ui-btn-press');
 
     const items: Phaser.GameObjects.GameObject[] = [bg];
 
@@ -459,12 +436,28 @@ export class Game extends Phaser.Scene {
     const c = this.add.container(cx, cy, items).setDepth(5).setSize(w, h);
     c.setInteractive({ useHandCursor: !spent });
     if (!spent) {
-      c.on('pointerover', drawHover);
-      c.on('pointerout', drawNormal);
-      c.on('pointerdown', () => this.tweens.add({ targets: c, scaleX: 0.95, scaleY: 0.95, duration: 60 }));
+      c.on('pointerover', () => {
+        setHover();
+        this.tweens.add({ targets: c, y: cy - 2, duration: 80, ease: 'Quad.easeOut' });
+      });
+      c.on('pointerout', () => {
+        setNormal();
+        this.tweens.add({ targets: c, y: cy, scaleX: 1, scaleY: 1, duration: 90, ease: 'Quad.easeOut' });
+      });
+      c.on('pointerdown', () => {
+        setPressed();
+        this.tweens.add({ targets: c, y: cy + 1, scaleX: 0.97, scaleY: 0.97, duration: 60 });
+      });
       c.on('pointerup', () => {
-        this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 60 });
-        this.applyModifier(mod);
+        setHover();
+        this.tweens.add({
+          targets: c,
+          y: cy - 2,
+          scaleX: 1,
+          scaleY: 1,
+          duration: 70,
+          onComplete: () => this.applyModifier(mod),
+        });
       });
     }
     return c;

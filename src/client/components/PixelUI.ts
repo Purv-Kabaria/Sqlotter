@@ -16,6 +16,16 @@ export type PixelButtonOptions = {
   onClick: () => void;
 };
 
+export type PixelIconButtonOptions = {
+  x: number;
+  y: number;
+  size: number;
+  iconKey: string;
+  iconAngle?: number;
+  disabled?: boolean;
+  onClick: () => void;
+};
+
 export function addPixelPanel(
   scene: Phaser.Scene,
   x: number,
@@ -113,6 +123,53 @@ export function addPixelButton(
           duration: 70,
           onComplete: onClick,
         });
+      });
+  }
+
+  return container;
+}
+
+export function addPixelIconButton(
+  scene: Phaser.Scene,
+  options: PixelIconButtonOptions,
+): Phaser.GameObjects.Container {
+  const { x, y, size, iconKey, iconAngle = 0, disabled = false, onClick } = options;
+  const bg = scene.add.nineslice(
+    0,
+    0,
+    disabled ? 'ui-btn-disabled' : 'ui-btn-open',
+    undefined,
+    size,
+    size,
+    BUTTON_SLICE_X,
+    BUTTON_SLICE_X,
+    BUTTON_SLICE_Y,
+    BUTTON_SLICE_Y,
+  );
+  const icon = scene.add.image(0, -1, iconKey)
+    .setDisplaySize(size * 0.48, size * 0.48)
+    .setAngle(iconAngle)
+    .setAlpha(disabled ? 0.45 : 1);
+  const container = scene.add.container(x, y, [bg, icon]).setSize(Math.max(size, 44), Math.max(size, 44));
+
+  if (!disabled) {
+    container.setInteractive({ useHandCursor: true });
+    container
+      .on('pointerover', () => {
+        bg.setTexture('ui-btn-hover');
+        scene.tweens.add({ targets: container, y: y - 1, duration: 70 });
+      })
+      .on('pointerout', () => {
+        bg.setTexture('ui-btn-open');
+        scene.tweens.add({ targets: container, y, scaleX: 1, scaleY: 1, duration: 80 });
+      })
+      .on('pointerdown', () => {
+        bg.setTexture('ui-btn-press');
+        scene.tweens.add({ targets: container, y: y + 1, scaleX: 0.96, scaleY: 0.96, duration: 50 });
+      })
+      .on('pointerup', () => {
+        bg.setTexture('ui-btn-hover');
+        scene.tweens.add({ targets: container, y: y - 1, scaleX: 1, scaleY: 1, duration: 60, onComplete: onClick });
       });
   }
 
