@@ -45,6 +45,7 @@ export class Game extends Phaser.Scene {
   private levelId = 'L01';
   private isPreview = false;
   private winHandled = false;
+  private loadToken = 0;
 
   private goalRenderer:    SlimeRenderer | null = null;
   private currentRenderer: SlimeRenderer | null = null;
@@ -71,6 +72,7 @@ export class Game extends Phaser.Scene {
     this.levelId      = data?.levelId ?? 'L01';
     this.isPreview    = !!data?.previewData;
     this.winHandled   = false;
+    this.loadToken    += 1;
     this.paletteCards = [];
     this.paletteContainer = null;
     this.bgLayers     = [];
@@ -91,7 +93,7 @@ export class Game extends Phaser.Scene {
       this.startTimer();
     } else if (this.levelId === 'daily') {
       this.showLoading();
-      void this.fetchDailyAndStart();
+      void this.fetchDailyAndStart(this.loadToken);
     } else {
       this.startWithLevelId(this.levelId);
     }
@@ -107,7 +109,7 @@ export class Game extends Phaser.Scene {
     this.tweens.add({ targets: this.loadingText, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
   }
 
-  private async fetchDailyAndStart() {
+  private async fetchDailyAndStart(token: number) {
     try {
       const res = await fetch('/api/daily');
       if (res.ok) {
@@ -127,8 +129,15 @@ export class Game extends Phaser.Scene {
       this.levelId = fallback?.id ?? 'L01';
     }
 
+    if (token !== this.loadToken) return;
     this.loadingText?.destroy();
-    this.engine = new LevelEngine(this.level!);
+    if (!this.level) {
+      this.showLoadError('Daily puzzle is unavailable.', () => {
+        this.scene.restart({ levelId: 'daily' });
+      });
+      return;
+    }
+    this.engine = new LevelEngine(this.level);
     this.buildHUD();
     this.buildSlimeDisplays();
     this.buildPalette();
@@ -149,6 +158,7 @@ export class Game extends Phaser.Scene {
 
     // UGC / unknown level — fetch from server
     this.showLoading();
+    const token = this.loadToken;
     void (async () => {
       try {
         const res = await fetch(`/api/level/${id}`);
@@ -161,8 +171,15 @@ export class Game extends Phaser.Scene {
       } catch {
         this.level = CURATED_LEVELS[0] ?? null;
       }
+      if (token !== this.loadToken) return;
       this.loadingText?.destroy();
-      this.engine = new LevelEngine(this.level!);
+      if (!this.level) {
+        this.showLoadError('Could not load this level.', () => {
+          this.scene.start('LevelSelect');
+        });
+        return;
+      }
+      this.engine = new LevelEngine(this.level);
       this.buildHUD();
       this.buildSlimeDisplays();
       this.buildPalette();
@@ -171,6 +188,57 @@ export class Game extends Phaser.Scene {
   }
 
   // ── Background ────────────────────────────────────────────
+  private showLoadError(message: string, retry: () => void) {
+    const { width, height } = this.scale;
+    const panelW = Math.min(width - 40, 320);
+    const panelH = 160;
+    const cx = width / 2;
+    const cy = height / 2;
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x1a1030, 0.96);
+    bg.fillRoundedRect(-panelW / 2, -panelH / 2, panelW, panelH, 18);
+    bg.lineStyle(2, C.RED, 0.8);
+    bg.strokeRoundedRect(-panelW / 2, -panelH / 2, panelW, panelH, 18);
+
+    const icon = this.add.image(0, -48, 'icon-warning').setDisplaySize(32, 32);
+    const text = this.add.text(0, -10, message, {
+      fontFamily: '"Arial Black", sans-serif',
+      fontSize: '16px',
+      color: '#ffb3b3',
+      align: 'center',
+      wordWrap: { width: panelW - 36 },
+    }).setOrigin(0.5);
+
+    const buttonBg = this.add.graphics();
+    buttonBg.fillStyle(C.GREEN, 1);
+    buttonBg.fillRoundedRect(-70, 38, 140, 42, 12);
+    const buttonText = this.add.text(0, 59, 'Try Again', {
+      fontFamily: '"Arial Black", sans-serif',
+      fontSize: '15px',
+      color: '#1a0a2e',
+    }).setOrigin(0.5);
+
+    const panel = this.add.container(cx, cy, [bg, icon, text, buttonBg, buttonText])
+      .setDepth(80)
+      .setAlpha(0)
+      .setScale(0.96);
+
+    this.add.zone(cx, cy + 59, 140, 44).setDepth(81).setInteractive({ useHandCursor: true })
+      .on('pointerup', retry)
+      .on('pointerover', () => this.tweens.add({ targets: [buttonBg, buttonText], scaleX: 1.04, scaleY: 1.04, duration: 80 }))
+      .on('pointerout', () => this.tweens.add({ targets: [buttonBg, buttonText], scaleX: 1, scaleY: 1, duration: 80 }));
+
+    this.tweens.add({
+      targets: panel,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 220,
+      ease: 'Back.easeOut',
+    });
+  }
+
   private buildBackground() {
     const { width, height } = this.scale;
     ['bg3-1', 'bg3-2'].forEach((key, i) => {
@@ -598,6 +666,7 @@ export class Game extends Phaser.Scene {
   }
 
   shutdown() {
+    this.loadToken += 1;
     this.timerEvent?.destroy();
     this.paletteContainer?.destroy(true);
     this.scale.off('resize', undefined, this);
