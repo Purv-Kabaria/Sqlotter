@@ -1,4 +1,4 @@
-import { Scene } from 'phaser';
+import { GameObjects, Scene } from 'phaser';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -152,9 +152,9 @@ const IMG: AssetDef[] = [
 ];
 
 export class Preloader extends Scene {
-  private bar: Phaser.GameObjects.Rectangle | null = null;
-  private titleText: Phaser.GameObjects.Text | null = null;
-  private tipText: Phaser.GameObjects.Text | null = null;
+  private bar: GameObjects.Rectangle | null = null;
+  private titleText: GameObjects.Text | null = null;
+  private tipText: GameObjects.Text | null = null;
 
   constructor() { super('Preloader'); }
 

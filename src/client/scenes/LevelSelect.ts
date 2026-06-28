@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { CURATED_LEVELS, WORLD_LABELS } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
+import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 
 const C = {
   BG:      0x1a0a2e,
@@ -34,6 +35,7 @@ export class LevelSelect extends Phaser.Scene {
   private maxScrollY = 0;
   private contentHeight = 0;
   private completedLevels: Record<string, { stars: number }> = {};
+  private communityLevels: CommunityLevelSummary[] = [];
 
   constructor() { super('LevelSelect'); }
 
@@ -41,13 +43,15 @@ export class LevelSelect extends Phaser.Scene {
     this.bgLayers = [];
     this.scrollContainer = null;
     this.scrollY = 0;
+    this.completedLevels = {};
+    this.communityLevels = [];
   }
 
   async create() {
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(350, 26, 10, 46);
 
-    await this.loadProgress();
+    await Promise.all([this.loadProgress(), this.loadCommunityLevels()]);
 
     this.buildBackground();
     this.buildHeader();
@@ -65,6 +69,16 @@ export class LevelSelect extends Phaser.Scene {
         }
       }
     } catch { /* fallback: no progress */ }
+  }
+
+  private async loadCommunityLevels() {
+    try {
+      const res = await fetch('/api/levels/community?limit=20');
+      if (res.ok) {
+        const data: CommunityLevelsResponse = await res.json();
+        this.communityLevels = data.levels ?? [];
+      }
+    } catch { /* fallback: empty */ }
   }
 
   private buildBackground() {
@@ -163,9 +177,28 @@ export class LevelSelect extends Phaser.Scene {
     this.scrollContainer!.add(communityHeader);
     cursorY += 52;
 
-    const comingCard = this.buildComingSoonCard(width / 2, cursorY, width - 40, 64);
-    this.scrollContainer!.add(comingCard);
-    cursorY += 80;
+    if (this.communityLevels.length === 0) {
+      const comingCard = this.buildComingSoonCard(width / 2, cursorY, width - 40, 64);
+      this.scrollContainer!.add(comingCard);
+      cursorY += 80;
+    } else {
+      const cardW = (width - 60) / 2;
+      const cardH = 88;
+      const colGap = 12;
+      const rowGap = 12;
+
+      this.communityLevels.forEach((level, i) => {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const cx = 20 + col * (cardW + colGap) + cardW / 2;
+        const cy = cursorY + row * (cardH + rowGap) + cardH / 2;
+        const card = this.buildCommunityCard(cx, cy, cardW, cardH, level);
+        this.scrollContainer!.add(card);
+      });
+
+      const rows = Math.ceil(this.communityLevels.length / 2);
+      cursorY += rows * (cardH + rowGap) + 24;
+    }
 
     this.contentHeight = cursorY;
     this.maxScrollY = Math.max(0, this.contentHeight - (height - 60));
@@ -306,6 +339,53 @@ export class LevelSelect extends Phaser.Scene {
     }).setOrigin(0.5);
 
     return this.add.container(cx, cy, [bg, txt]);
+  }
+
+  private buildCommunityCard(
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    level: CommunityLevelSummary,
+  ) {
+    const bg = this.add.graphics();
+    const draw = (hovered: boolean) => {
+      bg.clear();
+      bg.fillStyle(hovered ? 0x263c68 : 0x1a2040, 0.95);
+      bg.lineStyle(hovered ? 2 : 1, 0x35a7ff, hovered ? 0.9 : 0.5);
+      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
+      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
+    };
+    draw(false);
+
+    const title = this.add.text(-w / 2 + 10, -h / 2 + 10, level.title, {
+      fontFamily: '"Arial Black", sans-serif',
+      fontSize: '13px',
+      color: '#ffffff',
+      wordWrap: { width: w - 20 },
+      maxLines: 1,
+    });
+    const author = this.add.text(-w / 2 + 10, 2, `u/${level.authorName ?? 'anonymous'}`, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '11px',
+      color: '#9acfff',
+    });
+    const details = this.add.text(-w / 2 + 10, h / 2 - 12, `${level.difficulty}/5  |  ${level.optimalSteps} steps`, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '11px',
+      color: C.DIM,
+    }).setOrigin(0, 1);
+
+    const card = this.add.container(cx, cy, [bg, title, author, details]);
+    card.setSize(w, h).setInteractive({ useHandCursor: true });
+    card.on('pointerover', () => draw(true));
+    card.on('pointerout', () => draw(false));
+    card.on('pointerup', () => {
+      if (this.isDragging) return;
+      this.cameras.main.fadeOut(250, 26, 10, 46);
+      this.time.delayedCall(260, () => this.scene.start('Game', { levelId: level.id }));
+    });
+    return card;
   }
 
   private isLevelLocked(level: LevelData): boolean {

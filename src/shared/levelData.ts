@@ -251,7 +251,7 @@ export function generateDailyLevel(date: string): LevelData {
     const roll = rng();
 
     // Choose modifier type based on current state to avoid conflicts
-    let mod: ModifierDef | null = null;
+    let mod: ModifierDef;
 
     if (roll < 0.25 && !state.goggles && !state.glasses && !gogglesUsed) {
       mod = pickGoggles();
@@ -278,10 +278,8 @@ export function generateDailyLevel(date: string): LevelData {
       state.color = paint.color!;
     }
 
-    if (mod) {
-      applied.push(mod);
-      palette.push(mod);
-    }
+    applied.push(mod);
+    palette.push(mod);
   }
 
   // Add 1–2 decoy modifiers that are valid but not needed
@@ -309,4 +307,3 @@ export function generateDailyLevel(date: string): LevelData {
     isDaily: true,
   };
 }
-

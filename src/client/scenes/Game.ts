@@ -3,6 +3,7 @@ import { LevelEngine, calcStars, calcSparks } from '../engine/LevelEngine';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
 import type { LevelData, ModifierDef, CompletionData } from '../../shared/types';
+import type { CompleteResponse } from '../../shared/api';
 import { CURATED_LEVELS } from '../../shared/levelData';
 
 const C = {
@@ -412,24 +413,22 @@ export class Game extends Phaser.Scene {
       this.buildPalette();
     }
 
-    if (result.isWin) this.handleWin();
+    if (result.isWin) void this.handleWin();
   }
 
   // ── Win ───────────────────────────────────────────────────
-  private handleWin() {
+  private async handleWin() {
     if (!this.engine || !this.level) return;
     this.timerEvent?.destroy();
 
     const elapsed = this.engine.elapsedMs();
     const steps   = this.engine.steps;
     const stars   = calcStars(steps, this.level.optimalSteps);
-    const sparks  = calcSparks(stars, true);
 
     this.currentRenderer?.playWinAnim(this);
     this.splot?.playWin();
 
     if (this.isPreview) {
-      // Preview mode: just celebrate and return to Editor
       this.time.delayedCall(900, () => {
         this.cameras.main.fadeOut(300, 26, 10, 46);
         this.time.delayedCall(320, () => this.scene.start('Editor'));
@@ -438,22 +437,34 @@ export class Game extends Phaser.Scene {
     }
 
     const payload: CompletionData = {
-      levelId:      this.levelId,
+      levelId:   this.levelId,
       steps,
-      timeMs:       elapsed,
+      timeMs:    elapsed,
       stars,
-      isOptimal:    stars === 3,
-      sparksEarned: sparks,
+      isOptimal: stars === 3,
+      sparksEarned: 0,
     };
-    void fetch('/api/complete', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-    });
 
-    const lid  = this.levelId;
-    const lvl  = this.level;
-    this.time.delayedCall(700, () => {
+    // Await the server response to get the actual sparks earned
+    const t0 = Date.now();
+    let sparks = calcSparks(stars, true); // optimistic default
+    try {
+      const res = await fetch('/api/complete', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json() as CompleteResponse;
+        sparks = data.sparksEarned;
+      }
+    } catch { /* use optimistic estimate */ }
+
+    // Guarantee at least 700ms of win animation before transitioning
+    const minDelay = Math.max(0, 700 - (Date.now() - t0));
+    const lid = this.levelId;
+    const lvl = this.level;
+    this.time.delayedCall(minDelay, () => {
       this.cameras.main.fadeOut(300, 26, 10, 46);
       this.time.delayedCall(320, () => {
         this.scene.start('LevelComplete', {

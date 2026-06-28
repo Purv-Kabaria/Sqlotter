@@ -18,6 +18,15 @@ export type LevelsListResponse = {
   levels: LevelData[];
 };
 
+export type CommunityLevelSummary = Pick<
+  LevelData,
+  'id' | 'title' | 'difficulty' | 'authorName' | 'optimalSteps'
+>;
+
+export type CommunityLevelsResponse = {
+  levels: CommunityLevelSummary[];
+};
+
 export type LevelResponse = {
   type: 'level';
   level: LevelData;

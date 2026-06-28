@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
+import { CURATED_LEVELS } from '../../shared/levelData';
 
 const C = {
   BG:     0x1a0a2e,
@@ -105,14 +106,29 @@ export class LevelComplete extends Phaser.Scene {
     this.splot = new SplotMascot(this, cx, panelY + panelH / 2 - 50, 80);
     this.time.delayedCall(400, () => this.splot?.playWin());
 
-    // Buttons
-    const btnY = panelY + panelH / 2 + 50;
-    this.buildBtn(cx - 90, btnY, 160, 48, 'Next Level', C.GREEN, () => {
-      const nextId = this.getNextLevelId(levelId);
+    // Buttons — three in a row
+    const btnY  = panelY + panelH / 2 + 50;
+    const btnW  = Math.min((panelW - 24) / 3, 110);
+    const btnGap = btnW + 8;
+
+    const nextId = this.getNextLevelId(levelId);
+    const hasNext = nextId !== null;
+
+    this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', C.GREEN, () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('Game', { levelId: nextId }));
+      this.time.delayedCall(260, () => {
+        if (hasNext) {
+          this.scene.start('Game', { levelId: nextId });
+        } else {
+          this.scene.start('LevelSelect');
+        }
+      });
     });
-    this.buildBtn(cx + 90, btnY, 160, 48, 'Levels', 0x1a6fbf, () => {
+    this.buildBtn(cx, btnY, btnW, 44, 'Ranks', 0xe8c234, () => {
+      this.cameras.main.fadeOut(250, 26, 10, 46);
+      this.time.delayedCall(260, () => this.scene.start('Leaderboard', { levelId }));
+    });
+    this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', 0x1a6fbf, () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => this.scene.start('LevelSelect'));
     });
@@ -147,10 +163,9 @@ export class LevelComplete extends Phaser.Scene {
     zone.on('pointerup', cb);
   }
 
-  private getNextLevelId(currentId: string): string {
-    const num = parseInt(currentId.replace('L', ''), 10);
-    const nextNum = num + 1;
-    const nextId = `L${nextNum.toString().padStart(2, '0')}`;
-    return nextId;
+  private getNextLevelId(currentId: string): string | null {
+    const idx = CURATED_LEVELS.findIndex(l => l.id === currentId);
+    if (idx < 0 || idx >= CURATED_LEVELS.length - 1) return null;
+    return CURATED_LEVELS[idx + 1]?.id ?? null;
   }
 }

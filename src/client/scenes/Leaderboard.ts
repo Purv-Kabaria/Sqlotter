@@ -15,14 +15,16 @@ type Tab = 'steps' | 'time' | 'global';
 
 export class Leaderboard extends Phaser.Scene {
   private activeTab: Tab = 'steps';
+  private levelId = 'L01';
   private listContainer: Phaser.GameObjects.Container | null = null;
   private tabBtns: Phaser.GameObjects.Container[] = [];
   private bgLayers: Phaser.GameObjects.Image[] = [];
 
   constructor() { super('Leaderboard'); }
 
-  init() {
+  init(data: { levelId?: string }) {
     this.activeTab = 'steps';
+    this.levelId = data?.levelId ?? 'L01';
     this.listContainer = null;
     this.tabBtns = [];
     this.bgLayers = [];
@@ -36,7 +38,7 @@ export class Leaderboard extends Phaser.Scene {
     this.buildBackground();
     this.buildHeader(width, height);
     this.buildTabs(width);
-    this.loadAndRender();
+    void this.loadAndRender();
   }
 
   private buildBackground() {
@@ -57,9 +59,10 @@ export class Leaderboard extends Phaser.Scene {
     });
 
     this.add.image(width / 2 - 80, 30, 'icon-trophy').setDisplaySize(28, 28).setDepth(10);
-    this.add.text(width / 2 + 4, 30, 'Leaderboard', {
+    const headLabel = `Leaderboard — ${this.levelId}`;
+    this.add.text(width / 2 + 4, 30, headLabel, {
       fontFamily: '"Arial Black", sans-serif',
-      fontSize: '22px',
+      fontSize: '18px',
       color: '#FFD700',
       stroke: '#1a0a2e',
       strokeThickness: 4,
@@ -114,7 +117,7 @@ export class Leaderboard extends Phaser.Scene {
           }
           bTxt.setColor(isActive ? '#1a0a2e' : C.TEXT);
         });
-        this.loadAndRender();
+        void this.loadAndRender();
       });
       c.on('pointerover', () => this.tweens.add({ targets: c, scaleX: 1.04, scaleY: 1.04, duration: 80 }));
       c.on('pointerout', () => this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 }));
@@ -137,8 +140,8 @@ export class Leaderboard extends Phaser.Scene {
 
     try {
       let url = '/api/leaderboard/global';
-      if (this.activeTab === 'steps') url = '/api/leaderboard/level/L01?type=steps';
-      if (this.activeTab === 'time')  url = '/api/leaderboard/level/L01?type=time';
+      if (this.activeTab === 'steps') url = `/api/leaderboard/level/${this.levelId}?type=steps`;
+      if (this.activeTab === 'time')  url = `/api/leaderboard/level/${this.levelId}?type=time`;
 
       const res = await fetch(url);
       const data = res.ok ? await res.json() : { entries: [] };

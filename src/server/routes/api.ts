@@ -14,8 +14,9 @@ import type {
   BuyResponse,
   LevelCreateRequest,
   LevelCreateResponse,
+  CommunityLevelsResponse,
 } from '../../shared/api';
-import type { Stars } from '../../shared/types';
+import type { LevelData, Stars } from '../../shared/types';
 import { CURATED_LEVELS } from '../../shared/levelData';
 
 // Pure helpers — no Phaser dependency
@@ -332,7 +333,45 @@ api.post('/level/create', async (c) => {
   created.push(levelId);
   await redis.hSet(userKey, { created: JSON.stringify(created) });
 
+  // Add to global community index (sorted by creation time)
+  const now = Date.now();
+  await redis.zAdd('ugc:index', { score: now, member: levelId });
+  // Keep index at max 500 entries — remove oldest if exceeded
+  const count = await redis.zCard('ugc:index');
+  if (count > 500) {
+    await redis.zRemRangeByRank('ugc:index', 0, count - 501);
+  }
+
   return c.json<LevelCreateResponse>({ levelId });
+});
+
+// ── /api/levels/community ─────────────────────────────────────
+api.get('/levels/community', async (c) => {
+  const limitStr = c.req.query('limit') ?? '20';
+  const limit = Math.min(parseInt(limitStr, 10) || 20, 50);
+
+  // Fetch most recent UGC level IDs (descending by creation time)
+  const raw = await redis.zRange('ugc:index', 0, limit - 1, { by: 'rank', reverse: true });
+  if (!raw.length) return c.json<CommunityLevelsResponse>({ levels: [] });
+
+  const levels = (
+    await Promise.all(
+      raw.map(async (r) => {
+        const json = await redis.get(`level:${r.member}`);
+        if (!json) return null;
+        const level: LevelData = JSON.parse(json);
+        return {
+          id: level.id,
+          title: level.title,
+          difficulty: level.difficulty,
+          authorName: level.authorName,
+          optimalSteps: level.optimalSteps,
+        };
+      }),
+    )
+  ).filter((level) => level !== null);
+
+  return c.json<CommunityLevelsResponse>({ levels });
 });
 
 // ── Legacy counter endpoints ──────────────────────────────────

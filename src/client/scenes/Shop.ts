@@ -299,6 +299,7 @@ export class Shop extends Phaser.Scene {
         this.equippedItems[slot] = item.id;
         this.showToast(`Equipped ${item.label}!`, '#6DD400');
         if (this.splot) {
+          this.splot.refresh(this.equippedItems);
           this.splot.setExpression('excited', 1500);
         }
         this.itemGrid?.destroy();

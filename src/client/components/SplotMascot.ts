@@ -73,8 +73,14 @@ export class SplotMascot {
     if (items.eyebrow)   this.eyebrow.setTexture(`char-${items.eyebrow}`);
     if (items.mouth)     this.mouth.setTexture(`char-${items.mouth}`);
     if (items.accessory) {
-      this.accessory.setTexture(`char-acc-${items.accessory}`).setVisible(true);
+      // item IDs are already prefixed: 'acc-crown' → 'char-acc-crown'
+      this.accessory.setTexture(`char-${items.accessory}`).setVisible(true);
     }
+  }
+
+  refresh(equipped: Record<string, string>) {
+    this.accessory.setVisible(false);
+    this.applyEquipped(equipped);
   }
 
   setExpression(expr: SplotExpression, revertAfterMs?: number) {
