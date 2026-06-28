@@ -156,6 +156,9 @@ api.get('/init', async (c) => {
     const sparks   = username
       ? parseInt((await redis.get(`sparks:${username}`)) ?? '0', 10)
       : 0;
+    const streakDays = username
+      ? parseInt((await redis.hGet(`user:${username}`, 'daily:streak')) ?? '0', 10)
+      : 0;
 
     return c.json<InitResponse>({
       type: 'init',
@@ -164,6 +167,7 @@ api.get('/init', async (c) => {
       username,
       isLoggedIn: username !== '',
       sparks,
+      streakDays,
     });
   } catch (e) {
     return c.json<Err>({ status: 'error', message: String(e) }, 500);

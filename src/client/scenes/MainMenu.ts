@@ -70,6 +70,8 @@ export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private sparksText: Phaser.GameObjects.Text | null = null;
   private usernameText: Phaser.GameObjects.Text | null = null;
+  private streakText: Phaser.GameObjects.Text | null = null;
+  private streakBadge: Phaser.GameObjects.Container | null = null;
   private buttons: Phaser.GameObjects.Container[] = [];
   private sparkleTimers: Phaser.Time.TimerEvent[] = [];
   private userData: InitResponse | null = null;
@@ -100,6 +102,18 @@ export class MainMenu extends Phaser.Scene {
       const res = await fetch('/api/init');
       if (res.ok) {
         this.userData = await res.json() as InitResponse;
+        if (this.streakText && this.streakBadge) {
+          const streakDays = this.userData.streakDays ?? 0;
+          this.streakText.setText(streakDays > 0 ? `${streakDays} day streak` : 'Daily streak starts today');
+          this.streakBadge.setVisible(true).setAlpha(0);
+          this.tweens.add({
+            targets: this.streakBadge,
+            alpha: 1,
+            y: this.streakBadge.y - 4,
+            duration: 220,
+            ease: 'Back.easeOut',
+          });
+        }
         if (this.usernameText && this.userData.username) {
           this.usernameText.setText(`Hey ${this.userData.username}! 👋`);
         }
@@ -183,6 +197,9 @@ export class MainMenu extends Phaser.Scene {
       color: C.DIM,
     }).setOrigin(0.5).setDepth(5);
 
+    this.streakBadge = this.buildStreakBadge(cx, splotY + splotSize * 0.82);
+    this.streakBadge.setDepth(5).setVisible(false);
+
     // Sparks counter
     const sparksContainer = this.buildSparksCounter(width - 16, 16);
     sparksContainer.setDepth(10);
@@ -241,6 +258,23 @@ export class MainMenu extends Phaser.Scene {
 
     const c = this.add.container(x - 116, y, [bg, icon, this.sparksText]);
     return c;
+  }
+
+  private buildStreakBadge(x: number, y: number): Phaser.GameObjects.Container {
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.38);
+    bg.fillRoundedRect(-86, -16, 172, 32, 16);
+    bg.lineStyle(1, 0xff6b35, 0.45);
+    bg.strokeRoundedRect(-86, -16, 172, 32, 16);
+
+    const icon = this.add.image(-64, 0, 'icon-fire').setDisplaySize(18, 18);
+    this.streakText = this.add.text(-42, 0, 'Daily streak starts today', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '12px',
+      color: '#ffb347',
+    }).setOrigin(0, 0.5);
+
+    return this.add.container(x, y, [bg, icon, this.streakText]);
   }
 
   private startSparkleEffect() {

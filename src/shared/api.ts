@@ -7,6 +7,7 @@ export type InitResponse = {
   username: string;
   isLoggedIn?: boolean;
   sparks: number;
+  streakDays?: number;
   equippedItems?: Record<string, string>;
   levelsCompleted?: string[];
   count?: number;
