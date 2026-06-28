@@ -15,6 +15,7 @@ const LAYERS: { key: string; stateKey: keyof SlimeState | null; depth: number }[
 export class SlimeRenderer {
   readonly container: Phaser.GameObjects.Container;
   private layers: Map<string, Phaser.GameObjects.Image> = new Map();
+  private appliedFlash: Phaser.GameObjects.Image;
   private size: number;
 
   constructor(scene: Phaser.Scene, x: number, y: number, size: number) {
@@ -30,6 +31,13 @@ export class SlimeRenderer {
       this.layers.set(def.key, img);
       this.container.add(img);
     }
+
+    this.appliedFlash = scene.add.image(0, 0, 'slime-applied')
+      .setDisplaySize(size, size)
+      .setDepth(8)
+      .setAlpha(0)
+      .setVisible(false);
+    this.container.add(this.appliedFlash);
 
     // Set correct textures for always-on layers
     this.layers.get('slime-color')!.setTexture('slime-color');
@@ -79,6 +87,17 @@ export class SlimeRenderer {
 
   // Squish-and-bounce animation when a modifier is applied
   playApplyAnim(scene: Phaser.Scene) {
+    this.appliedFlash.setVisible(true).setAlpha(0.75).setScale(1);
+    scene.tweens.add({
+      targets: this.appliedFlash,
+      alpha: 0,
+      scaleX: 1.18,
+      scaleY: 1.18,
+      duration: 280,
+      ease: 'Quad.easeOut',
+      onComplete: () => this.appliedFlash.setVisible(false).setScale(1),
+    });
+
     scene.tweens.chain({
       targets: this.container,
       tweens: [
@@ -118,5 +137,6 @@ export class SlimeRenderer {
   setSize(size: number) {
     this.size = size;
     this.layers.forEach(img => img.setDisplaySize(size, size));
+    this.appliedFlash.setDisplaySize(size, size);
   }
 }

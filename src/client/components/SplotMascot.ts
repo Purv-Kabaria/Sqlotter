@@ -26,6 +26,7 @@ export class SplotMascot {
   private blob:    Phaser.GameObjects.Image;
   private outline: Phaser.GameObjects.Image;
   private shine:   Phaser.GameObjects.Image;
+  private applied: Phaser.GameObjects.Image;
   private shadow:  Phaser.GameObjects.Image;
   private eye:     Phaser.GameObjects.Image;
   private eyebrow: Phaser.GameObjects.Image;
@@ -56,12 +57,13 @@ export class SplotMascot {
     this.eye       = mk('char-eye-normal',   30);
     this.eyebrow   = mk('char-brow-normal',  40);
     this.accessory = mk('char-acc-horns',    50, false);
+    this.applied   = mk('char-applied',      58, false).setAlpha(0);
     this.shine     = mk('char-shine',        60);
     this.outline   = mk('char-outline',      65);
 
     this.container = scene.add.container(x, y, [
       this.shadow, this.blob, this.mouth, this.blush, this.cry,
-      this.eye, this.eyebrow, this.accessory, this.shine, this.outline,
+      this.eye, this.eyebrow, this.accessory, this.applied, this.shine, this.outline,
     ]);
 
     this.applyEquipped(equipped);
@@ -128,6 +130,7 @@ export class SplotMascot {
 
   playWin() {
     this.setExpression('excited');
+    this.playAppliedFlash();
     this.scene.tweens.add({
       targets: this.container,
       scaleX: 1.25, scaleY: 1.25,
@@ -151,9 +154,22 @@ export class SplotMascot {
     });
   }
 
+  playAppliedFlash() {
+    this.applied.setVisible(true).setAlpha(0.7).setScale(1);
+    this.scene.tweens.add({
+      targets: this.applied,
+      alpha: 0,
+      scaleX: 1.16,
+      scaleY: 1.16,
+      duration: 300,
+      ease: 'Quad.easeOut',
+      onComplete: () => this.applied.setVisible(false).setScale(1),
+    });
+  }
+
   setSize(s: number) {
     [this.shadow, this.blob, this.mouth, this.blush, this.cry,
-     this.eye, this.eyebrow, this.accessory, this.shine, this.outline]
+     this.eye, this.eyebrow, this.accessory, this.applied, this.shine, this.outline]
       .forEach(img => img.setDisplaySize(s, s));
   }
 }

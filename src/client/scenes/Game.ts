@@ -417,6 +417,8 @@ export class Game extends Phaser.Scene {
 
     this.currentRenderer.setState(result.newState);
     this.currentRenderer.playApplyAnim(this);
+    this.playModifierBurst(mod);
+    this.splot?.playAppliedFlash();
     this.stepsText?.setText(`Steps: ${this.engine.steps}`);
 
     if (this.engine.isGogglesSpent) {
@@ -430,6 +432,39 @@ export class Game extends Phaser.Scene {
   }
 
   // ── Win ───────────────────────────────────────────────────
+  private playModifierBurst(mod: ModifierDef) {
+    if (!this.currentRenderer) return;
+    const origin = this.currentRenderer.container;
+    const iconKey = modIconKey(mod);
+    const tint = mod.type === 'paint' && mod.color
+      ? parseInt(mod.color.replace('#', ''), 16)
+      : C.GOLD;
+
+    for (let i = 0; i < 7; i++) {
+      const angle = Phaser.Math.DegToRad(-120 + i * 40 + Phaser.Math.Between(-8, 8));
+      const distance = Phaser.Math.Between(30, 58);
+      const targetX = origin.x + Math.cos(angle) * distance;
+      const targetY = origin.y + Math.sin(angle) * distance;
+      const particle = iconKey && this.textures.exists(iconKey) && i % 2 === 0
+        ? this.add.image(origin.x, origin.y, iconKey).setDisplaySize(16, 16)
+        : this.add.image(origin.x, origin.y, 'icon-sparkle').setDisplaySize(12, 12).setTint(tint);
+
+      particle.setDepth(30).setAlpha(0.9).setScale(0.45);
+      this.tweens.add({
+        targets: particle,
+        x: targetX,
+        y: targetY,
+        alpha: 0,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        angle: Phaser.Math.Between(-45, 45),
+        duration: 420,
+        ease: 'Quad.easeOut',
+        onComplete: () => particle.destroy(),
+      });
+    }
+  }
+
   private async handleWin() {
     if (!this.engine || !this.level || this.winHandled) return;
     this.winHandled = true;
