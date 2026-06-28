@@ -66,7 +66,7 @@ function makeButton(
 }
 
 // ── Scene ──────────────────────────────────────────────────────
-export class MainMenu extends Scene {
+export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private splot: SplotMascot | null = null;
   private sparksText: Phaser.GameObjects.Text | null = null;
@@ -195,20 +195,24 @@ export class MainMenu extends Scene {
     const btnStartY = isPortrait ? height * 0.6 : height * 0.38;
     const btnGap = btnH + 12;
 
-    const btns: [string, string | null, number, string][] = [
-      ['▶  Play Levels', 'icon-play',   C.GREEN,  'LevelSelect'],
-      ['📅  Daily Puzzle', null,         0x7b2ff7, 'Game'],
-      ['🏆  Leaderboard', null,          0x1a6fbf, 'Leaderboard'],
-      ['🛍  Shop',        'icon-bag',    0xff6b35, 'Shop'],
+    const btnH2  = Math.min(btnH, 48);
+    const btnGap2 = btnH2 + 10;
+
+    const btns: [string, string | null, number, string, string?][] = [
+      ['▶  Play Levels',    'icon-play', C.GREEN,  'LevelSelect'],
+      ['📅  Daily Puzzle',  null,        0x7b2ff7, 'Game',        'daily'],
+      ['✏️  Create Level',  null,        0x1a6fbf, 'Editor'],
+      ['🏆  Leaderboard',   null,        0x0d4a8f, 'Leaderboard'],
+      ['🛍  Shop',          'icon-bag',  0xff6b35, 'Shop'],
     ];
 
-    btns.forEach(([label, icon, color, scene], i) => {
-      const btn = makeButton(this, btnX, btnStartY + i * btnGap, btnW, btnH,
+    btns.forEach(([label, icon, color, scene, param], i) => {
+      const btn = makeButton(this, btnX, btnStartY + i * btnGap2, btnW, btnH2,
         label, icon, color, () => {
           this.cameras.main.fadeOut(250, 10, 5, 46);
           this.time.delayedCall(260, () => {
-            if (scene === 'Game') {
-              this.scene.start(scene, { levelId: 'daily' });
+            if (param) {
+              this.scene.start(scene, { levelId: param });
             } else {
               this.scene.start(scene);
             }
@@ -216,7 +220,7 @@ export class MainMenu extends Scene {
         });
       btn.setDepth(5);
       btn.setAlpha(0);
-      this.tweens.add({ targets: btn, alpha: 1, y: btnStartY + i * btnGap, duration: 300, delay: 200 + i * 80 });
+      this.tweens.add({ targets: btn, alpha: 1, y: btnStartY + i * btnGap2, duration: 300, delay: 200 + i * 80 });
       this.buttons.push(btn);
     });
 

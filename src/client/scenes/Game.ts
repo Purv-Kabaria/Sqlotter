@@ -42,7 +42,7 @@ export class Game extends Phaser.Scene {
   private engine: LevelEngine | null = null;
   private level:  LevelData  | null = null;
   private levelId = 'L01';
-  private isLoading = false;
+  private isPreview = false;
 
   private goalRenderer:    SlimeRenderer | null = null;
   private currentRenderer: SlimeRenderer | null = null;
@@ -62,13 +62,13 @@ export class Game extends Phaser.Scene {
   constructor() { super('Game'); }
 
   // ── Scene lifecycle ───────────────────────────────────────
-  init(data: { levelId?: string }) {
-    this.engine    = null;
-    this.level     = null;
-    this.levelId   = data?.levelId ?? 'L01';
-    this.isLoading = false;
+  init(data: { levelId?: string; previewData?: LevelData }) {
+    this.engine       = null;
+    this.level        = data?.previewData ?? null;
+    this.levelId      = data?.levelId ?? 'L01';
+    this.isPreview    = !!data?.previewData;
     this.paletteCards = [];
-    this.bgLayers = [];
+    this.bgLayers     = [];
   }
 
   create() {
@@ -76,8 +76,14 @@ export class Game extends Phaser.Scene {
     this.cameras.main.fadeIn(300, 26, 10, 46);
     this.buildBackground();
 
-    if (this.levelId === 'daily') {
-      // Show a spinner while fetching daily from server
+    if (this.level) {
+      // Preview mode: level data supplied directly from Editor
+      this.engine = new LevelEngine(this.level);
+      this.buildHUD();
+      this.buildSlimeDisplays();
+      this.buildPalette();
+      this.startTimer();
+    } else if (this.levelId === 'daily') {
       this.showLoading();
       void this.fetchDailyAndStart();
     } else {
@@ -103,15 +109,16 @@ export class Game extends Phaser.Scene {
         this.levelId = data.levelId;
         this.level   = data.level;
       } else {
-        // Fallback: rotate curated by day
         const dow = new Date().getDay();
-        this.level = CURATED_LEVELS[dow % CURATED_LEVELS.length];
-        this.levelId = this.level.id;
+        const fallback = CURATED_LEVELS[dow % CURATED_LEVELS.length] ?? CURATED_LEVELS[0] ?? null;
+        this.level   = fallback;
+        this.levelId = fallback?.id ?? 'L01';
       }
     } catch {
       const dow = new Date().getDay();
-      this.level = CURATED_LEVELS[dow % CURATED_LEVELS.length];
-      this.levelId = this.level.id;
+      const fallback = CURATED_LEVELS[dow % CURATED_LEVELS.length] ?? CURATED_LEVELS[0] ?? null;
+      this.level   = fallback;
+      this.levelId = fallback?.id ?? 'L01';
     }
 
     this.loadingText?.destroy();
@@ -143,10 +150,10 @@ export class Game extends Phaser.Scene {
           const data = await res.json() as { level: LevelData };
           this.level = data.level;
         } else {
-          this.level = CURATED_LEVELS[0];
+          this.level = CURATED_LEVELS[0] ?? null;
         }
       } catch {
-        this.level = CURATED_LEVELS[0];
+        this.level = CURATED_LEVELS[0] ?? null;
       }
       this.loadingText?.destroy();
       this.engine = new LevelEngine(this.level!);
@@ -175,11 +182,13 @@ export class Game extends Phaser.Scene {
 
     this.buildIconBtn(30, 30, '‹', 36, () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('LevelSelect'));
+      this.time.delayedCall(260, () => this.scene.start(this.isPreview ? 'Editor' : 'LevelSelect'));
     });
 
     if (this.level) {
-      const titleLabel = this.level.isDaily ? `📅 ${this.level.title}` : this.level.title;
+      const titleLabel = this.isPreview
+        ? `🔍 PREVIEW: ${this.level.title}`
+        : this.level.isDaily ? `📅 ${this.level.title}` : this.level.title;
       this.add.text(width / 2, 16, titleLabel, {
         fontFamily: '"Arial Black", sans-serif',
         fontSize: '16px',
@@ -418,6 +427,15 @@ export class Game extends Phaser.Scene {
 
     this.currentRenderer?.playWinAnim(this);
     this.splot?.playWin();
+
+    if (this.isPreview) {
+      // Preview mode: just celebrate and return to Editor
+      this.time.delayedCall(900, () => {
+        this.cameras.main.fadeOut(300, 26, 10, 46);
+        this.time.delayedCall(320, () => this.scene.start('Editor'));
+      });
+      return;
+    }
 
     const payload: CompletionData = {
       levelId:      this.levelId,

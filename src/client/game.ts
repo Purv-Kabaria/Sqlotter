@@ -8,6 +8,7 @@ import { Game as GameScene } from './scenes/Game';
 import { LevelComplete } from './scenes/LevelComplete';
 import { Leaderboard } from './scenes/Leaderboard';
 import { Shop } from './scenes/Shop';
+import { Editor } from './scenes/Editor';
 import { GameOver } from './scenes/GameOver';
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -29,6 +30,7 @@ const config: Phaser.Types.Core.GameConfig = {
     LevelComplete,
     Leaderboard,
     Shop,
+    Editor,
     GameOver,
   ],
 };

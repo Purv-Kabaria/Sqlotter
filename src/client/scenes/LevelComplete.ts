@@ -18,7 +18,7 @@ export class LevelComplete extends Phaser.Scene {
   create(data: { levelId: string; title?: string; steps: number; timeMs: number; stars: number; sparks: number }) {
     const { width, height } = this.scale;
     const cx = width / 2;
-    const { levelId, title, steps, timeMs, stars, sparks } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
+    const { levelId, steps, timeMs, stars, sparks } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
 
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(400, 26, 10, 46);

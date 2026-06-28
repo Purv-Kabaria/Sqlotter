@@ -35,7 +35,7 @@ function checkCompatibility(
 }
 
 // ── State transition ───────────────────────────────────────────
-function applyToState(state: SlimeState, mod: ModifierDef): SlimeState {
+export function applyToState(state: SlimeState, mod: ModifierDef): SlimeState {
   const next = { ...state };
   switch (mod.type) {
     case 'paint':

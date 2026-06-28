@@ -1,4 +1,4 @@
-import type { LevelData, LeaderboardEntry, CompletionData, UserProfile, Stars } from './types';
+import type { LevelData, LeaderboardEntry, CompletionData, UserProfile, Stars, SlimeState, ModifierDef } from './types';
 
 // ── Init ──────────────────────────────────────────────────
 export type InitResponse = {
@@ -62,6 +62,20 @@ export type EquipResponse = { equippedItems: Record<string, string> };
 
 export type BuyRequest  = { itemId: string };
 export type BuyResponse = { sparks: number; unlockedItems: string[] };
+
+// ── Level creation (UGC) ──────────────────────────────────
+export type LevelCreateRequest = {
+  title: string;
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  goalState: SlimeState;
+  palette: ModifierDef[];
+  optimalSteps: number;
+  hint?: string;
+};
+
+export type LevelCreateResponse = {
+  levelId: string;
+};
 
 // ── Legacy (keep for existing routes) ─────────────────────
 export type IncrementResponse = { type: 'increment'; postId: string; count: number };

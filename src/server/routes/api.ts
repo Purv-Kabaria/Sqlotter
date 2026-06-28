@@ -12,6 +12,8 @@ import type {
   EquipResponse,
   BuyRequest,
   BuyResponse,
+  LevelCreateRequest,
+  LevelCreateResponse,
 } from '../../shared/api';
 import type { Stars } from '../../shared/types';
 import { CURATED_LEVELS } from '../../shared/levelData';
@@ -293,6 +295,43 @@ api.post('/user/buy', async (c) => {
   }
 
   return c.json<BuyResponse>({ sparks: newSparks, unlockedItems: unlocked });
+});
+
+// ── /api/level/create ─────────────────────────────────────────
+api.post('/level/create', async (c) => {
+  const username = (await reddit.getCurrentUsername()) ?? '';
+  if (!username) return c.json<Err>({ status: 'error', message: 'Login required to create levels' }, 401);
+
+  const body = await c.req.json<LevelCreateRequest>();
+  const { title, difficulty, goalState, palette, optimalSteps, hint } = body;
+
+  if (!title?.trim()) return c.json<Err>({ status: 'error', message: 'Title is required' }, 400);
+  if (!palette?.length) return c.json<Err>({ status: 'error', message: 'Palette must have at least one modifier' }, 400);
+  if (optimalSteps < 1) return c.json<Err>({ status: 'error', message: 'Level must have at least one solution step' }, 400);
+
+  const levelId = `ugc-${username}-${Date.now()}`;
+  const level = {
+    id: levelId,
+    title: title.trim().slice(0, 60),
+    difficulty,
+    goalState,
+    palette,
+    optimalSteps,
+    authorName: username,
+    hint,
+  };
+
+  await redis.set(`level:${levelId}`, JSON.stringify(level));
+  await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 90); // 90-day TTL
+
+  // Track user's created levels
+  const userKey = `user:${username}`;
+  const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
+  const created: string[] = JSON.parse(allFields['created'] ?? '[]');
+  created.push(levelId);
+  await redis.hSet(userKey, { created: JSON.stringify(created) });
+
+  return c.json<LevelCreateResponse>({ levelId });
 });
 
 // ── Legacy counter endpoints ──────────────────────────────────
