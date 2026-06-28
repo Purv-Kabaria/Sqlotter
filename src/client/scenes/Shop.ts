@@ -25,6 +25,7 @@ export class Shop extends Phaser.Scene {
   private itemGrid: Phaser.GameObjects.Container | null = null;
   private catBtns: Phaser.GameObjects.Container[] = [];
   private bgLayers: Phaser.GameObjects.Image[] = [];
+  private pendingItemIds: Set<string> = new Set();
 
   constructor() { super('Shop'); }
 
@@ -34,6 +35,7 @@ export class Shop extends Phaser.Scene {
     this.bgLayers = [];
     this.unlockedItems = new Set();
     this.equippedItems = {};
+    this.pendingItemIds = new Set();
   }
 
   async create() {
@@ -227,8 +229,14 @@ export class Shop extends Phaser.Scene {
 
       const c = this.add.container(cx, cy, items).setDepth(5).setSize(cardW, cardH);
       c.setInteractive({ useHandCursor: true });
-      c.on('pointerover', () => this.tweens.add({ targets: c, scaleX: 1.06, scaleY: 1.06, duration: 80 }));
-      c.on('pointerout', () => this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 }));
+      c.on('pointerover', () => {
+        this.previewItem(item, owned);
+        this.tweens.add({ targets: c, scaleX: 1.06, scaleY: 1.06, duration: 80 });
+      });
+      c.on('pointerout', () => {
+        this.restorePreview();
+        this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 });
+      });
       c.on('pointerup', () => this.handleItemTap(item, owned, equipped));
 
       this.itemGrid!.add(c);
@@ -236,8 +244,12 @@ export class Shop extends Phaser.Scene {
   }
 
   private async handleItemTap(item: ShopItem, owned: boolean, equipped: boolean) {
+    if (this.pendingItemIds.has(item.id)) return;
+    this.pendingItemIds.add(item.id);
     if (!owned) {
       if (this.sparks < item.price) {
+        this.splot?.setExpression('sad', 1200);
+        this.pendingItemIds.delete(item.id);
         this.showToast('Not enough Sparks! ✨', '#ff5555');
         return;
       }
@@ -256,10 +268,13 @@ export class Shop extends Phaser.Scene {
           this.itemGrid?.destroy();
           const { width: w, height: h } = this.scale;
           this.renderItems(w, h);
+        } else {
+          this.showToast('Purchase failed.', '#ff5555');
         }
       } catch {
         this.showToast('Purchase failed.', '#ff5555');
       }
+      this.pendingItemIds.delete(item.id);
     } else if (!equipped) {
       // Equip
       try {
@@ -270,6 +285,8 @@ export class Shop extends Phaser.Scene {
         });
         if (!res.ok) {
           this.showToast('Could not equip that item.', '#ff5555');
+          this.splot?.setExpression('sad', 1200);
+          this.pendingItemIds.delete(item.id);
           return;
         }
         const data: EquipResponse = await res.json();
@@ -278,14 +295,34 @@ export class Shop extends Phaser.Scene {
         if (this.splot) {
           this.splot.refresh(this.equippedItems);
           this.splot.setExpression('excited', 1500);
+          this.splot.playAppliedFlash();
         }
         this.itemGrid?.destroy();
         const { width: w, height: h } = this.scale;
         this.renderItems(w, h);
       } catch {
         this.showToast('Could not equip that item.', '#ff5555');
+        this.splot?.setExpression('sad', 1200);
       }
+      this.pendingItemIds.delete(item.id);
+    } else {
+      this.pendingItemIds.delete(item.id);
     }
+  }
+
+  private previewItem(item: ShopItem, owned: boolean) {
+    if (!this.splot) return;
+    if (!owned) {
+      this.splot.setExpression(this.sparks >= item.price ? 'doubt' : 'sad', 900);
+      return;
+    }
+    this.splot.refresh({ ...this.equippedItems, [item.slot]: item.id });
+    this.splot.setExpression('happy', 900);
+  }
+
+  private restorePreview() {
+    if (!this.splot) return;
+    this.splot.refresh(this.equippedItems);
   }
 
   private showToast(msg: string, color: string) {
