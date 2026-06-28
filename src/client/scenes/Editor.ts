@@ -453,6 +453,7 @@ export class Editor extends Phaser.Scene {
           goalState:    this.goalState,
           palette:      this.buildPalette(),
           optimalSteps: this.solutionSeq.length,
+          solution:     this.solutionSeq.map((modifier) => modifier.id),
         }),
       });
 

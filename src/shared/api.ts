@@ -77,11 +77,13 @@ export type LevelCreateRequest = {
   goalState: SlimeState;
   palette: ModifierDef[];
   optimalSteps: number;
+  solution: string[];
   hint?: string;
 };
 
 export type LevelCreateResponse = {
   levelId: string;
+  postId?: string;
 };
 
 // ── Legacy (keep for existing routes) ─────────────────────

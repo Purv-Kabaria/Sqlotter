@@ -16,7 +16,7 @@ import type {
   LevelCreateResponse,
   CommunityLevelsResponse,
 } from '../../shared/api';
-import type { LevelData, Stars } from '../../shared/types';
+import type { LevelData, ModifierDef, SlimeState, Stars } from '../../shared/types';
 import { CURATED_LEVELS } from '../../shared/levelData';
 import { calcStars, isValidSolution } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
@@ -32,6 +32,35 @@ async function getLevel(levelId: string): Promise<LevelData | undefined> {
   if (!json) return undefined;
   const level: LevelData = JSON.parse(json);
   return level;
+}
+
+const GOGGLE_VARIANTS = new Set(['h-thick', 'h-thin', 'h-mono', 'v-thick', 'v-thin', 'v-mono']);
+const FOUR_WAY_VARIANTS = new Set(['h-thick', 'h-thin', 'v-thick', 'v-thin']);
+
+function isValidSlimeState(state: SlimeState): boolean {
+  return typeof state === 'object' && state !== null
+    && typeof state.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(state.color)
+    && (state.goggles === null || GOGGLE_VARIANTS.has(state.goggles))
+    && (state.glasses === null || FOUR_WAY_VARIANTS.has(state.glasses))
+    && (state.belt === null || FOUR_WAY_VARIANTS.has(state.belt))
+    && (state.pendant === null || state.pendant === 'h' || state.pendant === 'v')
+    && (state.pumpkin === null || state.pumpkin === 25 || state.pumpkin === 50 || state.pumpkin === 75)
+    && typeof state.underwear === 'boolean';
+}
+
+function isValidModifier(modifier: ModifierDef): boolean {
+  if (typeof modifier !== 'object' || modifier === null
+    || typeof modifier.id !== 'string' || modifier.id.length < 1 || modifier.id.length > 80) return false;
+  switch (modifier.type) {
+    case 'paint': return typeof modifier.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(modifier.color);
+    case 'goggles': return typeof modifier.variant === 'string' && GOGGLE_VARIANTS.has(modifier.variant);
+    case 'glasses':
+    case 'belt': return typeof modifier.variant === 'string' && FOUR_WAY_VARIANTS.has(modifier.variant);
+    case 'pendant': return modifier.variant === 'h' || modifier.variant === 'v';
+    case 'pumpkin': return modifier.coverage === 25 || modifier.coverage === 50 || modifier.coverage === 75;
+    case 'underwear': return true;
+    default: return false;
+  }
 }
 
 // ── /api/init ────────────────────────────────────────────────
@@ -323,22 +352,51 @@ api.post('/level/create', async (c) => {
   if (!username) return c.json<Err>({ status: 'error', message: 'Login required to create levels' }, 401);
 
   const body = await c.req.json<LevelCreateRequest>();
-  const { title, difficulty, goalState, palette, optimalSteps, hint } = body;
+  const { title, difficulty, goalState, palette, optimalSteps, solution, hint } = body;
 
-  if (!title?.trim()) return c.json<Err>({ status: 'error', message: 'Title is required' }, 400);
-  if (!palette?.length) return c.json<Err>({ status: 'error', message: 'Palette must have at least one modifier' }, 400);
-  if (optimalSteps < 1) return c.json<Err>({ status: 'error', message: 'Level must have at least one solution step' }, 400);
+  if (typeof title !== 'string' || !title.trim() || title.length > 60) {
+    return c.json<Err>({ status: 'error', message: 'Title must be 1 to 60 characters' }, 400);
+  }
+  if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) {
+    return c.json<Err>({ status: 'error', message: 'Difficulty must be between 1 and 5' }, 400);
+  }
+  if (!isValidSlimeState(goalState)) {
+    return c.json<Err>({ status: 'error', message: 'Invalid goal slime' }, 400);
+  }
+  if (!Array.isArray(palette) || palette.length < 1 || palette.length > 20 || !palette.every(isValidModifier)) {
+    return c.json<Err>({ status: 'error', message: 'Palette must contain 1 to 20 valid modifiers' }, 400);
+  }
+  const uniqueIds = new Set(palette.map((modifier) => modifier.id));
+  if (uniqueIds.size !== palette.length) {
+    return c.json<Err>({ status: 'error', message: 'Modifier ids must be unique' }, 400);
+  }
+  if (!Array.isArray(solution) || solution.length < 1 || solution.length > 50
+    || solution.some((action) => typeof action !== 'string' || action.length > 80)
+    || optimalSteps !== solution.length) {
+    return c.json<Err>({ status: 'error', message: 'Invalid solution' }, 400);
+  }
+  if (hint !== undefined && (typeof hint !== 'string' || hint.length > 160)) {
+    return c.json<Err>({ status: 'error', message: 'Hint is too long' }, 400);
+  }
 
-  const levelId = `ugc-${username}-${Date.now()}`;
-  const level = {
-    id: levelId,
-    title: title.trim().slice(0, 60),
+  const candidate: LevelData = {
+    id: 'pending',
+    title: title.trim(),
     difficulty,
     goalState,
     palette,
     optimalSteps,
     authorName: username,
     hint,
+  };
+  if (!isValidSolution(candidate, solution)) {
+    return c.json<Err>({ status: 'error', message: 'The submitted solution does not reach the goal' }, 400);
+  }
+
+  const levelId = `ugc-${username}-${Date.now()}`;
+  const level: LevelData = {
+    ...candidate,
+    id: levelId,
   };
 
   await redis.set(`level:${levelId}`, JSON.stringify(level));
@@ -360,7 +418,24 @@ api.post('/level/create', async (c) => {
     await redis.zRemRangeByRank('ugc:index', 0, count - 501);
   }
 
-  return c.json<LevelCreateResponse>({ levelId });
+  let postId: string | undefined;
+  try {
+    const post = await reddit.submitCustomPost({
+      title: `Splot Level by u/${username}: ${level.title}`,
+      entry: 'default',
+      postData: { levelId },
+      styles: {
+        heightPixels: 512,
+        backgroundColor: '#1a0a2eff',
+        backgroundColorDark: '#1a0a2eff',
+      },
+    });
+    postId = post.id;
+  } catch {
+    // The level remains playable in community discovery if Reddit post creation is unavailable.
+  }
+
+  return c.json<LevelCreateResponse>({ levelId, postId });
 });
 
 // ── /api/levels/community ─────────────────────────────────────
