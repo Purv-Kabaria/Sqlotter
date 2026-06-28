@@ -28,8 +28,8 @@ export const CURATED_LEVELS: LevelData[] = [
     palette: [
       { id: 'paint-blue',      type: 'paint',   color: '#0074D9' },
       { id: 'paint-green',     type: 'paint',   color: '#2ECC40' },
-      { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick' },
-      { id: 'goggles-h-thin',  type: 'goggles', variant: 'h-thin' },
+      { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick', count: 1 },
+      { id: 'goggles-h-thin',  type: 'goggles', variant: 'h-thin',  count: 1 },
     ],
     optimalSteps: 2,
     hint: 'Paint first, then protect those eyes!',
@@ -106,10 +106,41 @@ export const CURATED_LEVELS: LevelData[] = [
       { id: 'belt-v-thick',  type: 'belt',    variant: 'v-thick' },
       { id: 'belt-v-thin',   type: 'belt',    variant: 'v-thin' },
       { id: 'glasses-v-thin',type: 'glasses', variant: 'v-thin' },
-      { id: 'goggles-v-thin',type: 'goggles', variant: 'v-thin' },
+      { id: 'goggles-v-thin',type: 'goggles', variant: 'v-thin', count: 1 },
     ],
     optimalSteps: 3,
     hint: 'Go vertical!',
+  },
+  // ─────────────── WORLD 2 — TWO-COLOUR ───────────
+  {
+    id: 'L13', title: 'Two Tone', difficulty: 2,
+    goalState: { ...D, color: '#2ECC40', colorBottom: '#FF69B4', pumpkin: 50 },
+    palette: [
+      { id: 'paint-pink',    type: 'paint',   color: '#FF69B4' },
+      { id: 'paint-green',   type: 'paint',   color: '#2ECC40' },
+      { id: 'paint-blue',    type: 'paint',   color: '#0074D9' },
+      { id: 'pumpkin-50',    type: 'pumpkin', coverage: 50 },
+      { id: 'pumpkin-25',    type: 'pumpkin', coverage: 25 },
+    ],
+    optimalSteps: 3,
+    optimalSolution: ['paint-pink', 'pumpkin-50', 'paint-green'],
+    hint: 'Protect the bottom with pumpkin, then dip the top!',
+  },
+  {
+    id: 'L14', title: 'Layered Up', difficulty: 3,
+    goalState: { ...D, color: '#0074D9', colorBottom: '#FFDC00', pumpkin: 75, goggles: 'h-thick' },
+    palette: [
+      { id: 'paint-yellow',    type: 'paint',   color: '#FFDC00' },
+      { id: 'paint-blue',      type: 'paint',   color: '#0074D9' },
+      { id: 'paint-red',       type: 'paint',   color: '#FF4136' },
+      { id: 'pumpkin-75',      type: 'pumpkin', coverage: 75 },
+      { id: 'pumpkin-50',      type: 'pumpkin', coverage: 50 },
+      { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick', count: 1 },
+      { id: 'goggles-v-thick', type: 'goggles', variant: 'v-thick', count: 1 },
+    ],
+    optimalSteps: 4,
+    optimalSolution: ['paint-yellow', 'pumpkin-75', 'paint-blue', 'goggles-h-thick'],
+    hint: 'Layer the colours, then protect your eyes!',
   },
   // ─────────────── WORLD 3 — EXPERT ───────────────
   {
@@ -119,8 +150,8 @@ export const CURATED_LEVELS: LevelData[] = [
       { id: 'paint-red',    type: 'paint',   color: '#FF4136' },
       { id: 'paint-blue',   type: 'paint',   color: '#0074D9' },
       { id: 'paint-green',  type: 'paint',   color: '#2ECC40' },
-      { id: 'goggles-v-mono', type: 'goggles', variant: 'v-mono' },
-      { id: 'goggles-h-mono', type: 'goggles', variant: 'h-mono' },
+      { id: 'goggles-v-mono', type: 'goggles', variant: 'v-mono', count: 1 },
+      { id: 'goggles-h-mono', type: 'goggles', variant: 'h-mono', count: 1 },
     ],
     optimalSteps: 2,
     hint: 'Pick the colour, pick the eye!',
@@ -148,7 +179,7 @@ export const CURATED_LEVELS: LevelData[] = [
       { id: 'paint-orange',   type: 'paint',   color: '#FF851B' },
       { id: 'pumpkin-75',     type: 'pumpkin', coverage: 75 },
       { id: 'pumpkin-50',     type: 'pumpkin', coverage: 50 },
-      { id: 'goggles-h-thin', type: 'goggles', variant: 'h-thin' },
+      { id: 'goggles-h-thin', type: 'goggles', variant: 'h-thin', count: 1 },
       { id: 'underwear',      type: 'underwear' },    // conflict trap!
     ],
     optimalSteps: 3,
@@ -165,7 +196,7 @@ export const CURATED_LEVELS: LevelData[] = [
       { id: 'belt-v-thin',     type: 'belt',    variant: 'v-thin' },
       { id: 'belt-h-thin',     type: 'belt',    variant: 'h-thin' },
       { id: 'pendant-h',       type: 'pendant', variant: 'h' },
-      { id: 'goggles-v-thin',  type: 'goggles', variant: 'v-thin' }, // eye-slot trap!
+      { id: 'goggles-v-thin',  type: 'goggles', variant: 'v-thin', count: 1 }, // eye-slot trap!
     ],
     optimalSteps: 4,
     hint: 'Every choice counts!',

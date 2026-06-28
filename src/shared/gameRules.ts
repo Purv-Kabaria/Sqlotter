@@ -30,19 +30,36 @@ export function checkCompatibility(
 export function applyToState(state: SlimeState, mod: ModifierDef): SlimeState {
   const next = { ...state };
   switch (mod.type) {
-    case 'paint': next.color = mod.color!; break;
+    case 'paint':
+      next.color = mod.color!;
+      if (next.pumpkin === null) {
+        // No pumpkin: whole slime is one colour, clear any bottom zone
+        delete next.colorBottom;
+      }
+      // With pumpkin active: colorBottom (protected bottom zone) stays unchanged
+      break;
+    case 'pumpkin':
+      if (next.pumpkin === null) {
+        // First pumpkin application: save current colour as the protected bottom zone
+        next.colorBottom = next.color;
+      }
+      next.pumpkin = mod.coverage as PumpkinCoverage;
+      break;
     case 'goggles': next.goggles = mod.variant as GogglesVariant; break;
     case 'glasses': next.glasses = mod.variant as GlassesVariant; break;
     case 'belt': next.belt = mod.variant as BeltVariant; break;
     case 'pendant': next.pendant = mod.variant as PendantVariant; break;
-    case 'pumpkin': next.pumpkin = mod.coverage as PumpkinCoverage; break;
     case 'underwear': next.underwear = true; break;
   }
   return next;
 }
 
 export function statesMatch(a: SlimeState, b: SlimeState): boolean {
+  // For two-colour slimes: colorBottom falls back to color when unset
+  const aBottom = a.colorBottom ?? a.color;
+  const bBottom = b.colorBottom ?? b.color;
   return a.color === b.color
+    && aBottom === bBottom
     && a.goggles === b.goggles
     && a.glasses === b.glasses
     && a.belt === b.belt
@@ -50,6 +67,12 @@ export function statesMatch(a: SlimeState, b: SlimeState): boolean {
     && a.pumpkin === b.pumpkin
     && a.underwear === b.underwear;
 }
+
+export const PAINT_COLORS_16 = [
+  '#FF4136', '#FF851B', '#FFDC00', '#01FF70', '#2ECC40', '#39CCCC',
+  '#7FDBFF', '#0074D9', '#003AB4', '#B10DC9', '#F012BE', '#FF69B4',
+  '#FFFFFF', '#DDDDDD', '#AAAAAA', '#555555',
+] as const;
 
 export function calcStars(steps: number, optimalSteps: number): Stars {
   if (steps <= optimalSteps) return 3;

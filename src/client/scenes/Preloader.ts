@@ -170,7 +170,10 @@ export class Preloader extends Scene {
     this.cameras.main.setBackgroundColor(0x1a0a2e);
     this.createLoadingUI();
 
-    const BOOT_KEYS = new Set(['title', 'bg4-1', 'ui-banner', 'ui-frame-blue', 'ui-bar-fill', 'ui-bar-track']);
+    const BOOT_KEYS = new Set([
+      'title', 'bg4-1', 'ui-banner', 'ui-frame-blue', 'ui-bar-fill', 'ui-bar-track',
+      'slime-color', 'slime-border', 'slime-shine',
+    ]);
 
     this.load.setPath('assets');
     for (const { key, path } of IMG) {
@@ -179,7 +182,10 @@ export class Preloader extends Scene {
     }
 
     this.load.on('progress', (p: number) => {
-      if (this.bar) this.bar.width = 4 + 340 * p;
+      if (this.bar) {
+        const maxW = Math.min(this.scale.width * 0.65, 300) - 4;
+        this.bar.width = 4 + maxW * p;
+      }
     });
   }
 
@@ -188,59 +194,76 @@ export class Preloader extends Scene {
     const cx = width / 2;
     const cy = height / 2;
 
-    // Background layer (loaded by Boot)
+    // Background
     if (this.textures.exists('bg4-1')) {
       const bg = this.add.image(cx, cy, 'bg4-1');
       bg.setScale(Math.max(width / (bg.width || 1), height / (bg.height || 1)) * 1.05);
-      bg.setAlpha(0.35);
+      bg.setAlpha(0.30);
+    }
+    this.add.rectangle(cx, cy, width, height, 0x0A0500, 0.60);
+
+    // Animated slime mascot (assets loaded by Boot)
+    if (this.textures.exists('slime-color')) {
+      const slimeSz = Math.min(width * 0.22, 90);
+      const slimeY  = cy - 50;
+      // Shadow
+      const shadow = this.add.image(cx + 3, slimeY + 3, 'slime-color')
+        .setDisplaySize(slimeSz, slimeSz);
+      shadow.setTint(0x000000); shadow.setTintFill(); shadow.setAlpha(0.30);
+      // Body (green)
+      const slime = this.add.image(cx, slimeY, 'slime-color')
+        .setDisplaySize(slimeSz, slimeSz).setTint(0x6DD400);
+      // Shine
+      const shine = this.add.image(cx, slimeY, 'slime-shine')
+        .setDisplaySize(slimeSz, slimeSz).setAlpha(0.80);
+      // Border
+      const border = this.add.image(cx, slimeY, 'slime-border')
+        .setDisplaySize(slimeSz, slimeSz);
+
+      // Idle bob animation
+      this.tweens.add({
+        targets: [slime, shine, border, shadow],
+        y: `+=${slimeSz * 0.08}`,
+        duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+      // Squish loop
+      this.tweens.chain({
+        targets: [slime, shine, border],
+        tweens: [
+          { scaleX: 1.06, scaleY: 0.94, duration: 300, ease: 'Sine.easeInOut' },
+          { scaleX: 0.97, scaleY: 1.05, duration: 300, ease: 'Sine.easeInOut' },
+          { scaleX: 1, scaleY: 1, duration: 200, ease: 'Sine.easeInOut' },
+          { scaleX: 1, scaleY: 1, duration: 400 }, // pause
+        ],
+        repeat: -1,
+      });
     }
 
-    // Dark overlay for contrast
-    this.add.rectangle(cx, cy, width, height, 0x0a0418, 0.55);
-
-    // Game logo
+    // SQLOTTER logo
     if (this.textures.exists('title')) {
-      const logo = this.add.image(cx, cy - 72, 'title');
-      const maxW = Math.min(width * 0.68, 320);
-      const s = maxW / (logo.width || 320);
-      logo.setScale(s);
-      this.tweens.add({
-        targets: logo,
-        scale: s * 1.04,
-        duration: 1000,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
+      const logo = this.add.image(cx, cy + 22, 'title');
+      const maxW = Math.min(width * 0.62, 260);
+      logo.setDisplaySize(maxW, maxW * 0.22);
     } else {
-      this.add.text(cx, cy - 72, 'Sqlotter', {
-        fontFamily: PIXEL_FONT,
-        fontSize: '28px',
-        color: '#6DD400',
-        stroke: '#1a0a2e',
-        strokeThickness: 5,
-        shadow: { offsetX: 3, offsetY: 3, color: '#000000', blur: 6, fill: true },
+      this.add.text(cx, cy + 22, 'Sqlotter', {
+        fontFamily: PIXEL_FONT, fontSize: '24px', color: '#DEC998',
+        stroke: '#3A1A08', strokeThickness: 4,
       }).setOrigin(0.5);
     }
 
     // Progress bar track
+    const barW = Math.min(width * 0.65, 300);
     if (this.textures.exists('ui-bar-track')) {
-      const track = this.add.image(cx, cy + 14, 'ui-bar-track');
-      const sw = Math.min(width * 0.72, 360);
-      track.setScale(sw / (track.width || 1), 22 / (track.height || 1));
+      const track = this.add.image(cx, cy + 72, 'ui-bar-track');
+      track.setScale(barW / (track.width || 1), 20 / (track.height || 1));
     } else {
-      this.add.rectangle(cx, cy + 14, 352, 20, 0x1e0e3e).setStrokeStyle(2, 0x4a2e8a, 1);
+      this.add.rectangle(cx, cy + 72, barW, 18, 0x1e0e3e);
     }
-
-    // Progress fill
-    this.bar = this.add.rectangle(cx - 174, cy + 14, 4, 14, 0x6dd400).setOrigin(0, 0.5);
+    this.bar = this.add.rectangle(cx - barW / 2 + 2, cy + 72, 4, 12, 0xDEC998).setOrigin(0, 0.5);
 
     // Loading label
-    this.tipText = this.add.text(cx, cy + 50, 'Loading...', {
-      fontFamily: PIXEL_FONT,
-      fontSize: '9px',
-      color: '#7a8a9a',
-      shadow: { offsetX: 1, offsetY: 1, color: '#000000', blur: 2, fill: true },
+    this.tipText = this.add.text(cx, cy + 94, 'Loading...', {
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#7a8a9a',
     }).setOrigin(0.5);
   }
 

@@ -8,6 +8,7 @@ export type PumpkinCoverage = 25 | 50 | 75;
 
 export type SlimeState = {
   color: SlimeColor;
+  colorBottom?: SlimeColor; // color of the pumpkin-protected bottom zone (two-color support)
   goggles: GogglesVariant | null;
   glasses: GlassesVariant | null;
   belt: BeltVariant | null;
@@ -26,6 +27,7 @@ export type ModifierDef = {
   variant?: string;
   coverage?: PumpkinCoverage;
   color?: SlimeColor;
+  count?: number; // max uses allowed (undefined = unlimited)
 };
 
 export type LevelData = {
@@ -47,7 +49,8 @@ export type ConflictType =
   | 'PUMPKIN_UNDERWEAR'
   | 'UNDERWEAR_PUMPKIN75'
   | 'THICK_BELT_PUMPKIN75'
-  | 'PUMPKIN75_THICK_BELT';
+  | 'PUMPKIN75_THICK_BELT'
+  | 'COUNT_LIMIT';
 
 export const CONFLICT_MESSAGES: Record<ConflictType, string> = {
   EYE_SLOT:            "Splot can't see through all that!",
@@ -56,6 +59,7 @@ export const CONFLICT_MESSAGES: Record<ConflictType, string> = {
   UNDERWEAR_PUMPKIN75: "Take the undies off first!",
   THICK_BELT_PUMPKIN75:"The pumpkin ate the belt!",
   PUMPKIN75_THICK_BELT:"Can't belt a full pumpkin!",
+  COUNT_LIMIT:         "No more of that modifier!",
 };
 
 export type ApplyResult =
