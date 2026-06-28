@@ -156,7 +156,6 @@ const IMG: AssetDef[] = [
 
 export class Preloader extends Scene {
   private bar: GameObjects.Rectangle | null = null;
-  private titleText: GameObjects.Text | null = null;
   private tipText: GameObjects.Text | null = null;
 
   constructor() { super('Preloader'); }
@@ -167,6 +166,8 @@ export class Preloader extends Scene {
 
     this.load.setPath('assets');
     for (const { key, path } of IMG) {
+      // Boot already loaded title + bg4-1; skip to avoid double-load warnings
+      if (key === 'title' || key === 'bg4-1') continue;
       this.load.image(key, path);
     }
 
@@ -180,39 +181,55 @@ export class Preloader extends Scene {
     const cx = width / 2;
     const cy = height / 2;
 
-    // Title
-    this.titleText = this.add.text(cx, cy - 80, 'Sqlotter', {
-      fontFamily: PIXEL_FONT,
-      fontSize: '28px',
-      color: '#6DD400',
-      stroke: '#1a0a2e',
-      strokeThickness: 4,
-      shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 4, fill: true },
-    }).setOrigin(0.5);
+    // Background layer (loaded by Boot)
+    if (this.textures.exists('bg4-1')) {
+      const bg = this.add.image(cx, cy, 'bg4-1');
+      bg.setScale(Math.max(width / (bg.width || 1), height / (bg.height || 1)) * 1.05);
+      bg.setAlpha(0.35);
+    }
 
-    // Breathing pulse on the title
-    this.tweens.add({
-      targets: this.titleText,
-      scale: 1.05,
-      duration: 900,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    // Dark overlay for contrast
+    this.add.rectangle(cx, cy, width, height, 0x0a0418, 0.55);
 
-    // Bar background
-    this.add.rectangle(cx, cy + 10, 350, 18, 0x2a1555, 1)
-      .setStrokeStyle(2, 0x6dd400, 0.6);
+    // Game logo
+    if (this.textures.exists('title')) {
+      const logo = this.add.image(cx, cy - 72, 'title');
+      const maxW = Math.min(width * 0.68, 320);
+      const s = maxW / (logo.width || 320);
+      logo.setScale(s);
+      this.tweens.add({
+        targets: logo,
+        scale: s * 1.04,
+        duration: 1000,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    } else {
+      this.add.text(cx, cy - 72, 'Sqlotter', {
+        fontFamily: PIXEL_FONT,
+        fontSize: '28px',
+        color: '#6DD400',
+        stroke: '#1a0a2e',
+        strokeThickness: 5,
+        shadow: { offsetX: 3, offsetY: 3, color: '#000000', blur: 6, fill: true },
+      }).setOrigin(0.5);
+    }
 
-    // Progress bar
-    this.bar = this.add.rectangle(cx - 173, cy + 10, 4, 14, 0x6dd400)
+    // Bar track
+    this.add.rectangle(cx, cy + 14, 352, 20, 0x1e0e3e)
+      .setStrokeStyle(2, 0x4a2e8a, 1);
+
+    // Progress fill
+    this.bar = this.add.rectangle(cx - 174, cy + 14, 4, 14, 0x6dd400)
       .setOrigin(0, 0.5);
 
-    // Loading tip
-    this.tipText = this.add.text(cx, cy + 45, 'Loading...', {
+    // Loading label
+    this.tipText = this.add.text(cx, cy + 46, 'Loading...', {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
-      color: '#a0b0c0',
+      fontSize: '9px',
+      color: '#7a8a9a',
+      shadow: { offsetX: 1, offsetY: 1, color: '#000000', blur: 2, fill: true },
     }).setOrigin(0.5);
   }
 

@@ -41,7 +41,7 @@ export class SlimeRenderer {
 
     // Set correct textures for always-on layers
     this.layers.get('slime-color')!.setTexture('slime-color');
-    this.layers.get('slime-shine')!.setTexture('slime-shine');
+    this.layers.get('slime-shine')!.setTexture('slime-shine').setAlpha(0.78);
     this.layers.get('slime-border')!.setTexture('slime-border');
   }
 

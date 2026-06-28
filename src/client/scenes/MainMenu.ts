@@ -91,14 +91,19 @@ export class MainMenu extends Phaser.Scene {
     const isPortrait = height > width;
     const elements: Phaser.GameObjects.GameObject[] = [];
 
-    // ── Sparks counter (always top-right) ───────────────────
-    const sparksPanel = addPixelPanel(this, width - 8, 10, 116, 34)
-      .setOrigin(1, 0).setDepth(10);
-    const sparkIcon = this.add.image(width - 100, 27, 'icon-spark').setDisplaySize(18, 18).setDepth(11);
-    this.sparksText = this.add.text(width - 82, 27, `${this.userData?.sparks ?? 0}`, {
+    // ── Sparks counter (top-right) ───────────────────────────
+    const panelW = 120, panelH = 34;
+    const panelCx = width - panelW / 2 - 6;
+    const panelCy = panelH / 2 + 6;
+    const sparksPanel = addPixelPanel(this, panelCx, panelCy, panelW, panelH).setDepth(10);
+    const sparkIcon = this.add.image(panelCx - 42, panelCy, 'icon-spark')
+      .setDisplaySize(16, 16).setDepth(11);
+    this.sparksText = this.add.text(panelCx - 24, panelCy, `${this.userData?.sparks ?? 0}`, {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
+      fontSize: '9px',
       color: '#FFD700',
+      stroke: '#1a0a2e',
+      strokeThickness: 3,
     }).setOrigin(0, 0.5).setDepth(11);
     elements.push(sparksPanel, sparkIcon, this.sparksText);
 

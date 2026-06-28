@@ -50,8 +50,10 @@ export class SplotMascot {
     const mk = (key: string, depth: number, vis = true) =>
       scene.add.image(0, 0, key).setDisplaySize(s, s).setDepth(depth).setVisible(vis);
 
-    this.shadow    = mk('char-shadow',        0);
-    this.blob      = mk('char-blob',         10).setTint(0x6dd400);
+    this.shadow    = mk('char-shadow',        0).setAlpha(0.6);
+    this.blob      = mk('char-blob',         10);
+    this.blob.setTint(0x6dd400);
+    this.blob.setTintFill();
     this.mouth     = mk('char-mouth-happy',  20);
     this.blush     = mk('char-blush',        22, false);
     this.cry       = mk('char-cry',          22, false);
@@ -59,7 +61,7 @@ export class SplotMascot {
     this.eyebrow   = mk('char-brow-normal',  40);
     this.accessory = mk('char-acc-horns',    50, false);
     this.applied   = mk('char-applied',      58, false).setAlpha(0);
-    this.shine     = mk('char-shine',        60);
+    this.shine     = mk('char-shine',        60).setAlpha(0.82);
     this.outline   = mk('char-outline',      65);
 
     this.container = scene.add.container(x, y, [
