@@ -29,6 +29,7 @@ function getWorldForLevel(level: LevelData): number {
 export class LevelSelect extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private scrollContainer: Phaser.GameObjects.Container | null = null;
+  private scrollBar: Phaser.GameObjects.Graphics | null = null;
   private isDragging = false;
   private dragMoved = false;
   private dragStartY = 0;
@@ -44,6 +45,7 @@ export class LevelSelect extends Phaser.Scene {
   init() {
     this.bgLayers = [];
     this.scrollContainer = null;
+    this.scrollBar = null;
     this.scrollY = 0;
     this.dragMoved = false;
     this.completedLevels = {};
@@ -206,6 +208,34 @@ export class LevelSelect extends Phaser.Scene {
 
     this.contentHeight = cursorY;
     this.maxScrollY = Math.max(0, this.contentHeight - (height - 60));
+    this.scrollBar = this.add.graphics().setDepth(30);
+    this.drawScrollBar();
+  }
+
+  private setScrollY(nextY: number) {
+    this.scrollY = Phaser.Math.Clamp(nextY, -this.maxScrollY, 0);
+    if (this.scrollContainer) this.scrollContainer.y = 60 + this.scrollY;
+    this.drawScrollBar();
+  }
+
+  private drawScrollBar() {
+    if (!this.scrollBar) return;
+    this.scrollBar.clear();
+    if (this.maxScrollY <= 0) return;
+
+    const { width, height } = this.scale;
+    const trackX = width - 8;
+    const trackY = 66;
+    const trackH = height - 78;
+    const visibleH = height - 60;
+    const thumbH = Math.max(32, trackH * (visibleH / Math.max(this.contentHeight, visibleH)));
+    const progress = -this.scrollY / this.maxScrollY;
+    const thumbY = trackY + (trackH - thumbH) * progress;
+
+    this.scrollBar.fillStyle(0xffffff, 0.12);
+    this.scrollBar.fillRoundedRect(trackX, trackY, 4, trackH, 2);
+    this.scrollBar.fillStyle(C.GREEN, 0.72);
+    this.scrollBar.fillRoundedRect(trackX - 1, thumbY, 6, thumbH, 3);
   }
 
   private buildWorldHeader(x: number, y: number, color: number, label: string) {
@@ -416,20 +446,19 @@ export class LevelSelect extends Phaser.Scene {
       if (!this.isDragging) return;
       if (Math.abs(p.y - this.pointerDownY) > 8) this.dragMoved = true;
       const newY = p.y - this.dragStartY;
-      this.scrollY = Phaser.Math.Clamp(newY, -this.maxScrollY, 0);
-      if (this.scrollContainer) this.scrollContainer.y = 60 + this.scrollY;
+      this.setScrollY(newY);
     });
 
     this.input.on('pointerup', () => { this.isDragging = false; });
 
     // Mouse wheel
     this.input.on('wheel', (_p: unknown, _gos: unknown, _dx: number, dy: number) => {
-      this.scrollY = Phaser.Math.Clamp(this.scrollY - dy * 0.8, -this.maxScrollY, 0);
-      if (this.scrollContainer) this.scrollContainer.y = 60 + this.scrollY;
+      this.setScrollY(this.scrollY - dy * 0.8);
     });
   }
 
   shutdown() {
+    this.scrollBar?.destroy();
     this.input.removeAllListeners();
   }
 }
