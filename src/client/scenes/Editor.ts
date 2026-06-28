@@ -4,6 +4,7 @@ import { DEFAULT_SLIME_STATE } from '../../shared/types';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import type { LevelData } from '../../shared/types';
 import type { LevelCreateResponse } from '../../shared/api';
+import { PIXEL_FONT, addPixelPanel, addPixelButton } from '../components/PixelUI';
 
 // ── Modifier palette available in the editor ──────────────
 const PAINT_COLORS: ModifierDef[] = [
@@ -159,16 +160,18 @@ export class Editor extends Phaser.Scene {
     this.buildSlimePanel(cx, slimeY, slimeSize);
 
     // Steps / difficulty line
-    this.stepsText = this.add.text(cx, slimeY + slimeSize / 2 + 24, 'Steps: 0  |  ★☆☆☆☆', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '13px',
+    this.stepsText = this.add.text(cx, slimeY + slimeSize / 2 + 24, 'Steps: 0  |  Diff: 1/5', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.DIM,
+      stroke: '#1a0a2e',
+      strokeThickness: 2,
     }).setOrigin(0.5).setDepth(5);
 
     // Feedback text
     this.feedbackText = this.add.text(cx, slimeY + slimeSize / 2 + 40, '', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: '#ff8888',
       wordWrap: { width: width - 32 },
       align: 'center',
@@ -196,8 +199,8 @@ export class Editor extends Phaser.Scene {
     });
 
     this.add.text(cx, 26, 'LEVEL EDITOR', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '17px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '11px',
       color: C.ACCENT,
       stroke: '#1a0a2e',
       strokeThickness: 4,
@@ -211,18 +214,15 @@ export class Editor extends Phaser.Scene {
   private buildSlimePanel(cx: number, slimeY: number, slimeSize: number) {
     const panelW = slimeSize * 2.2;
     const panelH = slimeSize + 24;
-    const panelTop = slimeY - slimeSize / 2 - 12;
 
-    const bg = this.add.graphics().setDepth(2);
-    bg.fillStyle(C.PANEL, 0.85);
-    bg.fillRoundedRect(cx - panelW / 2, panelTop, panelW, panelH, 14);
-    bg.lineStyle(1, 0x6dd400, 0.35);
-    bg.strokeRoundedRect(cx - panelW / 2, panelTop, panelW, panelH, 14);
+    addPixelPanel(this, cx, slimeY, panelW, panelH).setDepth(2).setAlpha(0.94);
 
-    this.add.text(cx, panelTop + 8, 'GOAL SLIME', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '11px',
+    this.add.text(cx, slimeY - panelH / 2 + 12, 'GOAL SLIME', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.ACCENT,
+      stroke: '#1a0a2e',
+      strokeThickness: 2,
     }).setOrigin(0.5, 0).setDepth(3);
 
     this.goalRenderer = new SlimeRenderer(this, cx, slimeY, slimeSize);
@@ -236,9 +236,11 @@ export class Editor extends Phaser.Scene {
 
   private buildModSection(cx: number, startY: number, width: number) {
     this.add.text(cx, startY, 'BUILD YOUR GOAL:', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '12px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.ACCENT,
+      stroke: '#1a0a2e',
+      strokeThickness: 2,
     }).setOrigin(0.5).setDepth(5);
 
     // Paint color swatches
@@ -311,7 +313,7 @@ export class Editor extends Phaser.Scene {
     const txtX = iconKey ? -w / 2 + 30 : -w / 2 + 6;
     const txtW = w - (iconKey ? 38 : 12);
     items.push(this.add.text(txtX, 0, modLabel(mod), {
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: PIXEL_FONT,
       fontSize: '10px',
       color: C.TEXT,
       wordWrap: { width: txtW },
@@ -328,47 +330,35 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildBottomButtons(cx: number, height: number, width: number) {
-    const btnY = height - 30;
+    const btnY = height - 32;
     const btnW = Math.min((width - 48) / 2, 148);
     const btnH = 46;
 
-    this.buildBtn(cx - btnW / 2 - 6, btnY, btnW, btnH, 'TEST PLAY', C.BLUE, () => this.testPlay());
-    this.buildBtn(cx + btnW / 2 + 6, btnY, btnW, btnH, 'PUBLISH', C.GREEN, () => void this.publish());
-  }
+    addPixelButton(this, {
+      x: cx - btnW / 2 - 6, y: btnY,
+      width: btnW, height: btnH,
+      label: 'Test Play',
+      iconKey: 'icon-play',
+      onClick: () => this.testPlay(),
+    }).setDepth(8);
 
-  private buildBtn(x: number, y: number, w: number, h: number, label: string, color: number, cb: () => void) {
-    const g = this.add.graphics().setDepth(8);
-    g.fillStyle(color, 1);
-    g.fillRoundedRect(x - w / 2, y - h / 2, w, h, 12);
-    g.lineStyle(1, 0xffffff, 0.15);
-    g.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 12);
-    const txt = this.add.text(x, y, label, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '13px',
-      color: '#fff',
-    }).setOrigin(0.5).setDepth(9);
-    const zone = this.add.zone(x, y, w, h).setDepth(9).setInteractive({ useHandCursor: true });
-    zone.on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.04, scaleY: 1.04, duration: 80 }));
-    zone.on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
-    zone.on('pointerdown', () => this.tweens.add({ targets: [g, txt], scaleX: 0.96, scaleY: 0.96, duration: 50 }));
-    zone.on('pointerup', () => {
-      this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 50 });
-      cb();
-    });
+    addPixelButton(this, {
+      x: cx + btnW / 2 + 6, y: btnY,
+      width: btnW, height: btnH,
+      label: 'Publish',
+      iconKey: 'icon-share',
+      onClick: () => void this.publish(),
+    }).setDepth(8);
   }
 
   private buildSmallBtn(x: number, y: number, w: number, h: number, label: string, cb: () => void) {
-    const hitH = Math.max(h, 44);
-    const g = this.add.graphics().setDepth(5);
-    g.fillStyle(0x000000, 0.4);
-    g.fillRoundedRect(x - w / 2, y - h / 2, w, h, 5);
-    g.lineStyle(1, 0x6dd400, 0.35);
-    g.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 5);
-    const txt = this.add.text(x, y, label, { fontFamily: 'Arial, sans-serif', fontSize: '11px', color: C.TEXT }).setOrigin(0.5).setDepth(6);
-    const zone = this.add.zone(x, y, w, hitH).setDepth(6).setInteractive({ useHandCursor: true });
-    zone.on('pointerup', cb);
-    zone.on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.06, scaleY: 1.06, duration: 60 }));
-    zone.on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 60 }));
+    addPixelButton(this, {
+      x, y,
+      width: Math.max(w, 60), height: Math.max(h, 36),
+      label,
+      fontSize: 8,
+      onClick: cb,
+    }).setDepth(5);
   }
 
   // ── Goal building ──────────────────────────────────────────
@@ -412,8 +402,7 @@ export class Editor extends Phaser.Scene {
   private updateMeta() {
     const steps = this.solutionSeq.length;
     const diff  = computeDifficulty(steps);
-    const stars = '★'.repeat(diff) + '☆'.repeat(5 - diff);
-    this.stepsText?.setText(`Steps: ${steps}  |  ${stars}`);
+    this.stepsText?.setText(`Steps: ${steps}  |  Diff: ${diff}/5`);
   }
 
   private showFeedback(msg: string, isError: boolean) {

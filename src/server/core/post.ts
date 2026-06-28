@@ -3,7 +3,7 @@ import { context, reddit } from '@devvit/web/server';
 export const createPost = async () => {
   return await reddit.submitCustomPost({
     subredditName: context.subredditName ?? '',
-    title: 'Splot!',
+    title: 'Sqlotter — The Slime Puzzle Game',
     entry: 'default',
     styles: {
       heightPixels: 512,

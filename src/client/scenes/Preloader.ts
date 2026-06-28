@@ -152,6 +152,12 @@ const IMG: AssetDef[] = [
   { key: 'bg4-2', path: 'background/background 4/2.png' },
   { key: 'bg4-3', path: 'background/background 4/3.png' },
   { key: 'bg4-4', path: 'background/background 4/4.png' },
+
+  // ── Flat UI extras (loaded early by Boot) ─────────────────
+  { key: 'ui-banner',     path: 'more ui/UI_Flat_Banner02a.png' },
+  { key: 'ui-frame-blue', path: 'more ui/UI_Flat_Frame02a.png' },
+  { key: 'ui-bar-fill',   path: 'more ui/UI_Flat_BarFill01a.png' },
+  { key: 'ui-bar-track',  path: 'more ui/UI_Flat_Bar01a.png' },
 ];
 
 export class Preloader extends Scene {
@@ -164,10 +170,11 @@ export class Preloader extends Scene {
     this.cameras.main.setBackgroundColor(0x1a0a2e);
     this.createLoadingUI();
 
+    const BOOT_KEYS = new Set(['title', 'bg4-1', 'ui-banner', 'ui-frame-blue', 'ui-bar-fill', 'ui-bar-track']);
+
     this.load.setPath('assets');
     for (const { key, path } of IMG) {
-      // Boot already loaded title + bg4-1; skip to avoid double-load warnings
-      if (key === 'title' || key === 'bg4-1') continue;
+      if (BOOT_KEYS.has(key)) continue; // already loaded by Boot
       this.load.image(key, path);
     }
 
@@ -216,16 +223,20 @@ export class Preloader extends Scene {
       }).setOrigin(0.5);
     }
 
-    // Bar track
-    this.add.rectangle(cx, cy + 14, 352, 20, 0x1e0e3e)
-      .setStrokeStyle(2, 0x4a2e8a, 1);
+    // Progress bar track
+    if (this.textures.exists('ui-bar-track')) {
+      const track = this.add.image(cx, cy + 14, 'ui-bar-track');
+      const sw = Math.min(width * 0.72, 360);
+      track.setScale(sw / (track.width || 1), 22 / (track.height || 1));
+    } else {
+      this.add.rectangle(cx, cy + 14, 352, 20, 0x1e0e3e).setStrokeStyle(2, 0x4a2e8a, 1);
+    }
 
     // Progress fill
-    this.bar = this.add.rectangle(cx - 174, cy + 14, 4, 14, 0x6dd400)
-      .setOrigin(0, 0.5);
+    this.bar = this.add.rectangle(cx - 174, cy + 14, 4, 14, 0x6dd400).setOrigin(0, 0.5);
 
     // Loading label
-    this.tipText = this.add.text(cx, cy + 46, 'Loading...', {
+    this.tipText = this.add.text(cx, cy + 50, 'Loading...', {
       fontFamily: PIXEL_FONT,
       fontSize: '9px',
       color: '#7a8a9a',

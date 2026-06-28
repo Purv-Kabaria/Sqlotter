@@ -104,23 +104,6 @@ export class LevelSelect extends Phaser.Scene {
     const { width } = this.scale;
 
     // Back button
-    const backBtn = this.add.container(46, 30);
-    const backBg = this.add.graphics();
-    backBg.fillStyle(0x000000, 0.5);
-    backBg.fillRoundedRect(-20, -20, 40, 40, 10);
-    const backArrow = this.add.text(0, 0, '‹', {
-      fontSize: '28px', color: '#ffffff',
-    }).setOrigin(0.5, 0.45);
-    backBtn.add([backBg, backArrow]);
-    backBtn.setSize(44, 44).setInteractive({ useHandCursor: true })
-      .on('pointerup', () => {
-        this.cameras.main.fadeOut(250, 26, 10, 46);
-        this.time.delayedCall(260, () => this.scene.start('MainMenu'));
-      })
-      .on('pointerover', () => this.tweens.add({ targets: backBtn, scaleX: 1.1, scaleY: 1.1, duration: 80 }))
-      .on('pointerout',  () => this.tweens.add({ targets: backBtn, scaleX: 1, scaleY: 1, duration: 80 }));
-    backBtn.setDepth(20);
-    backBtn.destroy(true);
     addPixelIconButton(this, {
       x: 46,
       y: 30,
@@ -136,10 +119,11 @@ export class LevelSelect extends Phaser.Scene {
     // Title
     this.add.text(width / 2, 30, 'Select Level', {
       fontFamily: PIXEL_FONT,
-      fontSize: '13px',
+      fontSize: '10px',
       color: '#ffffff',
       stroke: '#1a0a2e',
-      strokeThickness: 3,
+      strokeThickness: 4,
+      shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 3, fill: true },
     }).setOrigin(0.5).setDepth(20);
 
     // Divider

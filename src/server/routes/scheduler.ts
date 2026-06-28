@@ -33,7 +33,7 @@ schedulerRoutes.post('/daily-puzzle', async (c) => {
     if (subredditName) {
       const post = await reddit.submitCustomPost({
         subredditName,
-        title: `🟢 Daily Splot! Puzzle — ${today}`,
+        title: `Sqlotter Daily Puzzle — ${today}`,
         entry: 'default',
         postData: { levelId },
         styles: {

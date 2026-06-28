@@ -341,10 +341,20 @@ export class Game extends Phaser.Scene {
 
   private buildSlimePanel(cx: number, cy: number, w: number, h: number, label: string) {
     addPixelPanel(this, cx, cy, w, h).setDepth(2).setAlpha(0.94);
-    this.add.text(cx, cy - h / 2 + 14, label, {
+
+    const labelY = cy - h / 2 + 13;
+    if (this.textures.exists('ui-banner')) {
+      const banner = this.add.image(cx, labelY, 'ui-banner');
+      const bw = w * 0.82;
+      banner.setScale(bw / (banner.width || 1), 18 / (banner.height || 1));
+      banner.setTint(0x2a1055).setDepth(3);
+    }
+    this.add.text(cx, labelY, label, {
       fontFamily: PIXEL_FONT,
-      fontSize: '8px',
+      fontSize: '7px',
       color: C.ACCENT,
+      stroke: '#0a0418',
+      strokeThickness: 3,
     }).setOrigin(0.5).setDepth(5);
   }
 
@@ -368,10 +378,20 @@ export class Game extends Phaser.Scene {
       .setAlpha(isPortrait ? 0.94 : 0.9);
     this.paletteContainer.add(pbg);
 
-    const title = this.add.text(paletteX + paletteW / 2, paletteY + 18, 'Modifiers', {
+    const titleCx = paletteX + paletteW / 2;
+    const titleCy = paletteY + 18;
+    if (this.textures.exists('ui-banner')) {
+      const banner = this.add.image(titleCx, titleCy, 'ui-banner');
+      banner.setScale((paletteW * 0.78) / (banner.width || 1), 20 / (banner.height || 1));
+      banner.setTint(0x2a1055).setDepth(4);
+      this.paletteContainer.add(banner);
+    }
+    const title = this.add.text(titleCx, titleCy, 'Modifiers', {
       fontFamily: PIXEL_FONT,
       fontSize: '9px',
       color: C.ACCENT,
+      stroke: '#0a0418',
+      strokeThickness: 3,
     }).setOrigin(0.5).setDepth(5);
     this.paletteContainer.add(title);
 

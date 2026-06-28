@@ -17,7 +17,7 @@ triggers.post('/on-app-install', async (c) => {
     // Create the initial welcome post
     const post = await reddit.submitCustomPost({
       subredditName,
-      title: '🟢 Splot! — The Slime Puzzle Game',
+      title: 'Sqlotter — The Slime Puzzle Game',
       entry: 'default',
       styles: {
         heightPixels: 512,
@@ -29,7 +29,7 @@ triggers.post('/on-app-install', async (c) => {
     return c.json<TriggerResponse>(
       {
         status: 'success',
-        message: `Splot! post created in r/${subredditName} (id: ${post.id}, trigger: ${input.type})`,
+        message: `Sqlotter post created in r/${subredditName} (id: ${post.id}, trigger: ${input.type})`,
       },
       200,
     );
