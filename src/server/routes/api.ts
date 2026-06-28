@@ -518,7 +518,9 @@ api.post('/level/create', async (c) => {
   // Track user's created levels
   const userKey = `user:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
-  const created = parseStringArray(allFields['created']);
+  const created = parseStringArray(allFields['created'])
+    .filter((id) => id !== levelId)
+    .slice(-49);
   created.push(levelId);
   await redis.hSet(userKey, { created: JSON.stringify(created) });
 
