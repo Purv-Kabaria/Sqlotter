@@ -1,161 +1,418 @@
-import { Scene } from 'phaser';
 import * as Phaser from 'phaser';
-import { IncrementResponse, DecrementResponse, InitResponse } from '../../shared/api';
+import { LevelEngine, calcStars, calcSparks } from '../engine/LevelEngine';
+import { SlimeRenderer } from '../components/SlimeRenderer';
+import { SplotMascot } from '../components/SplotMascot';
+import type { LevelData, ModifierDef, CompletionData } from '../../shared/types';
+import { CURATED_LEVELS } from '../../shared/levelData';
 
-export class Game extends Scene {
-  camera: Phaser.Cameras.Scene2D.Camera;
-  background: Phaser.GameObjects.Image;
-  msg_text: Phaser.GameObjects.Text;
-  count: number = 0;
-  countText: Phaser.GameObjects.Text;
-  incButton: Phaser.GameObjects.Text;
-  decButton: Phaser.GameObjects.Text;
-  goButton: Phaser.GameObjects.Text;
+const C = {
+  BG:     0x1a0a2e,
+  PANEL:  0x2d1b4e,
+  GREEN:  0x6dd400,
+  GOLD:   0xffd700,
+  RED:    0xff3333,
+  TEXT:   '#ffffff',
+  DIM:    '#7a8a9a',
+  ACCENT: '#6DD400',
+} as const;
 
-  constructor() {
-    super('Game');
+function modLabel(mod: ModifierDef): string {
+  if (mod.type === 'paint') return '🎨 Paint';
+  if (mod.type === 'goggles') return `🥽 ${mod.variant}`;
+  if (mod.type === 'glasses') return `👓 ${mod.variant}`;
+  if (mod.type === 'belt') return `👔 ${mod.variant}`;
+  if (mod.type === 'pendant') return `📿 ${mod.variant}`;
+  if (mod.type === 'pumpkin') return `🎃 ${mod.coverage}%`;
+  if (mod.type === 'underwear') return `🩲 Undies`;
+  return mod.id;
+}
+
+function modIconKey(mod: ModifierDef): string | null {
+  if (mod.type === 'paint') return 'icon-paint';
+  if (mod.type === 'goggles') return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
+  if (mod.type === 'glasses') return mod.variant?.includes('thin') ? 'icon-glasses-thin' : 'icon-glasses-thick';
+  if (mod.type === 'belt') return mod.variant?.includes('thin') ? 'icon-belt-thin' : 'icon-belt-thick';
+  if (mod.type === 'pendant') return 'icon-pendant';
+  if (mod.type === 'pumpkin') return 'icon-pumpkin';
+  if (mod.type === 'underwear') return 'icon-underwear';
+  return null;
+}
+
+export class Game extends Phaser.Scene {
+  private engine: LevelEngine | null = null;
+  private level: LevelData | null = null;
+
+  private goalRenderer: SlimeRenderer | null = null;
+  private currentRenderer: SlimeRenderer | null = null;
+  private splot: SplotMascot | null = null;
+
+  private timerText: Phaser.GameObjects.Text | null = null;
+  private stepsText: Phaser.GameObjects.Text | null = null;
+  private hintText: Phaser.GameObjects.Text | null = null;
+  private conflictPopup: Phaser.GameObjects.Container | null = null;
+  private goggleWarning: Phaser.GameObjects.Text | null = null;
+  private timerEvent: Phaser.Time.TimerEvent | null = null;
+
+  private paletteCards: Phaser.GameObjects.Container[] = [];
+  private bgLayers: Phaser.GameObjects.Image[] = [];
+
+  constructor() { super('Game'); }
+
+  init(data: { levelId?: string }) {
+    this.engine = null;
+    this.level = null;
+    this.paletteCards = [];
+    this.bgLayers = [];
+
+    const levelId = data?.levelId ?? 'L01';
+    this.level = levelId === 'daily'
+      ? CURATED_LEVELS[0]
+      : (CURATED_LEVELS.find(l => l.id === levelId) ?? CURATED_LEVELS[0]);
+    this.engine = new LevelEngine(this.level);
   }
 
   create() {
-    // Configure camera & background
-    this.camera = this.cameras.main;
-    this.camera.setBackgroundColor(0x222222);
+    if (!this.engine || !this.level) return;
 
-    // Optional: semi-transparent background image if one has been loaded elsewhere
-    this.background = this.add.image(512, 384, 'background').setAlpha(0.25);
+    this.cameras.main.setBackgroundColor(C.BG);
+    this.cameras.main.fadeIn(300, 26, 10, 46);
 
-    /* -------------------------------------------
-     *  UI Elements
-     * ------------------------------------------- */
+    this.buildBackground();
+    this.buildHUD();
+    this.buildSlimeDisplays();
+    this.buildPalette();
+    this.startTimer();
+  }
 
-    // Display the current count
-    this.countText = this.add
-      .text(512, 340, `Count: ${this.count}`, {
-        fontFamily: 'Arial Black',
-        fontSize: 56,
-        color: '#ffd700',
-        stroke: '#000000',
-        strokeThickness: 10,
-      })
-      .setOrigin(0.5);
+  private buildBackground() {
+    const { width, height } = this.scale;
+    ['bg3-1', 'bg3-2'].forEach((key, i) => {
+      const img = this.add.image(width / 2, height / 2, key)
+        .setAlpha(i === 0 ? 0.55 : 0.25)
+        .setDepth(-10);
+      const sc = Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05;
+      img.setScale(sc);
+      this.bgLayers.push(img);
+    });
+  }
 
-    // Fetch the initial counter value from server and update UI
-    void (async () => {
-      try {
-        const response = await fetch('/api/init');
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
+  private buildHUD() {
+    const { width } = this.scale;
 
-        const data = (await response.json()) as InitResponse;
-        this.count = data.count;
-        this.updateCountText();
-      } catch (error) {
-        console.error('Failed to fetch initial count:', error);
+    this.buildIconBtn(30, 30, '‹', 36, () => {
+      this.cameras.main.fadeOut(250, 26, 10, 46);
+      this.time.delayedCall(260, () => this.scene.start('LevelSelect'));
+    });
+
+    if (this.level) {
+      this.add.text(width / 2, 16, this.level.title, {
+        fontFamily: '"Arial Black", sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+        stroke: '#1a0a2e',
+        strokeThickness: 4,
+      }).setOrigin(0.5, 0).setDepth(15);
+    }
+
+    this.add.image(width - 92, 22, 'icon-timer').setDisplaySize(18, 18).setDepth(15);
+    this.timerText = this.add.text(width - 74, 22, '0:00', {
+      fontFamily: '"Arial Black", sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+    }).setOrigin(0, 0.5).setDepth(15);
+
+    this.stepsText = this.add.text(width / 2, 38, 'Steps: 0', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '14px',
+      color: C.DIM,
+    }).setOrigin(0.5, 0).setDepth(15);
+
+    this.buildIconBtn(width - 36, 58, '↺', 30, () => this.handleReset());
+    this.buildIconBtn(36, 58, '?', 30, () => this.showHint());
+
+    const div = this.add.graphics().setDepth(15);
+    div.lineStyle(1, 0x6dd400, 0.2);
+    div.lineBetween(0, 74, width, 74);
+
+    this.goggleWarning = this.add.text(width / 2, 62, '🥽 Goggles used!', {
+      fontSize: '12px',
+      color: '#FF851B',
+      stroke: '#1a0a2e',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(15).setVisible(false);
+  }
+
+  private buildIconBtn(x: number, y: number, icon: string, size: number, cb: () => void) {
+    const g = this.add.graphics().setDepth(15);
+    g.fillStyle(0x000000, 0.4);
+    g.fillRoundedRect(x - size / 2, y - size / 2, size, size, 8);
+    const txt = this.add.text(x, y, icon, {
+      fontSize: `${Math.round(size * 0.65)}px`,
+      color: '#ffffff',
+    }).setOrigin(0.5, 0.45).setDepth(16);
+
+    this.add.zone(x, y, size, size).setDepth(16).setInteractive({ useHandCursor: true })
+      .on('pointerup', cb)
+      .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
+      .on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
+  }
+
+  private buildSlimeDisplays() {
+    const { width, height } = this.scale;
+    const isPortrait = height > width;
+    const slimeSize = isPortrait ? Math.min(width * 0.28, 120) : Math.min(height * 0.22, 110);
+    const panelY = isPortrait ? 160 : 130;
+    const panelH = slimeSize + 64;
+
+    const goalX = isPortrait ? width * 0.25 : width * 0.22;
+    this.buildSlimePanel(goalX, panelY, slimeSize * 1.6, panelH, 'Goal');
+    this.goalRenderer = new SlimeRenderer(this, goalX, panelY, slimeSize);
+    if (this.engine) this.goalRenderer.setState(this.engine.goalState);
+
+    const curX = isPortrait ? width * 0.75 : width * 0.55;
+    this.buildSlimePanel(curX, panelY, slimeSize * 1.6, panelH, 'Splot');
+    this.currentRenderer = new SlimeRenderer(this, curX, panelY, slimeSize);
+    if (this.engine) this.currentRenderer.setState(this.engine.currentState);
+
+    if (!isPortrait) {
+      this.splot = new SplotMascot(this, width * 0.83, panelY, slimeSize * 0.7);
+    }
+  }
+
+  private buildSlimePanel(cx: number, cy: number, w: number, h: number, label: string) {
+    const g = this.add.graphics().setDepth(2);
+    g.fillStyle(C.PANEL, 0.85);
+    g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
+    g.lineStyle(1, 0x6dd400, 0.3);
+    g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
+
+    this.add.text(cx, cy - h / 2 + 14, label, {
+      fontFamily: '"Arial Black", sans-serif',
+      fontSize: '13px',
+      color: C.ACCENT,
+    }).setOrigin(0.5).setDepth(3);
+  }
+
+  private buildPalette() {
+    if (!this.level) return;
+    const { width, height } = this.scale;
+    const isPortrait = height > width;
+
+    const paletteY = isPortrait ? height * 0.52 : 80;
+    const paletteX = isPortrait ? 0 : width * 0.65;
+    const paletteW = isPortrait ? width : width * 0.35;
+    const paletteH = isPortrait ? height * 0.48 : height - 80;
+
+    const pbg = this.add.graphics().setDepth(4);
+    pbg.fillStyle(0x0d0620, 0.7);
+    pbg.fillRoundedRect(paletteX, paletteY, paletteW, paletteH, isPortrait ? 20 : 0);
+    pbg.lineStyle(1, 0x6dd400, 0.2);
+    pbg.strokeRoundedRect(paletteX, paletteY, paletteW, paletteH, isPortrait ? 20 : 0);
+
+    this.add.text(paletteX + paletteW / 2, paletteY + 18, 'Modifiers', {
+      fontFamily: '"Arial Black", sans-serif',
+      fontSize: '15px',
+      color: C.ACCENT,
+    }).setOrigin(0.5).setDepth(5);
+
+    this.hintText = this.add.text(paletteX + paletteW / 2, paletteY + paletteH - 20, '', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '12px',
+      color: C.DIM,
+      wordWrap: { width: paletteW - 20 },
+      align: 'center',
+    }).setOrigin(0.5, 1).setDepth(5);
+
+    const cols = isPortrait ? 3 : 2;
+    const cardW = isPortrait ? (paletteW - 32) / cols : paletteW - 24;
+    const cardH = 56;
+    const gap = 8;
+    const startY = paletteY + 38;
+
+    this.level.palette.forEach((mod, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const cx = paletteX + 16 + col * (cardW + gap) + cardW / 2;
+      const cy = startY + row * (cardH + gap) + cardH / 2;
+      const card = this.buildModCard(cx, cy, cardW, cardH, mod);
+      this.paletteCards.push(card);
+    });
+  }
+
+  private buildModCard(cx: number, cy: number, w: number, h: number, mod: ModifierDef) {
+    const isGoggle = mod.type === 'goggles';
+    const spent = isGoggle && (this.engine?.isGogglesSpent ?? false);
+
+    const bg = this.add.graphics();
+    const drawNormal = () => {
+      bg.clear();
+      if (spent) {
+        bg.fillStyle(0x1a1030, 0.9);
+        bg.lineStyle(1, 0x3a2060, 0.6);
+      } else {
+        bg.fillStyle(C.PANEL, 0.9);
+        bg.lineStyle(2, 0x6dd400, 0.5);
       }
-    })();
-
-    // Button styling helper
-    const createButton = (y: number, label: string, color: string, onClick: () => void) => {
-      const button = this.add
-        .text(512, y, label, {
-          fontFamily: 'Arial Black',
-          fontSize: 36,
-          color: color,
-          backgroundColor: '#444444',
-          padding: {
-            x: 25,
-            y: 12,
-          } as Phaser.Types.GameObjects.Text.TextPadding,
-        })
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerover', () => button.setStyle({ backgroundColor: '#555555' }))
-        .on('pointerout', () => button.setStyle({ backgroundColor: '#444444' }))
-        .on('pointerdown', onClick);
-      return button;
+      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
+      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
     };
+    const drawHover = () => {
+      bg.clear();
+      bg.fillStyle(0x4a2c8a, 1);
+      bg.lineStyle(2, 0x6dd400, 1);
+      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
+      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
+    };
+    drawNormal();
 
-    // Increment button
-    this.incButton = createButton(this.scale.height * 0.55, 'Increment', '#00ff00', async () => {
-      try {
-        const response = await fetch('/api/increment', { method: 'POST' });
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
+    const items: Phaser.GameObjects.GameObject[] = [bg];
 
-        const data = (await response.json()) as IncrementResponse;
-        this.count = data.count;
-        this.updateCountText();
-      } catch (error) {
-        console.error('Failed to increment count:', error);
+    if (mod.type === 'paint' && mod.color) {
+      const col = parseInt(mod.color.replace('#', ''), 16);
+      items.push(this.add.circle(-w / 2 + 24, 0, 15).setStrokeStyle(1, 0xffffff, 0.4));
+      items.push(this.add.circle(-w / 2 + 24, 0, 14, col));
+    } else {
+      const iconKey = modIconKey(mod);
+      if (iconKey && this.textures.exists(iconKey)) {
+        const icon = this.add.image(-w / 2 + 24, 0, iconKey).setDisplaySize(24, 24);
+        if (spent) icon.setAlpha(0.3);
+        items.push(icon);
       }
+    }
+
+    const lbl = spent ? '(used)' : modLabel(mod);
+    items.push(this.add.text(4, 0, lbl, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: `${Math.min(Math.round(w * 0.13), 13)}px`,
+      color: spent ? C.DIM : C.TEXT,
+      wordWrap: { width: w - 56 },
+    }).setOrigin(0, 0.5));
+
+    const c = this.add.container(cx, cy, items).setDepth(5).setSize(w, h);
+    c.setInteractive({ useHandCursor: true });
+    c.on('pointerover', () => { if (!spent) drawHover(); });
+    c.on('pointerout', drawNormal);
+    c.on('pointerdown', () => this.tweens.add({ targets: c, scaleX: 0.95, scaleY: 0.95, duration: 60 }));
+    c.on('pointerup', () => {
+      this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 60 });
+      this.applyModifier(mod);
     });
-
-    // Decrement button
-    this.decButton = createButton(this.scale.height * 0.65, 'Decrement', '#ff5555', async () => {
-      try {
-        const response = await fetch('/api/decrement', { method: 'POST' });
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data = (await response.json()) as DecrementResponse;
-        this.count = data.count;
-        this.updateCountText();
-      } catch (error) {
-        console.error('Failed to decrement count:', error);
-      }
-    });
-
-    // Game Over button – navigates to the GameOver scene
-    this.goButton = createButton(this.scale.height * 0.75, 'Game Over', '#ffffff', () => {
-      this.scene.start('GameOver');
-    });
-
-    // Setup responsive layout
-    this.updateLayout(this.scale.width, this.scale.height);
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
-      const { width, height } = gameSize;
-      this.updateLayout(width, height);
-    });
-
-    // No automatic navigation to GameOver – users can stay in this scene.
+    return c;
   }
 
-  updateLayout(width: number, height: number) {
-    // Resize camera viewport to avoid black bars
-    this.cameras.resize(width, height);
+  private applyModifier(mod: ModifierDef) {
+    if (!this.engine || !this.currentRenderer) return;
 
-    // Center and scale background image to cover screen
-    if (this.background) {
-      this.background.setPosition(width / 2, height / 2);
-      if (this.background.width && this.background.height) {
-        const scale = Math.max(width / this.background.width, height / this.background.height);
-        this.background.setScale(scale);
-      }
+    const result = this.engine.applyModifier(mod);
+
+    if (!result.ok) {
+      this.currentRenderer.playShakeAnim(this);
+      this.splot?.playConflict();
+      this.showConflictPopup(result.message);
+      return;
     }
 
-    // Calculate a scale factor relative to a 1024 × 768 reference resolution.
-    // We only shrink on smaller screens – never enlarge above 1×.
-    const scaleFactor = Math.min(Math.min(width / 1024, height / 768), 1);
+    this.currentRenderer.setState(result.newState);
+    this.currentRenderer.playApplyAnim(this);
+    this.stepsText?.setText(`Steps: ${this.engine.steps}`);
 
-    if (this.countText) {
-      this.countText.setPosition(width / 2, height * 0.45);
-      this.countText.setScale(scaleFactor);
+    if (this.engine.isGogglesSpent) {
+      this.goggleWarning?.setVisible(true);
+      this.time.delayedCall(2500, () => this.goggleWarning?.setVisible(false));
+      this.paletteCards.forEach(c => c.destroy());
+      this.paletteCards = [];
+      this.buildPalette();
     }
 
-    if (this.incButton) {
-      this.incButton.setPosition(width / 2, height * 0.55);
-      this.incButton.setScale(scaleFactor);
-    }
-
-    if (this.decButton) {
-      this.decButton.setPosition(width / 2, height * 0.65);
-      this.decButton.setScale(scaleFactor);
-    }
-
-    if (this.goButton) {
-      this.goButton.setPosition(width / 2, height * 0.75);
-      this.goButton.setScale(scaleFactor);
-    }
+    if (result.isWin) this.handleWin();
   }
 
-  updateCountText() {
-    this.countText.setText(`Count: ${this.count}`);
+  private handleWin() {
+    if (!this.engine || !this.level) return;
+    this.timerEvent?.destroy();
+
+    const elapsed = this.engine.elapsedMs();
+    const steps   = this.engine.steps;
+    const stars   = calcStars(steps, this.level.optimalSteps);
+    const sparks  = calcSparks(stars, true);
+
+    this.currentRenderer?.playWinAnim(this);
+    this.splot?.playWin();
+
+    const payload: CompletionData = { levelId: this.level.id, steps, timeMs: elapsed, stars, isOptimal: stars === 3, sparksEarned: sparks };
+    void fetch('/api/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+    const lvl = this.level;
+    this.time.delayedCall(700, () => {
+      this.cameras.main.fadeOut(300, 26, 10, 46);
+      this.time.delayedCall(320, () => {
+        this.scene.start('LevelComplete', { levelId: lvl.id, steps, timeMs: elapsed, stars, sparks });
+      });
+    });
+  }
+
+  private handleReset() {
+    if (!this.engine) return;
+    this.engine.reset();
+    if (this.currentRenderer && this.engine) {
+      this.currentRenderer.setState(this.engine.currentState);
+      this.currentRenderer.playShakeAnim(this);
+    }
+    this.stepsText?.setText('Steps: 0');
+    this.goggleWarning?.setVisible(false);
+    this.paletteCards.forEach(c => c.destroy());
+    this.paletteCards = [];
+    this.buildPalette();
+  }
+
+  private showHint() {
+    if (!this.level?.hint || !this.hintText) return;
+    this.hintText.setText(this.level.hint).setAlpha(1);
+    this.time.delayedCall(3500, () => {
+      this.tweens.add({ targets: this.hintText, alpha: 0, duration: 400 });
+    });
+  }
+
+  private showConflictPopup(message: string) {
+    this.conflictPopup?.destroy();
+    const { width, height } = this.scale;
+    const popW = Math.min(width - 40, 280);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x3a0d0d, 0.95);
+    bg.lineStyle(2, 0xff3333, 1);
+    bg.fillRoundedRect(-popW / 2, -28, popW, 56, 12);
+    bg.strokeRoundedRect(-popW / 2, -28, popW, 56, 12);
+
+    const txt = this.add.text(0, 0, `⚠️  ${message}`, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '14px',
+      color: '#ff8888',
+      wordWrap: { width: popW - 24 },
+      align: 'center',
+    }).setOrigin(0.5);
+
+    this.conflictPopup = this.add.container(width / 2, height * 0.46, [bg, txt])
+      .setDepth(50).setAlpha(0);
+    this.tweens.add({ targets: this.conflictPopup, alpha: 1, duration: 150 });
+    this.time.delayedCall(2200, () => {
+      this.tweens.add({ targets: this.conflictPopup, alpha: 0, duration: 300, onComplete: () => this.conflictPopup?.destroy() });
+    });
+  }
+
+  private startTimer() {
+    this.timerEvent = this.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        if (!this.engine || !this.timerText) return;
+        const s = Math.floor(this.engine.elapsedMs() / 1000);
+        this.timerText.setText(`${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`);
+      },
+    });
+  }
+
+  shutdown() {
+    this.timerEvent?.destroy();
   }
 }

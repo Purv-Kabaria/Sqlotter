@@ -7,26 +7,36 @@
       name="viewport"
       content="initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, width=device-width, height=device-height, user-scalable=0"
     />
-    <title>devvit</title>
+    <title>Splot!</title>
   </head>
-  <body class="app">
-    <img class="snoo" src="/snoo.png" alt="Snoo" />
-    <div class="content">
-      <h1 class="title" id="title"></h1>
-      <p class="description">
-        Edit <span class="code">src/client/splash.ts</span> to get started.
-      </p>
+  <body class="splash-app">
+    <!-- Animated blobs in background -->
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+
+    <!-- Main content -->
+    <div class="splash-content">
+      <!-- Splot face (pure CSS) -->
+      <div class="splot-blob" id="splot-blob">
+        <div class="splot-eye splot-eye-left"></div>
+        <div class="splot-eye splot-eye-right"></div>
+        <div class="splot-mouth"></div>
+        <div class="splot-shine"></div>
+      </div>
+
+      <h1 class="splash-title">Splot!</h1>
+      <p class="splash-sub" id="greeting">Loading…</p>
+      <p class="splash-desc" id="daily-info">Today's puzzle is waiting!</p>
     </div>
-    <div>
-      <button class="start-button" id="start-button">Start</button>
+
+    <div class="splash-cta">
+      <button class="play-btn" id="start-button">
+        <span class="play-icon">▶</span> Play Now
+      </button>
+      <p class="splash-hint">Factory Balls meets Reddit!</p>
     </div>
-    <footer class="footer">
-      <div class="docs-link" tabindex="0" id="docs-link">Docs</div>
-      <span class="divider">|</span>
-      <div class="docs-link" tabindex="0" id="playtest-link">r/Devvit</div>
-      <span class="divider">|</span>
-      <div class="docs-link" tabindex="0" id="discord-link">Discord</div>
-    </footer>
+
     <script type="module" src="splash.ts" defer></script>
   </body>
 </html>
