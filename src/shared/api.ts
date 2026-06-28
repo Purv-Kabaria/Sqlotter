@@ -49,6 +49,7 @@ export type CompleteResponse = {
   newTotal: number;
   stars: Stars;
   isFirstCompletion: boolean;
+  streakDays?: number;
 };
 
 // ── Leaderboard ───────────────────────────────────────────

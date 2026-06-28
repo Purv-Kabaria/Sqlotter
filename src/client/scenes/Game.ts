@@ -459,6 +459,7 @@ export class Game extends Phaser.Scene {
     // Await the server response to get the actual sparks earned
     const t0 = Date.now();
     let sparks = 0;
+    let streakDays: number | undefined;
     try {
       const res = await fetch('/api/complete', {
         method:  'POST',
@@ -469,6 +470,7 @@ export class Game extends Phaser.Scene {
       if (res.ok) {
         const data: CompleteResponse = await res.json();
         sparks = data.sparksEarned;
+        streakDays = data.streakDays;
       }
     } catch { /* completion can be retried by replaying the level */ }
 
@@ -486,6 +488,7 @@ export class Game extends Phaser.Scene {
           timeMs:  elapsed,
           stars,
           sparks,
+          streakDays,
         });
       });
     });

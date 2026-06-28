@@ -16,10 +16,10 @@ export class LevelComplete extends Phaser.Scene {
 
   constructor() { super('LevelComplete'); }
 
-  create(data: { levelId: string; title?: string; steps: number; timeMs: number; stars: number; sparks: number }) {
+  create(data: { levelId: string; title?: string; steps: number; timeMs: number; stars: number; sparks: number; streakDays?: number }) {
     const { width, height } = this.scale;
     const cx = width / 2;
-    const { levelId, steps, timeMs, stars, sparks } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
+    const { levelId, steps, timeMs, stars, sparks, streakDays } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
 
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(400, 26, 10, 46);
@@ -101,6 +101,25 @@ export class LevelComplete extends Phaser.Scene {
 
       this.tweens.add({ targets: [lbl, val], alpha: 1, duration: 300, delay: 900 + i * 100 });
     });
+
+    if (streakDays !== undefined) {
+      const streak = this.add.text(cx, statsY + statItems.length * 36 + 4, `🔥 Daily streak: ${streakDays} day${streakDays === 1 ? '' : 's'}`, {
+        fontFamily: '"Arial Black", sans-serif',
+        fontSize: '15px',
+        color: '#ffb347',
+        stroke: '#1a0a2e',
+        strokeThickness: 3,
+      }).setOrigin(0.5).setAlpha(0);
+      this.tweens.add({
+        targets: streak,
+        alpha: 1,
+        scaleX: 1.06,
+        scaleY: 1.06,
+        duration: 220,
+        yoyo: true,
+        delay: 1250,
+      });
+    }
 
     // Splot mascot
     this.splot = new SplotMascot(this, cx, panelY + panelH / 2 - 50, 80);

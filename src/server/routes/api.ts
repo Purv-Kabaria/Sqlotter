@@ -37,6 +37,18 @@ async function readJsonBody<T>(c: Context): Promise<T | null> {
   }
 }
 
+function previousUtcDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() - 1);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function dailyDateFromLevel(level: LevelData): string | null {
+  if (!level.isDaily) return null;
+  const match = /^daily-(\d{4}-\d{2}-\d{2})$/.exec(level.id);
+  return match?.[1] ?? null;
+}
+
 async function getLevel(levelId: string): Promise<LevelData | undefined> {
   const curated = CURATED_LEVELS.find((level) => level.id === levelId);
   if (curated) return curated;
@@ -188,6 +200,23 @@ api.post('/complete', async (c) => {
     await redis.zIncrBy('lb:global:solved', username, 1);
   }
 
+  let streakDays: number | undefined;
+  const dailyDate = dailyDateFromLevel(level);
+  if (isFirstCompletion && dailyDate) {
+    const previousDate = previousUtcDate(dailyDate);
+    const lastDailyDate = await redis.hGet(userKey, 'daily:lastDate');
+    const previousStreak = parseInt((await redis.hGet(userKey, 'daily:streak')) ?? '0', 10);
+
+    streakDays = lastDailyDate === previousDate
+      ? previousStreak + 1
+      : 1;
+
+    await redis.hSet(userKey, {
+      'daily:lastDate': dailyDate,
+      'daily:streak': String(streakDays),
+    });
+  }
+
   let sparksEarned = 0;
   if (isFirstCompletion) {
     const isFirstOverall = await redis.hSetNX('level:first-completer', levelId, username) === 1;
@@ -207,7 +236,7 @@ api.post('/complete', async (c) => {
     [`stars:${levelId}`]: String(bestStars),
   });
 
-  return c.json<CompleteResponse>({ sparksEarned, newTotal: newSparks, stars, isFirstCompletion });
+  return c.json<CompleteResponse>({ sparksEarned, newTotal: newSparks, stars, isFirstCompletion, streakDays });
 });
 
 // ── /api/leaderboard/level/:id ────────────────────────────────
@@ -285,6 +314,7 @@ api.get('/user/profile', async (c) => {
 
   const unlockedItems: string[] = JSON.parse(allFields['unlocked'] ?? '[]');
   const equippedItems: Record<string, string> = JSON.parse(allFields['equipped'] ?? '{}');
+  const streakDays = parseInt(allFields['daily:streak'] ?? '0', 10);
 
   return c.json<ProfileResponse>({
     username,
@@ -293,7 +323,7 @@ api.get('/user/profile', async (c) => {
     equippedItems,
     levelsCompleted: completedLevels.length,
     optimalSolves,
-    streakDays: 0,
+    streakDays,
     completedLevels,
     levelStars,
   });
