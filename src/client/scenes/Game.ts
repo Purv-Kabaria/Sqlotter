@@ -1,9 +1,9 @@
 import * as Phaser from 'phaser';
-import { LevelEngine, calcStars, calcSparks } from '../engine/LevelEngine';
+import { LevelEngine, calcStars } from '../engine/LevelEngine';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
-import type { LevelData, ModifierDef, CompletionData } from '../../shared/types';
-import type { CompleteResponse } from '../../shared/api';
+import type { LevelData, ModifierDef } from '../../shared/types';
+import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { CURATED_LEVELS } from '../../shared/levelData';
 
 const C = {
@@ -44,6 +44,7 @@ export class Game extends Phaser.Scene {
   private level:  LevelData  | null = null;
   private levelId = 'L01';
   private isPreview = false;
+  private winHandled = false;
 
   private goalRenderer:    SlimeRenderer | null = null;
   private currentRenderer: SlimeRenderer | null = null;
@@ -68,6 +69,7 @@ export class Game extends Phaser.Scene {
     this.level        = data?.previewData ?? null;
     this.levelId      = data?.levelId ?? 'L01';
     this.isPreview    = !!data?.previewData;
+    this.winHandled   = false;
     this.paletteCards = [];
     this.bgLayers     = [];
   }
@@ -418,7 +420,8 @@ export class Game extends Phaser.Scene {
 
   // ── Win ───────────────────────────────────────────────────
   private async handleWin() {
-    if (!this.engine || !this.level) return;
+    if (!this.engine || !this.level || this.winHandled) return;
+    this.winHandled = true;
     this.timerEvent?.destroy();
 
     const elapsed = this.engine.elapsedMs();
@@ -436,29 +439,27 @@ export class Game extends Phaser.Scene {
       return;
     }
 
-    const payload: CompletionData = {
-      levelId:   this.levelId,
-      steps,
-      timeMs:    elapsed,
-      stars,
-      isOptimal: stars === 3,
-      sparksEarned: 0,
+    const payload: CompleteRequest = {
+      levelId: this.levelId,
+      timeMs: elapsed,
+      actions: this.engine.actions,
     };
 
     // Await the server response to get the actual sparks earned
     const t0 = Date.now();
-    let sparks = calcSparks(stars, true); // optimistic default
+    let sparks = 0;
     try {
       const res = await fetch('/api/complete', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),
+        signal:  AbortSignal.timeout(4000),
       });
       if (res.ok) {
-        const data = await res.json() as CompleteResponse;
+        const data: CompleteResponse = await res.json();
         sparks = data.sparksEarned;
       }
-    } catch { /* use optimistic estimate */ }
+    } catch { /* completion can be retried by replaying the level */ }
 
     // Guarantee at least 700ms of win animation before transitioning
     const minDelay = Math.max(0, 700 - (Date.now() - t0));

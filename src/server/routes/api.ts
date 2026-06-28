@@ -18,30 +18,21 @@ import type {
 } from '../../shared/api';
 import type { LevelData, Stars } from '../../shared/types';
 import { CURATED_LEVELS } from '../../shared/levelData';
-
-// Pure helpers — no Phaser dependency
-function calcStars(steps: number, optimal: number): Stars {
-  if (steps <= optimal)     return 3;
-  if (steps <= optimal * 2) return 2;
-  return 1;
-}
-function calcSparks(stars: Stars, isFirst: boolean): number {
-  const base = stars === 3 ? 30 : stars === 2 ? 20 : 10;
-  return base + (isFirst ? 30 : 0);
-}
-
-// Item price table (single source of truth)
-const ITEM_PRICES: Record<string, number> = {
-  'eye-doubt': 50, 'eye-cute': 80, 'eye-shock': 120, 'eye-pain': 100,
-  'mouth-kiss': 60, 'mouth-frown': 40, 'mouth-ooo': 70, 'mouth-squiggle': 90,
-  'brow-surprise': 55, 'brow-sad': 45, 'brow-angry': 75,
-  'acc-crown': 200, 'acc-hat': 150, 'acc-party-hat': 80,
-  'acc-horns': 130, 'acc-cap': 60,
-};
+import { calcStars, isValidSolution } from '../../shared/gameRules';
+import { getShopItem } from '../../shared/shop';
 
 type Err = { status: 'error'; message: string };
 
 export const api = new Hono();
+
+async function getLevel(levelId: string): Promise<LevelData | undefined> {
+  const curated = CURATED_LEVELS.find((level) => level.id === levelId);
+  if (curated) return curated;
+  const json = await redis.get(`level:${levelId}`);
+  if (!json) return undefined;
+  const level: LevelData = JSON.parse(json);
+  return level;
+}
 
 // ── /api/init ────────────────────────────────────────────────
 api.get('/init', async (c) => {
@@ -114,25 +105,28 @@ api.post('/complete', async (c) => {
   if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
 
   const body = await c.req.json<CompleteRequest>();
-  const { levelId, steps, timeMs } = body;
-
-  // Determine optimal steps
-  let optimalSteps = body.stars === 3 ? steps : steps * 2; // fallback
-  const curated = CURATED_LEVELS.find(l => l.id === levelId);
-  if (curated) optimalSteps = curated.optimalSteps;
-  else {
-    const json = await redis.get(`level:${levelId}`);
-    if (json) {
-      const lvl = JSON.parse(json) as { optimalSteps: number };
-      optimalSteps = lvl.optimalSteps;
-    }
+  const { levelId, timeMs, actions } = body;
+  if (typeof levelId !== 'string' || levelId.length < 1 || levelId.length > 120) {
+    return c.json<Err>({ status: 'error', message: 'Invalid level id' }, 400);
+  }
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 100
+    || actions.some((action) => typeof action !== 'string' || action.length > 80)) {
+    return c.json<Err>({ status: 'error', message: 'Invalid action sequence' }, 400);
+  }
+  if (!Number.isInteger(timeMs) || timeMs < 100 || timeMs > 86_400_000) {
+    return c.json<Err>({ status: 'error', message: 'Invalid completion time' }, 400);
   }
 
-  const stars    = calcStars(steps, optimalSteps);
+  const level = await getLevel(levelId);
+  if (!level) return c.json<Err>({ status: 'error', message: 'Level not found' }, 404);
+  if (!isValidSolution(level, actions)) {
+    return c.json<Err>({ status: 'error', message: 'Solution does not match the level' }, 400);
+  }
+
+  const steps = actions.length;
+  const stars = calcStars(steps, level.optimalSteps);
   const userKey  = `user:${username}`;
-  const prevDone = await redis.hGet(userKey, `done:${levelId}`);
-  const isFirst  = !prevDone;
-  const actualSparks = calcSparks(stars, isFirst);
+  const isFirstCompletion = await redis.hSetNX(userKey, `done:${levelId}`, '1') === 1;
 
   // Best steps — lower is better: only update if this is a new best
   const stepsKey = `lb:steps:${levelId}`;
@@ -148,13 +142,19 @@ api.post('/complete', async (c) => {
     await redis.zAdd(timeKey, { score: timeMs, member: username });
   }
 
-  // Global: increment levels-solved count (always, even on repeat)
-  if (isFirst) {
+  if (isFirstCompletion) {
     await redis.zIncrBy('lb:global:solved', username, 1);
   }
 
-  // Award sparks
-  const newSparks = await redis.incrBy(`sparks:${username}`, actualSparks);
+  let sparksEarned = 0;
+  if (isFirstCompletion) {
+    const isFirstOverall = await redis.hSetNX('level:first-completer', levelId, username) === 1;
+    sparksEarned = 10 + (stars === 3 ? 20 : 0) + (level.isDaily ? 15 : 0) + (isFirstOverall ? 30 : 0);
+  }
+  const sparksKey = `sparks:${username}`;
+  const newSparks = sparksEarned > 0
+    ? await redis.incrBy(sparksKey, sparksEarned)
+    : parseInt((await redis.get(sparksKey)) ?? '0', 10);
 
   // Persist best star rating for this level
   const prevStarsStr = await redis.hGet(userKey, `stars:${levelId}`);
@@ -162,11 +162,10 @@ api.post('/complete', async (c) => {
   const bestStars    = Math.max(stars, prevStars) as Stars;
 
   await redis.hSet(userKey, {
-    [`done:${levelId}`]:  '1',
     [`stars:${levelId}`]: String(bestStars),
   });
 
-  return c.json<CompleteResponse>({ sparksEarned: actualSparks, newTotal: newSparks, stars });
+  return c.json<CompleteResponse>({ sparksEarned, newTotal: newSparks, stars, isFirstCompletion });
 });
 
 // ── /api/leaderboard/level/:id ────────────────────────────────
@@ -266,8 +265,15 @@ api.post('/user/equip', async (c) => {
   const body     = await c.req.json<EquipRequest>();
   const userKey  = `user:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
+  const item = typeof body.itemId === 'string' ? getShopItem(body.itemId) : undefined;
+  if (!item || body.slot !== item.slot) {
+    return c.json<Err>({ status: 'error', message: 'Invalid item or slot' }, 400);
+  }
+  const unlocked: string[] = JSON.parse(allFields['unlocked'] ?? '[]');
+  const ownsItem = unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1';
+  if (!ownsItem) return c.json<Err>({ status: 'error', message: 'Item is not owned' }, 403);
   const equipped: Record<string, string> = JSON.parse(allFields['equipped'] ?? '{}');
-  equipped[body.slot] = body.itemId;
+  equipped[item.slot] = item.id;
 
   await redis.hSet(userKey, { equipped: JSON.stringify(equipped) });
   return c.json<EquipResponse>({ equippedItems: equipped });
@@ -280,21 +286,33 @@ api.post('/user/buy', async (c) => {
 
   const body    = await c.req.json<BuyRequest>();
   const userKey = `user:${username}`;
-  const price   = ITEM_PRICES[body.itemId];
+  const item = typeof body.itemId === 'string' ? getShopItem(body.itemId) : undefined;
 
-  if (!price) return c.json<Err>({ status: 'error', message: 'Unknown item' }, 400);
+  if (!item) return c.json<Err>({ status: 'error', message: 'Unknown item' }, 400);
 
-  const sparks = parseInt((await redis.get(`sparks:${username}`)) ?? '0', 10);
-  if (sparks < price) return c.json<Err>({ status: 'error', message: 'Insufficient Sparks' }, 402);
-
-  const newSparks = await redis.incrBy(`sparks:${username}`, -price);
+  const sparksKey = `sparks:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
   const unlocked: string[] = JSON.parse(allFields['unlocked'] ?? '[]');
-
-  if (!unlocked.includes(body.itemId)) {
-    unlocked.push(body.itemId);
-    await redis.hSet(userKey, { unlocked: JSON.stringify(unlocked) });
+  const sparks = parseInt((await redis.get(sparksKey)) ?? '0', 10);
+  if (unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1') {
+    return c.json<BuyResponse>({ sparks, unlockedItems: unlocked });
   }
+  if (sparks < item.price) return c.json<Err>({ status: 'error', message: 'Insufficient Sparks' }, 402);
+
+  const claimed = await redis.hSetNX(userKey, `owned:${item.id}`, '1');
+  if (claimed !== 1) {
+    return c.json<BuyResponse>({ sparks, unlockedItems: unlocked });
+  }
+
+  const newSparks = await redis.incrBy(sparksKey, -item.price);
+  if (newSparks < 0) {
+    await redis.incrBy(sparksKey, item.price);
+    await redis.hDel(userKey, [`owned:${item.id}`]);
+    return c.json<Err>({ status: 'error', message: 'Insufficient Sparks' }, 402);
+  }
+
+  unlocked.push(item.id);
+  await redis.hSet(userKey, { unlocked: JSON.stringify(unlocked) });
 
   return c.json<BuyResponse>({ sparks: newSparks, unlockedItems: unlocked });
 });

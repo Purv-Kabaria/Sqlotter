@@ -42,17 +42,15 @@ export type DailyResponse = {
 // ── Completion ────────────────────────────────────────────
 export type CompleteRequest = {
   levelId: string;
-  steps: number;
   timeMs: number;
-  stars: Stars;
-  isOptimal: boolean;
-  sparksEarned?: number;
+  actions: string[];
 };
 
 export type CompleteResponse = {
   sparksEarned: number;
   newTotal: number;
   stars: Stars;
+  isFirstCompletion: boolean;
 };
 
 // ── Leaderboard ───────────────────────────────────────────

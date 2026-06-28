@@ -1,5 +1,8 @@
 import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
+import { SHOP_ITEMS } from '../../shared/shop';
+import type { ShopCategory, ShopItem } from '../../shared/shop';
+import type { BuyResponse, EquipResponse, ProfileResponse } from '../../shared/api';
 
 const C = {
   BG:     0x1a0a2e,
@@ -11,35 +14,6 @@ const C = {
   DIM:    '#7a8a9a',
   LOCKED: 0x1a1030,
 } as const;
-
-type ShopCategory = 'eyes' | 'mouth' | 'brows' | 'accessories';
-
-type ShopItem = {
-  id: string;
-  label: string;
-  iconKey: string;
-  price: number;
-  category: ShopCategory;
-};
-
-const SHOP_ITEMS: ShopItem[] = [
-  { id: 'eye-doubt',   label: 'Doubt Eyes',    iconKey: 'char-eye-doubt',   price: 50,  category: 'eyes' },
-  { id: 'eye-cute',    label: 'Cute Eyes',     iconKey: 'char-eye-cute',    price: 80,  category: 'eyes' },
-  { id: 'eye-shock',   label: 'Shocked',       iconKey: 'char-eye-shock',   price: 120, category: 'eyes' },
-  { id: 'eye-pain',    label: 'Pain Eyes',     iconKey: 'char-eye-pain',    price: 100, category: 'eyes' },
-  { id: 'mouth-kiss',  label: 'Kiss Mouth',    iconKey: 'char-mouth-kiss',  price: 60,  category: 'mouth' },
-  { id: 'mouth-frown', label: 'Frown',         iconKey: 'char-mouth-frown', price: 40,  category: 'mouth' },
-  { id: 'mouth-ooo',   label: 'Ooo Mouth',     iconKey: 'char-mouth-ooo',   price: 70,  category: 'mouth' },
-  { id: 'mouth-squiggle','label': 'Squiggle',  iconKey: 'char-mouth-squiggle', price: 90, category: 'mouth' },
-  { id: 'brow-surprise','label': 'Surprised',  iconKey: 'char-brow-surprise',  price: 55,  category: 'brows' },
-  { id: 'brow-sad',    label: 'Sad Brows',     iconKey: 'char-brow-sad',    price: 45,  category: 'brows' },
-  { id: 'brow-angry',  label: 'Angry Brows',   iconKey: 'char-brow-angry',  price: 75,  category: 'brows' },
-  { id: 'acc-crown',   label: 'Crown',         iconKey: 'char-acc-crown',   price: 200, category: 'accessories' },
-  { id: 'acc-hat',     label: 'Top Hat',       iconKey: 'char-acc-hat',     price: 150, category: 'accessories' },
-  { id: 'acc-party-hat','label': 'Party Hat',  iconKey: 'char-acc-party-hat', price: 80, category: 'accessories' },
-  { id: 'acc-horns',   label: 'Horns',         iconKey: 'char-acc-horns',   price: 130, category: 'accessories' },
-  { id: 'acc-cap',     label: 'Cap',           iconKey: 'char-acc-cap',     price: 60,  category: 'accessories' },
-];
 
 export class Shop extends Phaser.Scene {
   private activeCategory: ShopCategory = 'eyes';
@@ -88,7 +62,7 @@ export class Shop extends Phaser.Scene {
     try {
       const res = await fetch('/api/user/profile');
       if (res.ok) {
-        const data = await res.json();
+        const data: ProfileResponse = await res.json();
         this.sparks = data.sparks ?? 0;
         this.unlockedItems = new Set(data.unlockedItems ?? []);
         this.equippedItems = data.equippedItems ?? {};
@@ -274,7 +248,7 @@ export class Shop extends Phaser.Scene {
           body: JSON.stringify({ itemId: item.id }),
         });
         if (res.ok) {
-          const data = await res.json();
+          const data: BuyResponse = await res.json();
           this.sparks = data.sparks;
           this.sparksText?.setText(`${this.sparks}`);
           this.unlockedItems.add(item.id);
@@ -288,15 +262,18 @@ export class Shop extends Phaser.Scene {
       }
     } else if (!equipped) {
       // Equip
-      const category = item.category;
-      const slot = category === 'accessories' ? 'accessory' : category.replace('brows', 'eyebrow').replace('eyes', 'eye').replace('mouth', 'mouth');
       try {
-        await fetch('/api/user/equip', {
+        const res = await fetch('/api/user/equip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slot, itemId: item.id }),
+          body: JSON.stringify({ slot: item.slot, itemId: item.id }),
         });
-        this.equippedItems[slot] = item.id;
+        if (!res.ok) {
+          this.showToast('Could not equip that item.', '#ff5555');
+          return;
+        }
+        const data: EquipResponse = await res.json();
+        this.equippedItems = data.equippedItems;
         this.showToast(`Equipped ${item.label}!`, '#6DD400');
         if (this.splot) {
           this.splot.refresh(this.equippedItems);
@@ -305,7 +282,9 @@ export class Shop extends Phaser.Scene {
         this.itemGrid?.destroy();
         const { width: w, height: h } = this.scale;
         this.renderItems(w, h);
-      } catch { /* silent */ }
+      } catch {
+        this.showToast('Could not equip that item.', '#ff5555');
+      }
     }
   }
 
