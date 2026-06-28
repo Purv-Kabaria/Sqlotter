@@ -1,52 +1,88 @@
-You are writing a Devvit web application that will be executed on Reddit.com.
+# Splot Development Guide
 
-## Tech Stack
+Splot is a Factory Balls-style sequence puzzle built as a Devvit Web app for Reddit. Players apply modifiers in order to match a target slime, earn Sparks, solve a daily puzzle, customize the Splot mascot, and publish community levels.
 
-- **Frontend**: Phaser, Vite
-- **Backend**: Node.js v22 serverless environment (Devvit), Hono, TRPC
-- **Communication**: tRPC v11 for end-to-end type safety
+## Stack
 
-## Layout & Architecture
+- Client: Phaser 4, Vite, TypeScript
+- Server: Hono in the Devvit Node.js 22 serverless runtime
+- Platform: `@devvit/web` and `@devvit/start`
+- Persistence: Devvit Redis
+- Client/server API: typed REST requests under `/api`
 
-- `/src/server`: **Backend Code**. This runs in a secure, serverless environment.
-  - `trpc.ts`: Defines the API router and procedures.
-  - `index.ts`: Main server entry point (Hono app).
-  - Access `redis`, `reddit`, and `context` here via `@devvit/web/server`.
-- `/src/client`: **Frontend Code**. This is executed inside of an iFrame on reddit.com
-  - To add an entrypoint, create a HTML file and add to the mapping inside of `devvit.json`
-  - Entrypoints:
-    - `game.html`: The main React entry point (Expanded View).
-    - `splash.html`: The initial React entry point (Inline View). This will be shown in the reddit.com feed. Please keep it fast and keep heavy dependencies inside of `game.html`
-- `/src/shared`: **Shared Code**. Code to share between the client and server
+There is no React or tRPC setup in this repository. Do not introduce either unless the architecture is deliberately migrated end-to-end.
 
-## Frontend
+## Repository Layout
 
-### Rules
+- `src/client`: iframe code. `splash.ts` is the lightweight inline feed view; `game.ts` starts the expanded Phaser game.
+- `src/client/scenes`: one Phaser scene per screen.
+- `src/client/components`: reusable Phaser renderers for slimes and the mascot.
+- `src/client/engine`: deterministic puzzle rules and scoring helpers.
+- `src/server`: secure Hono routes running in Devvit.
+- `src/shared`: dependency-free types, API contracts, curated levels, and daily generation shared by client and server.
+- `public/assets`: game sprites loaded by `Preloader.ts`.
+- `devvit.json`: client/server entrypoints and all platform menu, trigger, and scheduler mappings.
 
-- Instead of `window.location` or `window.assign`, use `navigateTo` from `@devvit/web/client`
+## Devvit Rules
 
-### Limitations
+- Access `redis`, `reddit`, `context`, `scheduler`, and `realtime` only from `@devvit/web/server` in server code.
+- Use `requestExpandedMode`, `navigateTo`, `showToast`, and other browser-safe APIs from `@devvit/web/client`.
+- Do not import Blocks or `@devvit/public-api`; this is Devvit Web only.
+- Do not use `window.location`, `window.assign`, `window.alert`, or persistent `localStorage`.
+- Keep `splash.html` fast and free of Phaser imports.
+- Keep scripts in separate TypeScript files; do not add inline scripts to HTML.
+- Register every new internal menu, form, trigger, or scheduler endpoint in `devvit.json`.
 
-- `window.alert`: Use `showToast` or `showForm` from `@devvit/web/client`
-- File downloads: Use clipboard API with `showToast` to confirm
-- Geolocation, camera, microphone, and notifications web APIs: No alternatives
-- Inline script tags inside of `html` files: Use a script tag and separate js/ts file
+## Game Invariants
 
-## Commands
+- `SlimeState` equality determines a win.
+- Goggles and glasses are mutually exclusive.
+- Goggles can be used only once per attempt.
+- Pumpkin 75 conflicts with underwear and thick belts.
+- Applying another modifier in the same slot replaces the previous modifier.
+- The server is authoritative for levels, completion validation, rewards, purchases, and equipment.
+- Never trust client-provided stars, rewards, ownership, prices, or optimal-step values.
+- Keep the goal visible, the step counter and timer available, and reset always accessible.
+- Use `pointerup` for actions and maintain at least 44 by 44 CSS-pixel touch targets.
 
-- `npm run type-check`: Check typescript types
-- `npm run lint`: Check the linter
-- `npm run test -- my-file-name`: Run tests isolated to a file
+## Data And API Conventions
+
+- Put request and response types in `src/shared/api.ts`.
+- Put shared domain types in `src/shared/types.ts`.
+- Redis keys use colon-separated namespaces.
+- Redis values are strings; parse reads and stringify structured writes.
+- Bound user-controlled strings and collection sizes before storing them.
+- Return explicit 4xx errors for invalid input and authentication failures.
+- Prefer typed parsing helpers over TypeScript casts for untrusted JSON.
 
 ## Code Style
 
-- Prefer type aliases over interfaces when writing typescript
-- Prefer named exports over default exports
-- Never cast typescript types
+- TypeScript is strict. Do not use `any` or add type casts.
+- Prefer type aliases and named exports.
+- Keep client/server boundaries intact; shared modules must not depend on Phaser or Devvit runtime APIs.
+- Use `void (async () => { ... })()` for fire-and-forget Phaser handlers.
+- Add comments only for non-obvious rules or platform constraints.
+- Preserve the existing responsive scene patterns and asset key conventions.
 
-## Global Rules
+## Verification
 
-- You may find code that references blocks or `@devvit/public-api` while building a feature. Do NOT use this code as this project is configured to use Devvit web only.
-- Whenever you add an endpoint for a new menu item action, ensure that you've added the corresponding mapping to `devvit.json` so that it is properly registered
+Run these before committing:
 
-Docs: https://developers.reddit.com/docs/llms.txt.
+```text
+npm run type-check
+npm run lint
+npm run build
+```
+
+Use `npm run dev` for Devvit playtesting after authenticating with `npm run login`. Verify portrait mobile, landscape tablet, and desktop layouts. Test the complete path for every feature: client interaction, API validation, Redis mutation, reload behavior, and failure feedback.
+
+## Launch Checklist
+
+- Inline splash opens the `game` expanded entrypoint.
+- Curated, daily, and community levels load and complete correctly.
+- Completion rewards cannot be forged or farmed by replaying.
+- Leaderboards retain only each player's best valid score.
+- Shop purchases are server-priced; equipment requires ownership.
+- Community level creation validates solvability and appears in discovery.
+- Scheduler, install trigger, and moderator menu endpoints match `devvit.json`.
+- Type check, lint, production build, and Devvit playtest pass.
