@@ -17,15 +17,17 @@
 
     <!-- Main content -->
     <div class="splash-content">
-      <!-- Splot face (pure CSS) -->
-      <div class="splot-blob" id="splot-blob">
-        <div class="splot-eye splot-eye-left"></div>
-        <div class="splot-eye splot-eye-right"></div>
-        <div class="splot-mouth"></div>
-        <div class="splot-shine"></div>
+      <div class="splot-stack" id="splot-blob" aria-hidden="true">
+        <img class="splot-layer" src="assets/character/shadow.png" alt="" />
+        <img class="splot-layer" src="assets/character/blob.png" alt="" />
+        <img class="splot-layer" src="assets/character/mouth/mouth-happy.png" alt="" />
+        <img class="splot-layer" src="assets/character/eyes/eye-normal.png" alt="" />
+        <img class="splot-layer" src="assets/character/eyebrows/eyebrow-normal.png" alt="" />
+        <img class="splot-layer" src="assets/character/overlay-normal.png" alt="" />
+        <img class="splot-layer" src="assets/character/outline.png" alt="" />
       </div>
 
-      <h1 class="splash-title">Splot!</h1>
+      <img class="splash-title" src="assets/title.png" alt="Splot!" />
       <p class="splash-sub" id="greeting">Loading…</p>
       <p class="splash-desc" id="daily-info">Today's puzzle is waiting!</p>
     </div>

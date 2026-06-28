@@ -5,6 +5,7 @@ import { getLaunchLevelId } from '../launch';
 type AssetDef = { key: string; path: string };
 
 const IMG: AssetDef[] = [
+  { key: 'title-splot', path: 'title.png' },
   // ── Slime base layers ─────────────────────────────
   { key: 'slime-color',  path: 'slime/color.png' },
   { key: 'slime-border', path: 'slime/border.png' },
@@ -163,7 +164,7 @@ export class Preloader extends Scene {
     this.cameras.main.setBackgroundColor(0x1a0a2e);
     this.createLoadingUI();
 
-    this.load.setPath('../assets');
+    this.load.setPath('assets');
     for (const { key, path } of IMG) {
       this.load.image(key, path);
     }

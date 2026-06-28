@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
+import { addPixelButton } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 
 // ── Design tokens ─────────────────────────────────────────────
@@ -15,56 +16,6 @@ const C = {
 } as const;
 
 // ── Reusable button helper ────────────────────────────────────
-function makeButton(
-  scene: Phaser.Scene,
-  x: number, y: number, w: number, h: number,
-  label: string, iconKey: string | null,
-  color: number, cb: () => void,
-): Phaser.GameObjects.Container {
-  const g = scene.add.graphics();
-  const drawNormal = () => {
-    g.clear();
-    g.fillStyle(color, 1);
-    g.fillRoundedRect(-w/2, -h/2, w, h, 14);
-    g.lineStyle(2, 0xffffff, 0.15);
-    g.strokeRoundedRect(-w/2, -h/2, w, h, 14);
-  };
-  const drawPress = () => {
-    g.clear();
-    g.fillStyle(Phaser.Display.Color.IntegerToColor(color).darken(30).color, 1);
-    g.fillRoundedRect(-w/2, -h/2 + 2, w, h, 14);
-  };
-  drawNormal();
-
-  const items: Phaser.GameObjects.GameObject[] = [g];
-  let textX = 0;
-
-  if (iconKey) {
-    const icon = scene.add.image(-w/2 + 26, 0, iconKey)
-      .setDisplaySize(22, 22).setOrigin(0.5);
-    items.push(icon);
-    textX = 10;
-  }
-
-  const txt = scene.add.text(textX, 0, label, {
-    fontFamily: '"Arial Black", sans-serif',
-    fontSize: `${Math.round(h * 0.38)}px`,
-    color: C.TEXT,
-    shadow: { offsetX: 1, offsetY: 2, color: '#000000', blur: 4, fill: true },
-  }).setOrigin(0.5);
-  items.push(txt);
-
-  const c = scene.add.container(x, y, items);
-  c.setSize(w, h);
-  c.setInteractive({ useHandCursor: true });
-
-  c.on('pointerover',  () => scene.tweens.add({ targets: c, scaleX: 1.04, scaleY: 1.04, duration: 80 }));
-  c.on('pointerout',   () => { drawNormal(); scene.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 }); });
-  c.on('pointerdown',  () => { drawPress(); scene.tweens.add({ targets: c, scaleX: 0.96, scaleY: 0.96, duration: 60 }); });
-  c.on('pointerup',    () => { drawNormal(); scene.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 60, onComplete: cb }); });
-  return c;
-}
-
 // ── Scene ──────────────────────────────────────────────────────
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
@@ -170,15 +121,11 @@ export class MainMenu extends Phaser.Scene {
 
     new SplotMascot(this, cx, splotY, splotSize);
 
-    // SPLOT! title
-    const title = this.add.text(cx, splotY - splotSize * 0.72, 'Splot!', {
-      fontFamily: '"Arial Black", Impact, sans-serif',
-      fontSize: `${Math.round(splotSize * 0.56)}px`,
-      color: '#6DD400',
-      stroke: '#1a0a2e',
-      strokeThickness: 7,
-      shadow: { offsetX: 3, offsetY: 4, color: '#000000', blur: 10, fill: true },
-    }).setOrigin(0.5).setDepth(5);
+    // SPLOT! title asset
+    const title = this.add.image(cx, splotY - splotSize * 0.72, 'title-splot')
+      .setDisplaySize(splotSize * 1.25, splotSize * 0.27)
+      .setOrigin(0.5)
+      .setDepth(5);
 
     // Subtle pulse on title
     this.tweens.add({
@@ -220,9 +167,15 @@ export class MainMenu extends Phaser.Scene {
       ['🛍  Shop',          'icon-bag',  0xff6b35, 'Shop'],
     ];
 
-    btns.forEach(([label, icon, color, scene, param], i) => {
-      const btn = makeButton(this, btnX, btnStartY + i * btnGap2, btnW, btnH2,
-        label, icon, color, () => {
+    btns.forEach(([label, icon, _color, scene, param], i) => {
+      const btn = addPixelButton(this, {
+        x: btnX,
+        y: btnStartY + i * btnGap2,
+        width: btnW,
+        height: btnH2,
+        label,
+        iconKey: icon ?? undefined,
+        onClick: () => {
           this.cameras.main.fadeOut(250, 10, 5, 46);
           this.time.delayedCall(260, () => {
             if (param) {
@@ -231,7 +184,8 @@ export class MainMenu extends Phaser.Scene {
               this.scene.start(scene);
             }
           });
-        });
+        },
+      });
       btn.setDepth(5);
       btn.setAlpha(0);
       this.tweens.add({ targets: btn, alpha: 1, y: btnStartY + i * btnGap2, duration: 300, delay: 200 + i * 80 });

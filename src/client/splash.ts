@@ -6,12 +6,20 @@ const dailyInfo = document.getElementById('daily-info')   as HTMLParagraphElemen
 const startBtn  = document.getElementById('start-button') as HTMLButtonElement;
 const launchLevelId = getLaunchLevelId();
 
+function setStartLabel(label: string) {
+  startBtn.replaceChildren();
+  const icon = document.createElement('span');
+  icon.className = 'play-icon';
+  icon.textContent = '▶';
+  startBtn.append(icon, document.createTextNode(` ${label}`));
+}
+
 // Show username greeting from context immediately (no fetch required)
 greeting.textContent = context.username
   ? `Hey u/${context.username}! 👋`
   : 'Ready to play? 🎮';
 if (launchLevelId) {
-  startBtn.textContent = 'Play this level';
+  setStartLabel('Play this level');
   dailyInfo.textContent = 'Community Splot level ready!';
 }
 
