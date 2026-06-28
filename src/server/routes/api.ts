@@ -54,26 +54,54 @@ async function getLevel(levelId: string): Promise<LevelData | undefined> {
   if (curated) return curated;
   const json = await redis.get(`level:${levelId}`);
   if (!json) return undefined;
-  const level: LevelData = JSON.parse(json);
-  return level;
+  return parseStoredLevel(json) ?? undefined;
 }
 
 const GOGGLE_VARIANTS = new Set(['h-thick', 'h-thin', 'h-mono', 'v-thick', 'v-thin', 'v-mono']);
 const FOUR_WAY_VARIANTS = new Set(['h-thick', 'h-thin', 'v-thick', 'v-thin']);
 
-function isValidSlimeState(state: SlimeState): boolean {
-  return typeof state === 'object' && state !== null
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseJsonValue(json: string): unknown | null {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function parseStringArray(json: string | undefined): string[] {
+  if (!json) return [];
+  const value = parseJsonValue(json);
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : [];
+}
+
+function parseStringRecord(json: string | undefined): Record<string, string> {
+  if (!json) return {};
+  const value = parseJsonValue(json);
+  if (!isRecord(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === 'string') result[key] = item;
+  }
+  return result;
+}
+
+function isValidSlimeState(state: unknown): state is SlimeState {
+  return isRecord(state)
     && typeof state.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(state.color)
-    && (state.goggles === null || GOGGLE_VARIANTS.has(state.goggles))
-    && (state.glasses === null || FOUR_WAY_VARIANTS.has(state.glasses))
-    && (state.belt === null || FOUR_WAY_VARIANTS.has(state.belt))
+    && (state.goggles === null || (typeof state.goggles === 'string' && GOGGLE_VARIANTS.has(state.goggles)))
+    && (state.glasses === null || (typeof state.glasses === 'string' && FOUR_WAY_VARIANTS.has(state.glasses)))
+    && (state.belt === null || (typeof state.belt === 'string' && FOUR_WAY_VARIANTS.has(state.belt)))
     && (state.pendant === null || state.pendant === 'h' || state.pendant === 'v')
     && (state.pumpkin === null || state.pumpkin === 25 || state.pumpkin === 50 || state.pumpkin === 75)
     && typeof state.underwear === 'boolean';
 }
 
-function isValidModifier(modifier: ModifierDef): boolean {
-  if (typeof modifier !== 'object' || modifier === null
+function isValidModifier(modifier: unknown): modifier is ModifierDef {
+  if (!isRecord(modifier)
     || typeof modifier.id !== 'string' || modifier.id.length < 1 || modifier.id.length > 80) return false;
   switch (modifier.type) {
     case 'paint': return typeof modifier.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(modifier.color);
@@ -85,6 +113,37 @@ function isValidModifier(modifier: ModifierDef): boolean {
     case 'underwear': return true;
     default: return false;
   }
+}
+
+function isDifficulty(value: unknown): value is 1 | 2 | 3 | 4 | 5 {
+  return value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
+}
+
+function parseStoredLevel(json: string): LevelData | null {
+  const value = parseJsonValue(json);
+  if (!isRecord(value)
+    || typeof value.id !== 'string'
+    || typeof value.title !== 'string'
+    || !isDifficulty(value.difficulty)
+    || !isValidSlimeState(value.goalState)
+    || !Array.isArray(value.palette)
+    || !value.palette.every(isValidModifier)
+    || !Number.isInteger(value.optimalSteps)
+    || typeof value.optimalSteps !== 'number') {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    title: value.title,
+    difficulty: value.difficulty,
+    goalState: value.goalState,
+    palette: value.palette,
+    optimalSteps: value.optimalSteps,
+    hint: typeof value.hint === 'string' ? value.hint : undefined,
+    authorName: typeof value.authorName === 'string' ? value.authorName : undefined,
+    isDaily: value.isDaily === true,
+  };
 }
 
 // ── /api/init ────────────────────────────────────────────────
@@ -119,7 +178,8 @@ api.get('/daily', async (c) => {
   if (levelId) {
     const levelJson = await redis.get(`level:${levelId}`);
     if (levelJson) {
-      return c.json<DailyResponse>({ levelId, level: JSON.parse(levelJson), date: today });
+      const level = parseStoredLevel(levelJson);
+      if (level) return c.json<DailyResponse>({ levelId, level, date: today });
     }
   }
 
@@ -147,7 +207,10 @@ api.get('/level/:id', async (c) => {
 
   // Check Redis (UGC / daily generated)
   const json = await redis.get(`level:${id}`);
-  if (json) return c.json<LevelResponse>({ level: JSON.parse(json) });
+  if (json) {
+    const level = parseStoredLevel(json);
+    if (level) return c.json<LevelResponse>({ level });
+  }
 
   return c.json<Err>({ status: 'error', message: 'Level not found' }, 404);
 });
@@ -312,8 +375,8 @@ api.get('/user/profile', async (c) => {
     }
   }
 
-  const unlockedItems: string[] = JSON.parse(allFields['unlocked'] ?? '[]');
-  const equippedItems: Record<string, string> = JSON.parse(allFields['equipped'] ?? '{}');
+  const unlockedItems = parseStringArray(allFields['unlocked']);
+  const equippedItems = parseStringRecord(allFields['equipped']);
   const streakDays = parseInt(allFields['daily:streak'] ?? '0', 10);
 
   return c.json<ProfileResponse>({
@@ -342,10 +405,10 @@ api.post('/user/equip', async (c) => {
   if (!item || body.slot !== item.slot) {
     return c.json<Err>({ status: 'error', message: 'Invalid item or slot' }, 400);
   }
-  const unlocked: string[] = JSON.parse(allFields['unlocked'] ?? '[]');
+  const unlocked = parseStringArray(allFields['unlocked']);
   const ownsItem = unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1';
   if (!ownsItem) return c.json<Err>({ status: 'error', message: 'Item is not owned' }, 403);
-  const equipped: Record<string, string> = JSON.parse(allFields['equipped'] ?? '{}');
+  const equipped = parseStringRecord(allFields['equipped']);
   equipped[item.slot] = item.id;
 
   await redis.hSet(userKey, { equipped: JSON.stringify(equipped) });
@@ -366,7 +429,7 @@ api.post('/user/buy', async (c) => {
 
   const sparksKey = `sparks:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
-  const unlocked: string[] = JSON.parse(allFields['unlocked'] ?? '[]');
+  const unlocked = parseStringArray(allFields['unlocked']);
   const sparks = parseInt((await redis.get(sparksKey)) ?? '0', 10);
   if (unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1') {
     return c.json<BuyResponse>({ sparks, unlockedItems: unlocked });
@@ -451,7 +514,7 @@ api.post('/level/create', async (c) => {
   // Track user's created levels
   const userKey = `user:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
-  const created: string[] = JSON.parse(allFields['created'] ?? '[]');
+  const created = parseStringArray(allFields['created']);
   created.push(levelId);
   await redis.hSet(userKey, { created: JSON.stringify(created) });
 
@@ -499,7 +562,8 @@ api.get('/levels/community', async (c) => {
       raw.map(async (r) => {
         const json = await redis.get(`level:${r.member}`);
         if (!json) return null;
-        const level: LevelData = JSON.parse(json);
+        const level = parseStoredLevel(json);
+        if (!level) return null;
         return {
           id: level.id,
           title: level.title,
