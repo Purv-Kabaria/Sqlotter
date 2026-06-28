@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { LevelEngine, calcStars } from '../engine/LevelEngine';
-import { addPixelButton, addPixelIconButton, addPixelPanel } from '../components/PixelUI';
+import { addPixelButton, addPixelIconButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
 import type { LevelData, ModifierDef } from '../../shared/types';
@@ -18,14 +18,21 @@ const C = {
   ACCENT: '#6DD400',
 } as const;
 
+const VARIANT_LABEL: Record<string, string> = {
+  'h-thick': 'Wide', 'h-thin': 'Thin', 'h-mono': 'Monocle',
+  'v-thick': 'V Wide', 'v-thin': 'V Thin', 'v-mono': 'V Mono',
+  'h': 'H', 'v': 'V',
+};
+
 function modLabel(mod: ModifierDef): string {
-  if (mod.type === 'paint')    return '🎨 Paint';
-  if (mod.type === 'goggles')  return `🥽 ${mod.variant}`;
-  if (mod.type === 'glasses')  return `👓 ${mod.variant}`;
-  if (mod.type === 'belt')     return `👔 ${mod.variant}`;
-  if (mod.type === 'pendant')  return `📿 ${mod.variant}`;
-  if (mod.type === 'pumpkin')  return `🎃 ${mod.coverage}%`;
-  if (mod.type === 'underwear') return '🩲 Undies';
+  const v = mod.variant ? (VARIANT_LABEL[mod.variant] ?? mod.variant) : '';
+  if (mod.type === 'paint')    return 'Paint';
+  if (mod.type === 'goggles')  return `Goggles${v ? ' ' + v : ''}`;
+  if (mod.type === 'glasses')  return `Glasses${v ? ' ' + v : ''}`;
+  if (mod.type === 'belt')     return `Belt${v ? ' ' + v : ''}`;
+  if (mod.type === 'pendant')  return `Pendant${v ? ' ' + v : ''}`;
+  if (mod.type === 'pumpkin')  return `Pumpkin ${mod.coverage ?? 50}%`;
+  if (mod.type === 'underwear') return 'Underwear';
   return mod.id;
 }
 
@@ -83,6 +90,7 @@ export class Game extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(300, 26, 10, 46);
+    this.scale.on('resize', this.onResize, this);
     this.buildBackground();
 
     if (this.level) {
@@ -102,9 +110,9 @@ export class Game extends Phaser.Scene {
 
   private showLoading() {
     const { width, height } = this.scale;
-    this.loadingText = this.add.text(width / 2, height / 2, 'Loading daily puzzle…', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '18px',
+    this.loadingText = this.add.text(width / 2, height / 2, 'Loading daily puzzle...', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '10px',
       color: '#a0b0c0',
     }).setOrigin(0.5).setDepth(20);
     this.tweens.add({ targets: this.loadingText, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
@@ -200,8 +208,8 @@ export class Game extends Phaser.Scene {
 
     const icon = this.add.image(0, -48, 'icon-warning').setDisplaySize(32, 32).setDepth(81);
     const text = this.add.text(0, -10, message, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '16px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '9px',
       color: '#ffb3b3',
       align: 'center',
       wordWrap: { width: panelW - 36 },
@@ -213,7 +221,6 @@ export class Game extends Phaser.Scene {
       width: 148,
       height: 44,
       label: 'Try Again',
-      fontSize: 15,
       onClick: retry,
     }).setDepth(81);
 
@@ -234,7 +241,7 @@ export class Game extends Phaser.Scene {
 
   private buildBackground() {
     const { width, height } = this.scale;
-    ['bg3-1', 'bg3-2'].forEach((key, i) => {
+    ['bg4-1', 'bg4-2'].forEach((key, i) => {
       const img = this.add.image(width / 2, height / 2, key)
         .setAlpha(i === 0 ? 0.55 : 0.25)
         .setDepth(-10);
@@ -253,28 +260,27 @@ export class Game extends Phaser.Scene {
     }, 180);
 
     if (this.level) {
-      const titleLabel = this.isPreview
-        ? `🔍 PREVIEW: ${this.level.title}`
-        : this.level.isDaily ? `📅 ${this.level.title}` : this.level.title;
+      const prefix = this.isPreview ? 'PREVIEW: ' : this.level.isDaily ? 'Daily: ' : '';
+      const titleLabel = `${prefix}${this.level.title}`;
       this.add.text(width / 2, 16, titleLabel, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '16px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '9px',
         color: '#ffffff',
         stroke: '#1a0a2e',
-        strokeThickness: 4,
+        strokeThickness: 3,
       }).setOrigin(0.5, 0).setDepth(15);
     }
 
     this.add.image(width - 92, 22, 'icon-timer').setDisplaySize(18, 18).setDepth(15);
     this.timerText = this.add.text(width - 74, 22, '0:00', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '18px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '11px',
       color: '#ffffff',
     }).setOrigin(0, 0.5).setDepth(15);
 
     this.stepsText = this.add.text(width / 2, 38, 'Steps: 0', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.DIM,
     }).setOrigin(0.5, 0).setDepth(15);
 
@@ -285,8 +291,9 @@ export class Game extends Phaser.Scene {
     div.lineStyle(1, 0x6dd400, 0.2);
     div.lineBetween(0, 74, width, 74);
 
-    this.goggleWarning = this.add.text(width / 2, 62, '🥽 Goggles used!', {
-      fontSize: '12px',
+    this.goggleWarning = this.add.text(width / 2, 62, 'Goggles used!', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: '#FF851B',
       stroke: '#1a0a2e',
       strokeThickness: 3,
@@ -309,32 +316,36 @@ export class Game extends Phaser.Scene {
     if (!this.engine) return;
     const { width, height } = this.scale;
     const isPortrait = height > width;
-    const slimeSize  = isPortrait ? Math.min(width * 0.28, 120) : Math.min(height * 0.22, 110);
-    const panelY     = isPortrait ? 160 : 130;
-    const panelH     = slimeSize + 64;
+    const slimeSize  = isPortrait ? Math.min(width * 0.30, 130) : Math.min(height * 0.26, 130);
+    const panelY     = isPortrait ? height * 0.22 : height * 0.32;
+    const panelW     = slimeSize + 48;
+    const panelH     = slimeSize + 56;
 
     const goalX = isPortrait ? width * 0.25 : width * 0.22;
-    this.buildSlimePanel(goalX, panelY, slimeSize * 1.6, panelH, 'Goal');
+    this.buildSlimePanel(goalX, panelY, panelW, panelH, 'Goal');
     this.goalRenderer = new SlimeRenderer(this, goalX, panelY, slimeSize);
+    this.goalRenderer.container.setDepth(4);
     this.goalRenderer.setState(this.engine.goalState);
 
     const curX = isPortrait ? width * 0.75 : width * 0.55;
-    this.buildSlimePanel(curX, panelY, slimeSize * 1.6, panelH, 'Splot');
+    this.buildSlimePanel(curX, panelY, panelW, panelH, 'Yours');
     this.currentRenderer = new SlimeRenderer(this, curX, panelY, slimeSize);
+    this.currentRenderer.container.setDepth(4);
     this.currentRenderer.setState(this.engine.currentState);
 
     if (!isPortrait) {
-      this.splot = new SplotMascot(this, width * 0.83, panelY, slimeSize * 0.7);
+      this.splot = new SplotMascot(this, width * 0.83, panelY, slimeSize * 0.65);
+      this.splot.container.setDepth(4);
     }
   }
 
   private buildSlimePanel(cx: number, cy: number, w: number, h: number, label: string) {
     addPixelPanel(this, cx, cy, w, h).setDepth(2).setAlpha(0.94);
     this.add.text(cx, cy - h / 2 + 14, label, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '13px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.ACCENT,
-    }).setOrigin(0.5).setDepth(3);
+    }).setOrigin(0.5).setDepth(5);
   }
 
   // ── Modifier palette ──────────────────────────────────────
@@ -358,15 +369,15 @@ export class Game extends Phaser.Scene {
     this.paletteContainer.add(pbg);
 
     const title = this.add.text(paletteX + paletteW / 2, paletteY + 18, 'Modifiers', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '15px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '9px',
       color: C.ACCENT,
     }).setOrigin(0.5).setDepth(5);
     this.paletteContainer.add(title);
 
     this.hintText = this.add.text(paletteX + paletteW / 2, paletteY + paletteH - 20, '', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.DIM,
       wordWrap: { width: paletteW - 20 },
       align: 'center',
@@ -427,8 +438,8 @@ export class Game extends Phaser.Scene {
 
     const lbl = spent ? '(used)' : modLabel(mod);
     items.push(this.add.text(4, 0, lbl, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: `${Math.min(Math.round(w * 0.13), 13)}px`,
+      fontFamily: PIXEL_FONT,
+      fontSize: `${Math.min(Math.round(w * 0.08), 9)}px`,
       color: spent ? C.DIM : C.TEXT,
       wordWrap: { width: w - 56 },
     }).setOrigin(0, 0.5));
@@ -616,23 +627,20 @@ export class Game extends Phaser.Scene {
   private showConflictPopup(message: string) {
     this.conflictPopup?.destroy();
     const { width, height } = this.scale;
-    const popW = Math.min(width - 40, 280);
+    const popW = Math.min(width - 40, 300);
+    const popH = 64;
 
-    const bg = this.add.graphics();
-    bg.fillStyle(0x3a0d0d, 0.95);
-    bg.lineStyle(2, 0xff3333, 1);
-    bg.fillRoundedRect(-popW / 2, -28, popW, 56, 12);
-    bg.strokeRoundedRect(-popW / 2, -28, popW, 56, 12);
-
-    const txt = this.add.text(0, 0, `⚠️  ${message}`, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize:   '14px',
+    const bg = addPixelPanel(this, 0, 0, popW, popH);
+    const icon = this.add.image(-popW / 2 + 28, 0, 'icon-warning').setDisplaySize(22, 22);
+    const txt = this.add.text(-popW / 2 + 52, 0, message, {
+      fontFamily: PIXEL_FONT,
+      fontSize:   '8px',
       color:      '#ff8888',
-      wordWrap:   { width: popW - 24 },
-      align:      'center',
-    }).setOrigin(0.5);
+      wordWrap:   { width: popW - 72 },
+      align:      'left',
+    }).setOrigin(0, 0.5);
 
-    this.conflictPopup = this.add.container(width / 2, height * 0.46, [bg, txt])
+    this.conflictPopup = this.add.container(width / 2, height * 0.46, [bg, icon, txt])
       .setDepth(50).setAlpha(0);
     this.tweens.add({ targets: this.conflictPopup, alpha: 1, duration: 150 });
     this.time.delayedCall(2200, () => {
@@ -658,10 +666,19 @@ export class Game extends Phaser.Scene {
     });
   }
 
+  private onResize(gameSize: Phaser.Scale.ScaleManager | { width: number; height: number }) {
+    const { width, height } = gameSize instanceof Phaser.Scale.ScaleManager ? gameSize : gameSize;
+    this.cameras.resize(width, height);
+    this.bgLayers.forEach(img => {
+      img.setPosition(width / 2, height / 2);
+      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
+    });
+  }
+
   shutdown() {
     this.loadToken += 1;
     this.timerEvent?.destroy();
     this.paletteContainer?.destroy(true);
-    this.scale.off('resize', undefined, this);
+    this.scale.off('resize', this.onResize, this);
   }
 }

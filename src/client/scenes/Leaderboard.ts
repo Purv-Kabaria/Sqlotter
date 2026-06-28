@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { addPixelIconButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
 import type { LeaderboardEntry } from '../../shared/types';
 
 const C = {
@@ -10,12 +11,14 @@ const C = {
   DIM:   '#7a8a9a',
 } as const;
 
+const MEDAL_KEYS = ['icon-gold', 'icon-silver', 'icon-bronze'] as const;
 
 type Tab = 'steps' | 'time' | 'global';
 
 export class Leaderboard extends Phaser.Scene {
   private activeTab: Tab = 'steps';
   private levelId = 'L01';
+  private uiLayer: Phaser.GameObjects.Container | null = null;
   private listContainer: Phaser.GameObjects.Container | null = null;
   private tabBtns: Phaser.GameObjects.Container[] = [];
   private bgLayers: Phaser.GameObjects.Image[] = [];
@@ -25,24 +28,27 @@ export class Leaderboard extends Phaser.Scene {
   init(data: { levelId?: string }) {
     this.activeTab = 'steps';
     this.levelId = data?.levelId ?? 'L01';
+    this.uiLayer = null;
     this.listContainer = null;
     this.tabBtns = [];
     this.bgLayers = [];
   }
 
   create() {
-    const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(350, 26, 10, 46);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
 
     this.buildBackground();
-    this.buildHeader(width, height);
-    this.buildTabs(width);
+    this.buildStaticUI();
     void this.loadAndRender();
+    this.scale.on('resize', this.onResize, this);
   }
 
   private buildBackground() {
     const { width, height } = this.scale;
+    this.bgLayers.forEach(img => img.destroy());
+    this.bgLayers = [];
     ['bg4-1', 'bg4-2'].forEach((key, i) => {
       const img = this.add.image(width / 2, height / 2, key)
         .setAlpha(i === 0 ? 0.5 : 0.2).setDepth(-10);
@@ -51,29 +57,45 @@ export class Leaderboard extends Phaser.Scene {
     });
   }
 
-  private buildHeader(width: number, _height: number) {
-    // Back
-    this.buildIconBtn(30, 30, '‹', 36, () => {
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('MainMenu'));
-    });
+  private buildStaticUI() {
+    this.uiLayer?.destroy(true);
+    this.tabBtns = [];
 
-    this.add.image(width / 2 - 80, 30, 'icon-trophy').setDisplaySize(28, 28).setDepth(10);
-    const headLabel = `Leaderboard — ${this.levelId}`;
-    this.add.text(width / 2 + 4, 30, headLabel, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '18px',
+    const { width } = this.scale;
+    const elements: Phaser.GameObjects.GameObject[] = [];
+
+    // Back button
+    const backBtn = addPixelIconButton(this, {
+      x: 30, y: 30, size: 40,
+      iconKey: 'icon-arrow', iconAngle: 180,
+      onClick: () => {
+        this.cameras.main.fadeOut(250, 26, 10, 46);
+        this.time.delayedCall(260, () => this.scene.start('MainMenu'));
+      },
+    }).setDepth(15);
+    elements.push(backBtn);
+
+    // Trophy icon + header
+    const trophy = this.add.image(width / 2 - 72, 30, 'icon-trophy').setDisplaySize(24, 24).setDepth(10);
+    elements.push(trophy);
+
+    const headLabel = `Board - ${this.levelId}`;
+    const headTxt = this.add.text(width / 2 + 4, 30, headLabel, {
+      fontFamily: PIXEL_FONT,
+      fontSize: '9px',
       color: '#FFD700',
       stroke: '#1a0a2e',
-      strokeThickness: 4,
+      strokeThickness: 3,
     }).setOrigin(0, 0.5).setDepth(10);
+    elements.push(headTxt);
 
+    // Divider line
     const div = this.add.graphics().setDepth(10);
     div.lineStyle(1, C.GOLD, 0.3);
     div.lineBetween(0, 54, width, 54);
-  }
+    elements.push(div);
 
-  private buildTabs(width: number) {
+    // Tabs
     const tabs: [Tab, string][] = [['steps', 'Steps'], ['time', 'Time'], ['global', 'Global']];
     const tabW = (width - 32) / tabs.length;
 
@@ -94,8 +116,8 @@ export class Leaderboard extends Phaser.Scene {
       drawTab(id === this.activeTab);
 
       const txt = this.add.text(0, 0, label, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '14px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '8px',
         color: id === this.activeTab ? '#1a0a2e' : C.TEXT,
       }).setOrigin(0.5);
 
@@ -122,7 +144,10 @@ export class Leaderboard extends Phaser.Scene {
       c.on('pointerover', () => this.tweens.add({ targets: c, scaleX: 1.04, scaleY: 1.04, duration: 80 }));
       c.on('pointerout', () => this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 }));
       this.tabBtns.push(c);
+      elements.push(c);
     });
+
+    this.uiLayer = this.add.container(0, 0, elements);
   }
 
   private async loadAndRender() {
@@ -131,9 +156,9 @@ export class Leaderboard extends Phaser.Scene {
     this.listContainer?.destroy();
     this.listContainer = this.add.container(0, 96).setDepth(5);
 
-    const loading = this.add.text(width / 2, 140, 'Loading…', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '16px',
+    const loading = this.add.text(width / 2, 140, 'Loading...', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '9px',
       color: C.DIM,
     }).setOrigin(0.5).setDepth(5);
     this.listContainer.add(loading);
@@ -160,9 +185,9 @@ export class Leaderboard extends Phaser.Scene {
     const rowW = width - 24;
 
     if (entries.length === 0) {
-      const empty = this.add.text(width / 2, 80, 'No entries yet — be the first!', {
-        fontFamily: 'Arial, sans-serif',
-        fontSize: '15px',
+      const empty = this.add.text(width / 2, 80, 'No entries yet - be the first!', {
+        fontFamily: PIXEL_FONT,
+        fontSize: '8px',
         color: C.DIM,
       }).setOrigin(0.5);
       this.listContainer.add(empty);
@@ -171,46 +196,39 @@ export class Leaderboard extends Phaser.Scene {
 
     entries.forEach((entry, i) => {
       const ry = i * (rowH + 6);
-
-      const rbg = this.add.graphics();
       const isMe = entry.isCurrentUser;
-      rbg.fillStyle(isMe ? 0x2a4a1a : C.PANEL, isMe ? 1 : 0.8);
-      rbg.lineStyle(1, isMe ? C.GREEN : 0x3a2560, isMe ? 0.9 : 0.4);
-      rbg.fillRoundedRect(12, ry, rowW, rowH, 10);
-      rbg.strokeRoundedRect(12, ry, rowW, rowH, 10);
+
+      const rbg = addPixelPanel(this, 12 + rowW / 2, ry + rowH / 2, rowW, rowH)
+        .setTint(isMe ? 0x2a4a1a : C.PANEL)
+        .setAlpha(isMe ? 1 : 0.8);
 
       const rankX = 12 + 30;
       const rankY = ry + rowH / 2;
       const rowItems: Phaser.GameObjects.GameObject[] = [rbg];
 
-      // Medal or rank number
       if (i < 3) {
-        const medals = ['🥇', '🥈', '🥉'] as const;
-        const medal = this.add.text(rankX, rankY, medals[i] ?? medals[2], {
-          fontSize: '22px',
-        }).setOrigin(0.5);
+        const medalKey = MEDAL_KEYS[i] ?? MEDAL_KEYS[2];
+        const medal = this.add.image(rankX, rankY, medalKey).setDisplaySize(24, 24);
         rowItems.push(medal);
       } else {
         const rankTxt = this.add.text(rankX, rankY, `${entry.rank}`, {
-          fontFamily: '"Arial Black", sans-serif',
-          fontSize: '15px',
+          fontFamily: PIXEL_FONT,
+          fontSize: '9px',
           color: C.DIM,
         }).setOrigin(0.5);
         rowItems.push(rankTxt);
       }
 
-      // Username
       const nameTxt = this.add.text(12 + 60, rankY, entry.username, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '15px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '8px',
         color: isMe ? '#6DD400' : C.TEXT,
       }).setOrigin(0, 0.5);
       rowItems.push(nameTxt);
 
-      // Score
       const scoreTxt = this.add.text(12 + rowW - 16, rankY, `${entry.score}`, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '16px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '9px',
         color: i === 0 ? '#FFD700' : C.TEXT,
       }).setOrigin(1, 0.5);
       rowItems.push(scoreTxt);
@@ -222,18 +240,23 @@ export class Leaderboard extends Phaser.Scene {
     });
   }
 
-  private buildIconBtn(x: number, y: number, icon: string, size: number, cb: () => void) {
-    const hitSize = Math.max(size, 44);
-    const g = this.add.graphics().setDepth(15);
-    g.fillStyle(0x000000, 0.4);
-    g.fillRoundedRect(x - size / 2, y - size / 2, size, size, 8);
-    const txt = this.add.text(x, y, icon, {
-      fontSize: `${Math.round(size * 0.65)}px`,
-      color: '#ffffff',
-    }).setOrigin(0.5, 0.45).setDepth(16);
-    this.add.zone(x, y, hitSize, hitSize).setDepth(16).setInteractive({ useHandCursor: true })
-      .on('pointerup', cb)
-      .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
-      .on('pointerout', () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
+  private repositionBgLayers(width: number, height: number) {
+    this.bgLayers.forEach(img => {
+      img.setPosition(width / 2, height / 2);
+      const sc = Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05;
+      img.setScale(sc);
+    });
+  }
+
+  private onResize(gameSize: Phaser.Scale.ScaleManager | { width: number; height: number }) {
+    const { width, height } = gameSize instanceof Phaser.Scale.ScaleManager ? gameSize : gameSize;
+    this.cameras.resize(width, height);
+    this.repositionBgLayers(width, height);
+    this.buildStaticUI();
+    void this.loadAndRender();
+  }
+
+  shutdown() {
+    this.scale.off('resize', this.onResize, this);
   }
 }

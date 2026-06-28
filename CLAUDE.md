@@ -1,6 +1,6 @@
-# CLAUDE.md — Splot! The Slime Puzzle Game
+# CLAUDE.md — Sqlotter: The Slime Puzzle Game
 
-You are building **Splot!**, a Factory-Balls-style sequence puzzle game on Reddit's Devvit platform. Players receive a goal slime and must apply modifiers in the correct order to reproduce it. The mascot is Splot — a round, expressive slime who lives in the player's subreddit feed.
+You are building **Sqlotter**, a Factory-Balls-style sequence puzzle game on Reddit's Devvit platform. Players receive a goal slime and must apply modifiers in the correct order to reproduce it. The mascot is Splot — a round, expressive slime who lives in the player's subreddit feed.
 
 ---
 

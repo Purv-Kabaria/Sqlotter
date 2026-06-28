@@ -35,6 +35,7 @@ export type LevelData = {
   goalState: SlimeState;
   palette: ModifierDef[];
   optimalSteps: number;
+  optimalSolution?: readonly string[];
   hint?: string;
   authorName?: string;
   isDaily?: boolean;

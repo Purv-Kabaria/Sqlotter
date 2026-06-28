@@ -22,7 +22,7 @@ import type {
 } from '../../shared/api';
 import type { LevelData, ModifierDef, SlimeState, Stars } from '../../shared/types';
 import { CURATED_LEVELS } from '../../shared/levelData';
-import { calcStars, isValidSolution } from '../../shared/gameRules';
+import { calcStars, isValidSolution, verifyLevelIntegrity } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
 
 type Err = { status: 'error'; message: string };
@@ -499,11 +499,15 @@ api.post('/level/create', async (c) => {
     goalState,
     palette,
     optimalSteps,
+    optimalSolution: solution,
     authorName: username,
     hint,
   };
   if (!isValidSolution(candidate, solution)) {
     return c.json<Err>({ status: 'error', message: 'The submitted solution does not reach the goal' }, 400);
+  }
+  if (!verifyLevelIntegrity(candidate)) {
+    return c.json<Err>({ status: 'error', message: 'Level solution is not internally consistent' }, 400);
   }
 
   const levelId = `ugc-${username}-${Date.now()}`;

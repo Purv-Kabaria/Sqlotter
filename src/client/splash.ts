@@ -6,24 +6,24 @@ const dailyInfo = document.getElementById('daily-info')   as HTMLParagraphElemen
 const startBtn  = document.getElementById('start-button') as HTMLButtonElement;
 const launchLevelId = getLaunchLevelId();
 
+const DIFF_LABELS = ['Easy', 'Easy', 'Medium', 'Hard', 'Expert', 'Expert'];
+
 function setStartLabel(label: string) {
   startBtn.replaceChildren();
   const icon = document.createElement('span');
   icon.className = 'play-icon';
-  icon.textContent = '▶';
   startBtn.append(icon, document.createTextNode(` ${label}`));
 }
 
-// Show username greeting from context immediately (no fetch required)
 greeting.textContent = context.username
-  ? `Hey u/${context.username}! 👋`
-  : 'Ready to play? 🎮';
+  ? `Hey u/${context.username}!`
+  : 'Ready to play?';
+
 if (launchLevelId) {
   setStartLabel('Play this level');
-  dailyInfo.textContent = 'Community Splot level ready!';
+  dailyInfo.textContent = 'Community Sqlotter level!';
 }
 
-// Fetch sparks and daily info from server
 void (async () => {
   try {
     const [initRes, dailyRes] = await Promise.all([
@@ -33,20 +33,20 @@ void (async () => {
 
     if (initRes.ok) {
       const init = await initRes.json() as { username?: string; sparks?: number };
-      if (init.username) greeting.textContent = `Hey u/${init.username}! 👋`;
+      if (init.username) greeting.textContent = `Hey u/${init.username}!`;
       if (init.sparks !== undefined) {
-        dailyInfo.textContent = `✨ ${init.sparks} Sparks`;
+        dailyInfo.textContent = `${init.sparks} Sparks`;
       }
     }
 
     if (!launchLevelId && dailyRes.ok) {
       const daily = await dailyRes.json() as { level?: { difficulty?: number } };
       const diff  = daily.level?.difficulty ?? 1;
-      const stars = '⭐'.repeat(diff);
-      dailyInfo.textContent = `📅 Daily puzzle available! ${stars}`;
+      const label = DIFF_LABELS[diff] ?? 'Medium';
+      dailyInfo.textContent = `Daily puzzle: ${label}`;
     }
   } catch {
-    dailyInfo.textContent = 'Today\'s puzzle is waiting!';
+    dailyInfo.textContent = "Today's puzzle is waiting!";
   }
 })();
 

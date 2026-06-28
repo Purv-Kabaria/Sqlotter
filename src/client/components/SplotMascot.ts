@@ -37,6 +37,7 @@ export class SplotMascot {
 
   private bobTween: Phaser.Tweens.Tween | null = null;
   private blinkTimer: Phaser.Time.TimerEvent | null = null;
+  private squishTween: Phaser.Tweens.Tween | null = null;
   private scene: Phaser.Scene;
 
   constructor(
@@ -50,7 +51,7 @@ export class SplotMascot {
       scene.add.image(0, 0, key).setDisplaySize(s, s).setDepth(depth).setVisible(vis);
 
     this.shadow    = mk('char-shadow',        0);
-    this.blob      = mk('char-blob',         10);
+    this.blob      = mk('char-blob',         10).setTint(0x6dd400);
     this.mouth     = mk('char-mouth-happy',  20);
     this.blush     = mk('char-blush',        22, false);
     this.cry       = mk('char-cry',          22, false);
@@ -101,11 +102,11 @@ export class SplotMascot {
   }
 
   private startIdleAnims() {
-    // Gentle bob
+    // Slow float
     this.bobTween = this.scene.tweens.add({
       targets: this.container,
-      y: this.container.y - 7,
-      duration: 1300,
+      y: this.container.y - 6,
+      duration: 800,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.easeInOut',
@@ -126,6 +127,31 @@ export class SplotMascot {
   stopIdleAnims() {
     this.bobTween?.destroy();
     this.blinkTimer?.destroy();
+  }
+
+  playSquishAnim() {
+    this.squishTween?.destroy();
+    this.squishTween = this.scene.tweens.add({
+      targets: this.container,
+      scaleX: 1.15,
+      scaleY: 0.88,
+      duration: 60,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => { this.container.setScale(1); },
+    });
+  }
+
+  playPressAnim() {
+    this.scene.tweens.add({
+      targets: this.container,
+      scaleX: 0.95,
+      scaleY: 0.95,
+      duration: 60,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => { this.container.setScale(1); },
+    });
   }
 
   playWin() {

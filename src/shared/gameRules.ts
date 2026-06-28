@@ -71,6 +71,11 @@ export function applyModifier(
   return { ok: true, newState, isWin: statesMatch(newState, goalState) };
 }
 
+export function verifyLevelIntegrity(level: LevelData): boolean {
+  if (!level.optimalSolution || level.optimalSolution.length === 0) return true;
+  return isValidSolution(level, level.optimalSolution);
+}
+
 export function isValidSolution(level: LevelData, actionIds: readonly string[]): boolean {
   let state = { ...DEFAULT_SLIME_STATE };
   let gogglesUsed = false;

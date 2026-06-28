@@ -1,29 +1,22 @@
 import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
-import { addPixelButton } from '../components/PixelUI';
+import { addPixelButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 
-// ── Design tokens ─────────────────────────────────────────────
 const C = {
-  BG_DEEP:   0x1a0a2e,
-  BG_MID:    0x2d1b4e,
-  GREEN:     0x6dd400,
-  GOLD:      0xffd700,
-  ORANGE:    0xff6b35,
-  TEXT:      '#ffffff',
-  DIM:       '#a0b0c0',
-  PANEL:     0x2d1b4e,
+  BG_DEEP: 0x1a0a2e,
+  GREEN:   0x6dd400,
+  GOLD:    0xffd700,
+  ORANGE:  0xff6b35,
+  TEXT:    '#ffffff',
+  DIM:     '#a0b0c0',
 } as const;
 
-// ── Reusable button helper ────────────────────────────────────
-// ── Scene ──────────────────────────────────────────────────────
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
+  private uiLayer: Phaser.GameObjects.Container | null = null;
+  private mascot: SplotMascot | null = null;
   private sparksText: Phaser.GameObjects.Text | null = null;
-  private usernameText: Phaser.GameObjects.Text | null = null;
-  private streakText: Phaser.GameObjects.Text | null = null;
-  private streakBadge: Phaser.GameObjects.Container | null = null;
-  private buttons: Phaser.GameObjects.Container[] = [];
   private sparkleTimers: Phaser.Time.TimerEvent[] = [];
   private userData: InitResponse | null = null;
 
@@ -31,8 +24,10 @@ export class MainMenu extends Phaser.Scene {
 
   init() {
     this.bgLayers = [];
-    this.buttons = [];
+    this.uiLayer = null;
+    this.mascot = null;
     this.sparkleTimers = [];
+    this.userData = null;
   }
 
   create() {
@@ -40,12 +35,11 @@ export class MainMenu extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(C.BG_DEEP);
     this.cameras.main.fadeIn(400, 10, 5, 46);
 
-    void this.loadUserData();
-
     this.buildBackground();
     this.buildUI();
     this.scale.on('resize', this.onResize, this);
-    this.onResize(this.scale);
+
+    void this.loadUserData();
   }
 
   private async loadUserData() {
@@ -53,229 +47,247 @@ export class MainMenu extends Phaser.Scene {
       const res = await fetch('/api/init');
       if (res.ok) {
         this.userData = await res.json() as InitResponse;
-        if (this.streakText && this.streakBadge) {
-          const streakDays = this.userData.streakDays ?? 0;
-          this.streakText.setText(streakDays > 0 ? `${streakDays} day streak` : 'Daily streak starts today');
-          this.streakBadge.setVisible(true).setAlpha(0);
-          this.tweens.add({
-            targets: this.streakBadge,
-            alpha: 1,
-            y: this.streakBadge.y - 4,
-            duration: 220,
-            ease: 'Back.easeOut',
-          });
-        }
-        if (this.usernameText && this.userData.username) {
-          this.usernameText.setText(`Hey ${this.userData.username}! 👋`);
-        }
-        if (this.sparksText) {
-          this.sparksText.setText(`✨ ${this.userData.sparks}`);
-        }
+        this.buildUI();
       }
     } catch { /* offline / playtest fallback */ }
   }
 
   private buildBackground() {
     const { width, height } = this.scale;
-    const keys = ['bg1-1', 'bg1-2', 'bg1-3', 'bg1-4'];
-    const alphas = [1, 0.85, 0.7, 0.5];
+    const keys   = ['bg4-1', 'bg4-2', 'bg4-3', 'bg4-4'];
+    const alphas = [1, 0.85, 0.65, 0.45];
+
+    this.bgLayers.forEach(img => img.destroy());
+    this.bgLayers = [];
 
     keys.forEach((key, i) => {
       const img = this.add.image(width / 2, height / 2, key)
-        .setAlpha(alphas[i])
+        .setAlpha(alphas[i] ?? 0.4)
         .setDepth(-10 + i);
-      // Cover the canvas
-      const scaleX = width  / img.width;
-      const scaleY = height / img.height;
-      img.setScale(Math.max(scaleX, scaleY) * 1.05);
+      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
       this.bgLayers.push(img);
 
-      // Slow parallax drift
       const dir = i % 2 === 0 ? 1 : -1;
       this.tweens.add({
         targets: img,
-        x: width / 2 + dir * 18,
-        duration: 12000 + i * 3000,
+        x: width / 2 + dir * 20,
+        duration: 13000 + i * 3500,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
     });
-
-    // Subtle vignette overlay
-    const vignette = this.add.graphics().setDepth(0);
-    vignette.fillGradientStyle(0x1a0a2e, 0x1a0a2e, 0x1a0a2e, 0x1a0a2e, 0.8, 0.8, 0, 0);
-    vignette.fillRect(0, 0, width, height * 0.3);
-    vignette.fillGradientStyle(0x1a0a2e, 0x1a0a2e, 0x1a0a2e, 0x1a0a2e, 0, 0, 0.8, 0.8);
-    vignette.fillRect(0, height * 0.7, width, height * 0.3);
   }
 
   private buildUI() {
+    // Destroy old mascot + UI layer before rebuild
+    this.mascot?.stopIdleAnims();
+    this.mascot = null;
+    this.uiLayer?.destroy(true);
+    this.sparksText = null;
+
     const { width, height } = this.scale;
-    const cx = width / 2;
+    const cx         = width / 2;
     const isPortrait = height > width;
+    const elements: Phaser.GameObjects.GameObject[] = [];
 
-    // Splot mascot position
-    const splotY = isPortrait ? height * 0.32 : height * 0.35;
-    const splotSize = isPortrait ? Math.min(width * 0.38, 180) : Math.min(height * 0.35, 170);
+    // ── Sparks counter (always top-right) ───────────────────
+    const sparksPanel = addPixelPanel(this, width - 8, 10, 116, 34)
+      .setOrigin(1, 0).setDepth(10);
+    const sparkIcon = this.add.image(width - 100, 27, 'icon-spark').setDisplaySize(18, 18).setDepth(11);
+    this.sparksText = this.add.text(width - 82, 27, `${this.userData?.sparks ?? 0}`, {
+      fontFamily: PIXEL_FONT,
+      fontSize: '10px',
+      color: '#FFD700',
+    }).setOrigin(0, 0.5).setDepth(11);
+    elements.push(sparksPanel, sparkIcon, this.sparksText);
 
-    new SplotMascot(this, cx, splotY, splotSize);
+    if (isPortrait) {
+      this.buildPortraitLayout(cx, width, height, elements);
+    } else {
+      this.buildLandscapeLayout(cx, width, height, elements);
+    }
 
-    // SPLOT! title asset
-    const title = this.add.image(cx, splotY - splotSize * 0.72, 'title-splot')
-      .setDisplaySize(splotSize * 1.25, splotSize * 0.27)
-      .setOrigin(0.5)
-      .setDepth(5);
+    this.startSparkleEffect();
+    this.uiLayer = this.add.container(0, 0, elements);
+  }
 
-    // Subtle pulse on title
-    this.tweens.add({
-      targets: title,
-      scale: 1.04,
-      duration: 1800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+  private buildPortraitLayout(cx: number, width: number, height: number, elements: Phaser.GameObjects.GameObject[]) {
+    const splotSize  = Math.min(width * 0.40, 180);
+    const titleH     = splotSize * 0.28;
+    const titleW     = splotSize * 1.6;
+    const topPad     = height * 0.06;
 
-    // Username greeting
-    this.usernameText = this.add.text(cx, splotY + splotSize * 0.62, 'Hey there! 👋', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '18px',
-      color: C.DIM,
+    // Title image
+    const title = this.add.image(cx, topPad + titleH / 2, 'title')
+      .setDisplaySize(titleW, titleH).setOrigin(0.5).setDepth(5);
+    this.tweens.add({ targets: title, scale: 1.04, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    elements.push(title);
+
+    // Mascot
+    const mascotY = topPad + titleH + splotSize * 0.6 + 8;
+    this.mascot = new SplotMascot(this, cx, mascotY, splotSize);
+    this.mascot.container.setDepth(5);
+    elements.push(this.mascot.container);
+
+    // Greeting
+    const username = this.userData?.username ?? '';
+    const greetY   = mascotY + splotSize * 0.56;
+    const greetTxt = this.add.text(cx, greetY, username ? `Hey ${username}!` : 'Hey there!', {
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: C.DIM,
     }).setOrigin(0.5).setDepth(5);
+    elements.push(greetTxt);
 
-    this.streakBadge = this.buildStreakBadge(cx, splotY + splotSize * 0.82);
-    this.streakBadge.setDepth(5).setVisible(false);
+    // Streak badge
+    const streakDays = this.userData?.streakDays ?? 0;
+    if (streakDays > 0) {
+      const badge = this.buildStreakBadge(cx, greetY + 28, streakDays);
+      badge.setDepth(5);
+      elements.push(badge);
+    }
 
-    // Sparks counter
-    const sparksContainer = this.buildSparksCounter(width - 16, 16);
-    sparksContainer.setDepth(10);
+    // Buttons
+    const btnW      = Math.min(width - 48, 300);
+    const btnH      = 46;
+    const btnGap    = btnH + 10;
+    const btnStartY = Math.max(greetY + 56, height * 0.57);
+    this.buildButtons(cx, btnStartY, btnW, btnH, btnGap, elements);
+  }
 
-    // Main action buttons
-    const btnW = isPortrait ? Math.min(width - 48, 320) : 280;
-    const btnX = isPortrait ? cx : cx + width * 0.15;
-    const btnStartY = isPortrait ? height * 0.6 : height * 0.38;
+  private buildLandscapeLayout(cx: number, width: number, height: number, elements: Phaser.GameObjects.GameObject[]) {
+    const leftCx   = width * 0.25;
+    const rightCx  = width * 0.67;
+    const splotSize = Math.min(height * 0.32, 150);
+    const titleH   = splotSize * 0.30;
+    const titleW   = splotSize * 1.8;
+    const topPad   = height * 0.07;
+    void cx;
 
-    const btnH2  = 48;
-    const btnGap2 = btnH2 + 10;
+    // Title image (above mascot on left column)
+    const title = this.add.image(leftCx, topPad + titleH / 2, 'title')
+      .setDisplaySize(titleW, titleH).setOrigin(0.5).setDepth(5);
+    this.tweens.add({ targets: title, scale: 1.04, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    elements.push(title);
 
-    const btns: [string, string | null, number, string, string?][] = [
-      ['▶  Play Levels',    'icon-play', C.GREEN,  'LevelSelect'],
-      ['📅  Daily Puzzle',  null,        0x7b2ff7, 'Game',        'daily'],
-      ['✏️  Create Level',  null,        0x1a6fbf, 'Editor'],
-      ['🏆  Leaderboard',   null,        0x0d4a8f, 'Leaderboard'],
-      ['🛍  Shop',          'icon-bag',  0xff6b35, 'Shop'],
+    // Mascot (centered left column)
+    const mascotY = topPad + titleH + splotSize * 0.58 + 12;
+    this.mascot = new SplotMascot(this, leftCx, mascotY, splotSize);
+    this.mascot.container.setDepth(5);
+    elements.push(this.mascot.container);
+
+    // Greeting + streak (below mascot in left column)
+    const username  = this.userData?.username ?? '';
+    const greetY    = mascotY + splotSize * 0.58;
+    const greetTxt  = this.add.text(leftCx, greetY, username ? `Hey ${username}!` : 'Hey there!', {
+      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DIM,
+    }).setOrigin(0.5).setDepth(5);
+    elements.push(greetTxt);
+
+    const streakDays = this.userData?.streakDays ?? 0;
+    if (streakDays > 0) {
+      const badge = this.buildStreakBadge(leftCx, greetY + 24, streakDays);
+      badge.setDepth(5);
+      elements.push(badge);
+    }
+
+    // Buttons (right column, vertically centered)
+    const btnW      = Math.min(width * 0.40, 260);
+    const btnH      = 44;
+    const btnGap    = btnH + 8;
+    const totalBtnH = 5 * btnH + 4 * 8;
+    const btnStartY = (height - totalBtnH) / 2 + btnH / 2;
+    this.buildButtons(rightCx, btnStartY, btnW, btnH, btnGap, elements);
+  }
+
+  private buildButtons(
+    x: number, startY: number, w: number, h: number, gap: number,
+    elements: Phaser.GameObjects.GameObject[],
+  ) {
+    const defs: [string, string, string, string?][] = [
+      ['Play Levels',  'icon-play',   'LevelSelect'],
+      ['Daily Puzzle', 'icon-timer',  'Game',         'daily'],
+      ['Create Level', 'icon-pencil', 'Editor'],
+      ['Leaderboard',  'icon-trophy', 'Leaderboard'],
+      ['Shop',         'icon-bag',    'Shop'],
     ];
 
-    btns.forEach(([label, icon, _color, scene, param], i) => {
+    defs.forEach(([label, icon, scene, param], i) => {
       const btn = addPixelButton(this, {
-        x: btnX,
-        y: btnStartY + i * btnGap2,
-        width: btnW,
-        height: btnH2,
+        x,
+        y: startY + i * gap,
+        width: w,
+        height: h,
         label,
-        iconKey: icon ?? undefined,
+        iconKey: icon,
         onClick: () => {
           this.cameras.main.fadeOut(250, 10, 5, 46);
           this.time.delayedCall(260, () => {
-            if (param) {
-              this.scene.start(scene, { levelId: param });
-            } else {
-              this.scene.start(scene);
-            }
+            this.scene.start(scene, param ? { levelId: param } : undefined);
           });
         },
       });
-      btn.setDepth(5);
-      btn.setAlpha(0);
-      this.tweens.add({ targets: btn, alpha: 1, y: btnStartY + i * btnGap2, duration: 300, delay: 200 + i * 80 });
-      this.buttons.push(btn);
+      btn.setDepth(5).setAlpha(0);
+      this.tweens.add({ targets: btn, alpha: 1, duration: 280, delay: 180 + i * 70 });
+      elements.push(btn);
     });
-
-    // Floating sparkles
-    this.startSparkleEffect();
   }
 
-  private buildSparksCounter(x: number, y: number): Phaser.GameObjects.Container {
-    const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.45);
-    bg.fillRoundedRect(0, 0, 110, 36, 18);
-    bg.lineStyle(1, C.GOLD, 0.5);
-    bg.strokeRoundedRect(0, 0, 110, 36, 18);
-
-    const icon = this.add.image(20, 18, 'icon-spark').setDisplaySize(20, 20);
-    this.sparksText = this.add.text(38, 18, '✨ 0', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '16px',
-      color: '#FFD700',
+  private buildStreakBadge(x: number, y: number, days: number): Phaser.GameObjects.Container {
+    const panelW = 180;
+    const panelH = 28;
+    const bg     = addPixelPanel(this, 0, 0, panelW, panelH);
+    const icon   = this.add.image(-panelW / 2 + 20, 0, 'icon-fire').setDisplaySize(14, 14);
+    const txt    = this.add.text(-panelW / 2 + 32, 0, `${days} day streak!`, {
+      fontFamily: PIXEL_FONT, fontSize: '7px', color: '#ffb347',
     }).setOrigin(0, 0.5);
-
-    const c = this.add.container(x - 116, y, [bg, icon, this.sparksText]);
-    return c;
-  }
-
-  private buildStreakBadge(x: number, y: number): Phaser.GameObjects.Container {
-    const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.38);
-    bg.fillRoundedRect(-86, -16, 172, 32, 16);
-    bg.lineStyle(1, 0xff6b35, 0.45);
-    bg.strokeRoundedRect(-86, -16, 172, 32, 16);
-
-    const icon = this.add.image(-64, 0, 'icon-fire').setDisplaySize(18, 18);
-    this.streakText = this.add.text(-42, 0, 'Daily streak starts today', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#ffb347',
-    }).setOrigin(0, 0.5);
-
-    return this.add.container(x, y, [bg, icon, this.streakText]);
+    return this.add.container(x, y, [bg, icon, txt]);
   }
 
   private startSparkleEffect() {
-    // Small sparkle particles drifting upward
+    this.sparkleTimers.forEach(t => t.destroy());
+    this.sparkleTimers = [];
+
     const { width, height } = this.scale;
-    const timer = this.time.addEvent({
-      delay: 1200,
+    const t = this.time.addEvent({
+      delay: 1100,
       loop: true,
       callback: () => {
-        const rx = Phaser.Math.Between(50, width - 50);
-        const ry = Phaser.Math.Between(height * 0.4, height * 0.9);
-        const star = this.add.image(rx, ry, 'icon-sparkle')
-          .setDisplaySize(12, 12)
-          .setAlpha(0)
-          .setDepth(4)
-          .setTint(C.GOLD);
+        if (!this.scene.isActive('MainMenu')) return;
+        const rx  = Phaser.Math.Between(40, width - 40);
+        const ry  = Phaser.Math.Between(height * 0.35, height * 0.92);
+        const s   = this.add.image(rx, ry, 'icon-sparkle')
+          .setDisplaySize(10, 10).setAlpha(0).setDepth(4).setTint(C.GOLD);
         this.tweens.add({
-          targets: star,
-          alpha:   { from: 0, to: 0.8 },
-          y:       ry - 40,
-          scale:   { from: 0.5, to: 1.2 },
-          duration: 700,
+          targets: s,
+          alpha: { from: 0, to: 0.7 },
+          y: ry - 36,
+          scale: { from: 0.4, to: 1.1 },
+          duration: 650,
           yoyo: true,
-          onComplete: () => star.destroy(),
+          onComplete: () => s.destroy(),
         });
       },
     });
-    this.sparkleTimers.push(timer);
+    this.sparkleTimers.push(t);
+  }
+
+  private repositionBgLayers(width: number, height: number) {
+    this.bgLayers.forEach(img => {
+      img.setPosition(width / 2, height / 2);
+      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
+    });
   }
 
   private onResize(gameSize: Phaser.Scale.ScaleManager | { width: number; height: number }) {
-    const { width, height } = gameSize instanceof Phaser.Scale.ScaleManager
-      ? gameSize : gameSize;
-
+    const { width, height } = gameSize instanceof Phaser.Scale.ScaleManager ? gameSize : gameSize;
     this.cameras.resize(width, height);
-
-    // Stretch background layers
-    this.bgLayers.forEach(img => {
-      img.setPosition(width / 2, height / 2);
-      const scX = width  / (img.width  || 1);
-      const scY = height / (img.height || 1);
-      img.setScale(Math.max(scX, scY) * 1.05);
-    });
+    this.repositionBgLayers(width, height);
+    this.buildUI();
   }
 
   shutdown() {
     this.sparkleTimers.forEach(t => t.destroy());
+    this.mascot?.stopIdleAnims();
     this.scale.off('resize', this.onResize, this);
   }
 }

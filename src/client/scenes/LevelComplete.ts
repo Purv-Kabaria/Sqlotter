@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { addPixelButton, addPixelPanel } from '../components/PixelUI';
+import { addPixelButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
 import { SplotMascot } from '../components/SplotMascot';
 import { CURATED_LEVELS } from '../../shared/levelData';
 
@@ -39,27 +39,26 @@ export class LevelComplete extends Phaser.Scene {
     addPixelPanel(this, cx, panelY, panelW, panelH).setAlpha(0.95);
 
     // "LEVEL CLEAR!" title
-    const titleTxt = this.add.text(cx, panelY - panelH / 2 + 40, 'LEVEL CLEAR! 🎉', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '28px',
+    const titleTxt = this.add.text(cx, panelY - panelH / 2 + 40, 'LEVEL CLEAR!', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '16px',
       color: '#6DD400',
       stroke: '#1a0a2e',
-      strokeThickness: 5,
+      strokeThickness: 4,
     }).setOrigin(0.5).setAlpha(0);
     this.tweens.add({ targets: titleTxt, alpha: 1, y: panelY - panelH / 2 + 34, duration: 500, ease: 'Back.easeOut' });
 
-    // Stars (pop in one by one)
+    // Stars using icon-star images (pop in one by one)
     for (let s = 0; s < 3; s++) {
       const filled = s < stars;
-      const starTxt = this.add.text(cx - 32 + s * 32, panelY - panelH / 2 + 85, '★', {
-        fontSize: '40px',
-        color: filled ? '#FFD700' : '#3a2560',
-        stroke: '#1a0a2e',
-        strokeThickness: 3,
-      }).setOrigin(0.5).setScale(0);
+      const starImg = this.add.image(cx - 28 + s * 28, panelY - panelH / 2 + 82, 'icon-star')
+        .setDisplaySize(32, 32)
+        .setTint(filled ? 0xFFD700 : 0x3a2560)
+        .setOrigin(0.5)
+        .setScale(0);
 
       this.tweens.add({
-        targets: starTxt,
+        targets: starImg,
         scale: 1,
         duration: 350,
         delay: 500 + s * 180,
@@ -68,7 +67,7 @@ export class LevelComplete extends Phaser.Scene {
 
       if (filled) {
         this.time.delayedCall(500 + s * 180, () => {
-          this.tweens.add({ targets: starTxt, scale: 1.2, duration: 100, yoyo: true });
+          this.tweens.add({ targets: starImg, scale: 1.2, duration: 100, yoyo: true });
         });
       }
     }
@@ -80,30 +79,38 @@ export class LevelComplete extends Phaser.Scene {
     const statItems: [string, string][] = [
       ['Steps', `${steps}`],
       ['Time', timeStr],
-      ['Sparks', `+${sparks} ✨`],
+      ['Sparks', `+${sparks}`],
     ];
     statItems.forEach(([label, value], i) => {
-      const sy = statsY + i * 36;
+      const sy = statsY + i * 32;
 
       const lbl = this.add.text(cx - panelW / 2 + 30, sy, label, {
-        fontFamily: 'Arial, sans-serif',
-        fontSize: '16px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '9px',
         color: C.DIM,
       }).setAlpha(0);
       const val = this.add.text(cx + panelW / 2 - 30, sy, value, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '17px',
-        color: C.TEXT,
+        fontFamily: PIXEL_FONT,
+        fontSize: '10px',
+        color: label === 'Sparks' ? '#FFD700' : C.TEXT,
       }).setOrigin(1, 0).setAlpha(0);
+
+      if (label === 'Sparks') {
+        const sparkIcon = this.add.image(cx + panelW / 2 - 14, sy + 5, 'icon-spark')
+          .setDisplaySize(14, 14).setAlpha(0);
+        this.tweens.add({ targets: sparkIcon, alpha: 1, duration: 300, delay: 900 + i * 100 });
+      }
 
       this.tweens.add({ targets: [lbl, val], alpha: 1, duration: 300, delay: 900 + i * 100 });
     });
     this.playRewardBurst(cx, panelY - panelH / 2 + 90, stars);
 
     if (streakDays !== undefined) {
-      const streak = this.add.text(cx, statsY + statItems.length * 36 + 4, `🔥 Daily streak: ${streakDays} day${streakDays === 1 ? '' : 's'}`, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '15px',
+      const streakY = statsY + statItems.length * 32 + 4;
+      this.add.image(cx - 72, streakY + 7, 'icon-fire').setDisplaySize(16, 16);
+      const streak = this.add.text(cx + 4, streakY, `${streakDays} day streak!`, {
+        fontFamily: PIXEL_FONT,
+        fontSize: '9px',
         color: '#ffb347',
         stroke: '#1a0a2e',
         strokeThickness: 3,
@@ -171,7 +178,6 @@ export class LevelComplete extends Phaser.Scene {
       width: w,
       height: h,
       label,
-      fontSize: 14,
       onClick: cb,
     });
   }

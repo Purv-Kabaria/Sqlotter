@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { addPixelIconButton, addPixelPanel } from '../components/PixelUI';
+import { addPixelIconButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
 import { CURATED_LEVELS, WORLD_LABELS } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
@@ -90,7 +90,7 @@ export class LevelSelect extends Phaser.Scene {
 
   private buildBackground() {
     const { width, height } = this.scale;
-    ['bg2-1', 'bg2-2'].forEach((key, i) => {
+    ['bg4-1', 'bg4-2'].forEach((key, i) => {
       const img = this.add.image(width / 2, height / 2, key)
         .setAlpha(i === 0 ? 0.6 : 0.3)
         .setDepth(-10);
@@ -135,11 +135,11 @@ export class LevelSelect extends Phaser.Scene {
 
     // Title
     this.add.text(width / 2, 30, 'Select Level', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '24px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '13px',
       color: '#ffffff',
       stroke: '#1a0a2e',
-      strokeThickness: 4,
+      strokeThickness: 3,
     }).setOrigin(0.5).setDepth(20);
 
     // Divider
@@ -192,7 +192,7 @@ export class LevelSelect extends Phaser.Scene {
     });
 
     // Community section
-    const communityHeader = this.buildSectionHeader(width / 2, cursorY, '🌐  Community Levels', 0x1a6fbf);
+    const communityHeader = this.buildSectionHeader(width / 2, cursorY, 'Community Levels', 0x1a6fbf);
     this.scrollContainer!.add(communityHeader);
     cursorY += 52;
 
@@ -257,13 +257,12 @@ export class LevelSelect extends Phaser.Scene {
     const panel = addPixelPanel(this, x, y, bw, 40).setTint(color).setAlpha(0.36);
 
     const t = this.add.text(x, y, label, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '16px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '10px',
       color: `#${color.toString(16).padStart(6, '0')}`,
     }).setOrigin(0.5);
 
-    const c = this.add.container(0, 0, [panel, t]);
-    return c;
+    return this.add.container(0, 0, [panel, t]);
   }
 
   private buildSectionHeader(x: number, y: number, label: string, color: number) {
@@ -271,13 +270,14 @@ export class LevelSelect extends Phaser.Scene {
     const bw = width - 40;
     const panel = addPixelPanel(this, x, y, bw, 40).setTint(color).setAlpha(0.28);
 
-    const t = this.add.text(x, y, label, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '15px',
+    const icon = this.add.image(x - bw / 2 + 24, y, 'icon-people').setDisplaySize(20, 20);
+    const t = this.add.text(x + 8, y, label, {
+      fontFamily: PIXEL_FONT,
+      fontSize: '9px',
       color: `#${color.toString(16).padStart(6, '0')}`,
     }).setOrigin(0.5);
 
-    return this.add.container(0, 0, [panel, t]);
+    return this.add.container(0, 0, [panel, icon, t]);
   }
 
   private buildLevelCard(
@@ -304,13 +304,13 @@ export class LevelSelect extends Phaser.Scene {
     const items: Phaser.GameObjects.GameObject[] = [bg];
 
     if (locked) {
-      const lockTxt = this.add.text(0, 0, '🔒', { fontSize: '24px' }).setOrigin(0.5).setAlpha(0.5);
-      items.push(lockTxt);
+      const lockIcon = this.add.image(0, 0, 'icon-lock').setDisplaySize(28, 28).setAlpha(0.5);
+      items.push(lockIcon);
     } else {
       // Level number
       const numTxt = this.add.text(-w/2 + 12, -h/2 + 10, level.id, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '11px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '7px',
         color: `#${wColor.toString(16).padStart(6, '0')}`,
       }).setOrigin(0, 0);
       items.push(numTxt);
@@ -324,29 +324,25 @@ export class LevelSelect extends Phaser.Scene {
 
       // Title
       const titleTxt = this.add.text(0, -4, level.title, {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '14px',
+        fontFamily: PIXEL_FONT,
+        fontSize: '8px',
         color: '#ffffff',
         wordWrap: { width: w - 20 },
       }).setOrigin(0.5, 0.5);
       items.push(titleTxt);
 
-      // Stars row
+      // Stars row using icon-star images
       for (let s = 0; s < 3; s++) {
-        const starTxt = this.add.text(-16 + s * 16, h/2 - 18, '★', {
-          fontSize: '16px',
-          color: s < stars ? C.STAR_ON : C.STAR_OFF,
-        }).setOrigin(0.5);
-        items.push(starTxt);
+        const starImg = this.add.image(-16 + s * 16, h/2 - 18, 'icon-star')
+          .setDisplaySize(14, 14)
+          .setTint(s < stars ? 0xFFD700 : 0x3a2560);
+        items.push(starImg);
       }
 
-      // Optimal badge
+      // Optimal badge using check icon
       if (stars === 3) {
-        const badge = this.add.text(w/2 - 10, h/2 - 12, '✓', {
-          fontSize: '12px',
-          color: C.ACCENT,
-        }).setOrigin(1, 1);
-        items.push(badge);
+        const checkImg = this.add.image(w/2 - 12, h/2 - 12, 'icon-check').setDisplaySize(14, 14);
+        items.push(checkImg);
       }
     }
 
@@ -384,9 +380,9 @@ export class LevelSelect extends Phaser.Scene {
   private buildComingSoonCard(cx: number, cy: number, w: number, h: number) {
     const bg = addPixelPanel(this, 0, 0, w, h).setTint(0x1a6fbf).setAlpha(0.35);
 
-    const txt = this.add.text(0, 0, 'Community levels coming soon…', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
+    const txt = this.add.text(0, 0, 'Community levels coming soon...', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: C.DIM,
     }).setOrigin(0.5);
 
@@ -402,21 +398,21 @@ export class LevelSelect extends Phaser.Scene {
   ) {
     const bg = this.add.nineslice(0, 0, 'ui-btn-open', undefined, w, h, 8, 8, 8, 8).setTint(0x35a7ff);
 
-    const title = this.add.text(-w / 2 + 10, -h / 2 + 10, level.title, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '13px',
+    const title = this.add.text(-w / 2 + 10, -h / 2 + 12, level.title, {
+      fontFamily: PIXEL_FONT,
+      fontSize: '8px',
       color: '#ffffff',
       wordWrap: { width: w - 20 },
       maxLines: 1,
     });
     const author = this.add.text(-w / 2 + 10, 2, `u/${level.authorName ?? 'anonymous'}`, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '11px',
+      fontFamily: PIXEL_FONT,
+      fontSize: '7px',
       color: '#9acfff',
     });
-    const details = this.add.text(-w / 2 + 10, h / 2 - 12, `${level.difficulty}/5  |  ${level.optimalSteps} steps`, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '11px',
+    const details = this.add.text(-w / 2 + 10, h / 2 - 12, `Diff: ${level.difficulty}  Steps: ${level.optimalSteps}`, {
+      fontFamily: PIXEL_FONT,
+      fontSize: '7px',
       color: C.DIM,
     }).setOrigin(0, 1);
 

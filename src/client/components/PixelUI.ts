@@ -1,5 +1,7 @@
 import * as Phaser from 'phaser';
 
+export const PIXEL_FONT = '"Press Start 2P", monospace';
+
 const PANEL_SLICE = 8;
 const BUTTON_SLICE_X = 8;
 const BUTTON_SLICE_Y = 8;
@@ -58,7 +60,7 @@ export function addPixelButton(
     height,
     label,
     iconKey,
-    fontSize = Math.min(18, Math.round(height * 0.38)),
+    fontSize = Math.min(11, Math.round(height * 0.28)),
     disabled = false,
     onClick,
   } = options;
@@ -82,13 +84,13 @@ export function addPixelButton(
 
   if (iconKey) {
     const icon = scene.add.image(iconOffset, 0, iconKey)
-      .setDisplaySize(Math.min(24, height * 0.52), Math.min(24, height * 0.52));
+      .setDisplaySize(Math.min(20, height * 0.48), Math.min(20, height * 0.48));
     if (disabled) icon.setAlpha(0.45);
     items.push(icon);
   }
 
   const txt = scene.add.text(labelOffset, -1, label, {
-    fontFamily: '"Arial Black", Arial, sans-serif',
+    fontFamily: PIXEL_FONT,
     fontSize: `${fontSize}px`,
     color: disabled ? '#7a6c8f' : '#ffffff',
     stroke: '#1a0a2e',

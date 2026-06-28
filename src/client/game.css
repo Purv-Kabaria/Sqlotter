@@ -1,17 +1,25 @@
-body {
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+html, body {
   margin: 0;
   padding: 0;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0f0f0f;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #1a0a2e;
 }
 
 #app {
   width: 100%;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 
 #game-container {
   width: 100%;
   height: 100%;
+}
+
+canvas {
+  display: block;
 }

@@ -297,13 +297,15 @@ export function generateDailyLevel(date: string): LevelData {
     }
   }
 
-  return {
+  const level: LevelData = {
     id: `daily-${date}`,
     title: `Daily — ${date}`,
     difficulty: diff,
     goalState: { ...state },
     palette,
     optimalSteps: modCount,
+    optimalSolution: applied.map(m => m.id),
     isDaily: true,
   };
+  return level;
 }

@@ -5,12 +5,12 @@ import { generateDailyLevel } from '../../shared/levelData';
 
 export const menu = new Hono();
 
-// Mod action: post standard Splot! game post
+// Mod action: post standard Sqlotter game post
 menu.post('/post-create', async (c) => {
   try {
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: '🟢 Splot! — The Slime Puzzle Game',
+      title: 'Sqlotter — The Slime Puzzle Game',
       entry: 'default',
       styles: {
         heightPixels: 512,
@@ -43,7 +43,7 @@ menu.post('/post-daily', async (c) => {
 
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: `🟢 Daily Splot! Puzzle — ${today}`,
+      title: `Sqlotter Daily Puzzle — ${today}`,
       entry: 'default',
       postData: { levelId },
       styles: {

@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { addPixelPanel, addPixelButton, PIXEL_FONT } from '../components/PixelUI';
 
 export class GameOver extends Phaser.Scene {
   constructor() { super('GameOver'); }
@@ -11,21 +12,29 @@ export class GameOver extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(0x1a0a2e);
     this.cameras.main.fadeIn(400);
 
-    this.add.text(cx, cy - 40, '💥 Something went wrong', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '22px',
+    const panelW = Math.min(width - 32, 360);
+    addPixelPanel(this, cx, cy, panelW, 140);
+
+    this.add.image(cx, cy - 30, 'icon-warning').setDisplaySize(32, 32);
+
+    this.add.text(cx, cy + 10, 'Something went wrong', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '10px',
       color: '#ff4444',
       stroke: '#1a0a2e',
-      strokeThickness: 4,
+      strokeThickness: 3,
       align: 'center',
+      wordWrap: { width: panelW - 32 },
     }).setOrigin(0.5);
 
-    this.add.text(cx, cy + 16, 'Tap to return to the menu', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '16px',
-      color: '#a0b0c0',
-    }).setOrigin(0.5);
-
-    this.input.once('pointerdown', () => this.scene.start('MainMenu'));
+    addPixelButton(this, {
+      x: cx,
+      y: cy + 50,
+      width: 160,
+      height: 40,
+      label: 'Main Menu',
+      iconKey: 'icon-home',
+      onClick: () => this.scene.start('MainMenu'),
+    });
   }
 }

@@ -1,11 +1,12 @@
 import { GameObjects, Scene } from 'phaser';
 import { getLaunchLevelId } from '../launch';
+import { PIXEL_FONT } from '../components/PixelUI';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
 
 const IMG: AssetDef[] = [
-  { key: 'title-splot', path: 'title.png' },
+  { key: 'title', path: 'title.png' },
   // ── Slime base layers ─────────────────────────────
   { key: 'slime-color',  path: 'slime/color.png' },
   { key: 'slime-border', path: 'slime/border.png' },
@@ -180,13 +181,13 @@ export class Preloader extends Scene {
     const cy = height / 2;
 
     // Title
-    this.titleText = this.add.text(cx, cy - 80, 'Splot!', {
-      fontFamily: '"Arial Black", Impact, sans-serif',
-      fontSize: '52px',
+    this.titleText = this.add.text(cx, cy - 80, 'Sqlotter', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '28px',
       color: '#6DD400',
       stroke: '#1a0a2e',
-      strokeThickness: 6,
-      shadow: { offsetX: 3, offsetY: 3, color: '#000000', blur: 8, fill: true },
+      strokeThickness: 4,
+      shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 4, fill: true },
     }).setOrigin(0.5);
 
     // Breathing pulse on the title
@@ -208,9 +209,9 @@ export class Preloader extends Scene {
       .setOrigin(0, 0.5);
 
     // Loading tip
-    this.tipText = this.add.text(cx, cy + 45, 'Loading…', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '16px',
+    this.tipText = this.add.text(cx, cy + 45, 'Loading...', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '10px',
       color: '#a0b0c0',
     }).setOrigin(0.5);
   }

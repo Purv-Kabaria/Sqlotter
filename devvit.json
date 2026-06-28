@@ -20,15 +20,15 @@
   "menu": {
     "items": [
       {
-        "label": "Post Daily Splot! Puzzle",
-        "description": "Generate and post today's daily Splot! puzzle",
+        "label": "Post Daily Sqlotter Puzzle",
+        "description": "Generate and post today's daily Sqlotter puzzle",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-daily"
       },
       {
-        "label": "Create Splot! Post",
-        "description": "Post a new Splot! game post to this subreddit",
+        "label": "Create Sqlotter Post",
+        "description": "Post a new Sqlotter game post to this subreddit",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
@@ -49,5 +49,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch"
+  },
+  "dev": {
+    "subreddit": "sqlotter_dev"
   }
 }
