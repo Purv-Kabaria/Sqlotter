@@ -19,7 +19,7 @@ triggers.post('/on-app-install', async (c) => {
       title: '🟢 Splot! — The Slime Puzzle Game',
       entry: 'default',
       styles: {
-        height: 'TALL',
+        heightPixels: 512,
         backgroundColor: '#1a0a2eff',
         backgroundColorDark: '#1a0a2eff',
       },

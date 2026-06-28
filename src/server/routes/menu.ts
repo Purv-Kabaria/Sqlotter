@@ -12,7 +12,7 @@ menu.post('/post-create', async (c) => {
       title: '🟢 Splot! — The Slime Puzzle Game',
       entry: 'default',
       styles: {
-        height: 'TALL',
+        heightPixels: 512,
         backgroundColor: '#1a0a2eff',
         backgroundColorDark: '#1a0a2eff',
       },
@@ -45,7 +45,7 @@ menu.post('/post-daily', async (c) => {
       entry: 'default',
       postData: { levelId },
       styles: {
-        height: 'TALL',
+        heightPixels: 512,
         backgroundColor: '#1a0a2eff',
         backgroundColorDark: '#1a0a2eff',
       },

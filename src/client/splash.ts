@@ -26,8 +26,7 @@ void (async () => {
     }
 
     if (dailyRes.ok) {
-      const daily = await dailyRes.json() as { date?: string; level?: { difficulty?: number } };
-      const date  = daily.date ?? new Date().toISOString().slice(0, 10);
+      const daily = await dailyRes.json() as { level?: { difficulty?: number } };
       const diff  = daily.level?.difficulty ?? 1;
       const stars = '⭐'.repeat(diff);
       dailyInfo.textContent = `📅 Daily puzzle available! ${stars}`;

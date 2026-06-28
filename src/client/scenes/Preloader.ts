@@ -153,7 +153,6 @@ const IMG: AssetDef[] = [
 
 export class Preloader extends Scene {
   private bar: Phaser.GameObjects.Rectangle | null = null;
-  private barBg: Phaser.GameObjects.Rectangle | null = null;
   private titleText: Phaser.GameObjects.Text | null = null;
   private tipText: Phaser.GameObjects.Text | null = null;
 
@@ -185,7 +184,7 @@ export class Preloader extends Scene {
       color: '#6DD400',
       stroke: '#1a0a2e',
       strokeThickness: 6,
-      shadow: { x: 3, y: 3, color: '#000000', blur: 8, fill: true },
+      shadow: { offsetX: 3, offsetY: 3, color: '#000000', blur: 8, fill: true },
     }).setOrigin(0.5);
 
     // Breathing pulse on the title
@@ -199,7 +198,7 @@ export class Preloader extends Scene {
     });
 
     // Bar background
-    this.barBg = this.add.rectangle(cx, cy + 10, 350, 18, 0x2a1555, 1)
+    this.add.rectangle(cx, cy + 10, 350, 18, 0x2a1555, 1)
       .setStrokeStyle(2, 0x6dd400, 0.6);
 
     // Progress bar

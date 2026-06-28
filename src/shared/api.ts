@@ -1,4 +1,4 @@
-import type { LevelData, LeaderboardEntry, CompletionData, UserProfile, Stars, SlimeState, ModifierDef } from './types';
+import type { LevelData, LeaderboardEntry, UserProfile, Stars, SlimeState, ModifierDef } from './types';
 
 // ── Init ──────────────────────────────────────────────────
 export type InitResponse = {

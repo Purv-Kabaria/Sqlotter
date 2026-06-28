@@ -36,9 +36,6 @@ export class SplotMascot {
 
   private bobTween: Phaser.Tweens.Tween | null = null;
   private blinkTimer: Phaser.Time.TimerEvent | null = null;
-  private currentExpr: SplotExpression = 'happy';
-  private equippedItems: Record<string, string> = {};
-  private size: number;
   private scene: Phaser.Scene;
 
   constructor(
@@ -46,8 +43,6 @@ export class SplotMascot {
     equipped: Record<string, string> = {},
   ) {
     this.scene = scene;
-    this.size = size;
-    this.equippedItems = equipped;
 
     const s = size;
     const mk = (key: string, depth: number, vis = true) =>
@@ -89,7 +84,6 @@ export class SplotMascot {
     this.mouth.setTexture(cfg.mouth);
     this.blush.setVisible(cfg.blush === true);
     this.cry.setVisible(cfg.cry === true);
-    this.currentExpr = expr;
 
     if (revertAfterMs) {
       this.scene.time.delayedCall(revertAfterMs, () => {
@@ -152,7 +146,6 @@ export class SplotMascot {
   }
 
   setSize(s: number) {
-    this.size = s;
     [this.shadow, this.blob, this.mouth, this.blush, this.cry,
      this.eye, this.eyebrow, this.accessory, this.shine, this.outline]
       .forEach(img => img.setDisplaySize(s, s));

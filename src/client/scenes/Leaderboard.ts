@@ -10,7 +10,6 @@ const C = {
   DIM:   '#7a8a9a',
 } as const;
 
-const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
 type Tab = 'steps' | 'time' | 'global';
 
@@ -105,7 +104,7 @@ export class Leaderboard extends Phaser.Scene {
         this.tabBtns.forEach((btn, j) => {
           const bBg = btn.list[0] as Phaser.GameObjects.Graphics;
           const bTxt = btn.list[1] as Phaser.GameObjects.Text;
-          const isActive = tabs[j][0] === id;
+          const isActive = tabs[j]?.[0] === id;
           bBg.clear();
           bBg.fillStyle(isActive ? C.GREEN : 0x1a1030, isActive ? 1 : 0.7);
           bBg.fillRoundedRect(-tabW / 2 + 4, -16, tabW - 8, 32, 8);
@@ -182,7 +181,8 @@ export class Leaderboard extends Phaser.Scene {
 
       // Medal or rank number
       if (i < 3) {
-        const medal = this.add.text(rankX, rankY, ['🥇', '🥈', '🥉'][i], {
+        const medals = ['🥇', '🥈', '🥉'] as const;
+        const medal = this.add.text(rankX, rankY, medals[i] ?? medals[2], {
           fontSize: '22px',
         }).setOrigin(0.5);
         this.listContainer!.add(medal);

@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
-import { createServer, getServerPort, redis } from '@devvit/web/server';
-import { context } from '@devvit/web/server';
+import { createServer, getServerPort } from '@devvit/web/server';
 import { api } from './routes/api';
 import { forms } from './routes/forms';
 import { menu } from './routes/menu';

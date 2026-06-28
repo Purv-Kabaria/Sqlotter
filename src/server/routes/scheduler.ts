@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { redis, reddit } from '@devvit/web/server';
-import type { TaskRequest, TaskResponse } from '@devvit/web/server';
+import type { TaskResponse } from '@devvit/web/server';
 import { generateDailyLevel } from '../../shared/levelData';
 
 export const schedulerRoutes = new Hono();
@@ -36,7 +36,7 @@ schedulerRoutes.post('/daily-puzzle', async (c) => {
         entry: 'default',
         postData: { levelId },
         styles: {
-          height: 'TALL',
+          heightPixels: 512,
           backgroundColor: '#1a0a2eff',
           backgroundColorDark: '#1a0a2eff',
         },

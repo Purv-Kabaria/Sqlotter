@@ -195,8 +195,8 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function randItem<T>(rng: () => number, arr: T[]): T {
-  return arr[Math.floor(rng() * arr.length)];
+function randItem<T>(rng: () => number, arr: readonly T[]): T {
+  return arr[Math.floor(rng() * arr.length)]!;
 }
 
 /**

@@ -131,8 +131,8 @@ export class LevelSelect extends Phaser.Scene {
 
     worlds.forEach((levels, worldNum) => {
       // World header
-      const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length];
-      const worldHeader = this.buildWorldHeader(width / 2, cursorY, worldNum, wColor, WORLD_LABELS[worldNum] ?? `World ${worldNum}`);
+      const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length] ?? 0x6dd400;
+      const worldHeader = this.buildWorldHeader(width / 2, cursorY, wColor, WORLD_LABELS[worldNum] ?? `World ${worldNum}`);
       this.scrollContainer!.add(worldHeader);
       cursorY += 52;
 
@@ -171,7 +171,7 @@ export class LevelSelect extends Phaser.Scene {
     this.maxScrollY = Math.max(0, this.contentHeight - (height - 60));
   }
 
-  private buildWorldHeader(x: number, y: number, worldNum: number, color: number, label: string) {
+  private buildWorldHeader(x: number, y: number, color: number, label: string) {
     const g = this.add.graphics();
     const { width } = this.scale;
     const bw = width - 40;
@@ -211,7 +211,7 @@ export class LevelSelect extends Phaser.Scene {
     level: LevelData, worldNum: number,
     stars: number, locked: boolean,
   ) {
-    const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length];
+    const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length] ?? 0x6dd400;
 
     const bg = this.add.graphics();
     if (locked) {
@@ -312,13 +312,12 @@ export class LevelSelect extends Phaser.Scene {
     const idx = CURATED_LEVELS.findIndex(l => l.id === level.id);
     if (idx === 0) return false;
     const prev = CURATED_LEVELS[idx - 1];
+    if (!prev) return false;
     return !this.completedLevels[prev.id];
   }
 
   private setupScrollInput() {
-    const { height } = this.scale;
     const headerH = 60;
-    const viewH = height - headerH;
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (p.y < headerH) return;

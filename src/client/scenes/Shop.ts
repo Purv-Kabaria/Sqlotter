@@ -162,7 +162,7 @@ export class Shop extends Phaser.Scene {
         this.catBtns.forEach((btn, j) => {
           const bBg = btn.list[0] as Phaser.GameObjects.Graphics;
           const bTxt = btn.list[1] as Phaser.GameObjects.Text;
-          const isAct = cats[j][0] === id;
+          const isAct = cats[j]?.[0] === id;
           bBg.clear();
           bBg.fillStyle(isAct ? C.ORANGE : 0x1a1030, isAct ? 1 : 0.7);
           bBg.fillRoundedRect(-catW / 2 + 3, -15, catW - 6, 30, 8);
@@ -255,13 +255,13 @@ export class Shop extends Phaser.Scene {
       c.setInteractive({ useHandCursor: true });
       c.on('pointerover', () => this.tweens.add({ targets: c, scaleX: 1.06, scaleY: 1.06, duration: 80 }));
       c.on('pointerout', () => this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 }));
-      c.on('pointerup', () => this.handleItemTap(item, owned, equipped, c));
+      c.on('pointerup', () => this.handleItemTap(item, owned, equipped));
 
       this.itemGrid!.add(c);
     });
   }
 
-  private async handleItemTap(item: ShopItem, owned: boolean, equipped: boolean, card: Phaser.GameObjects.Container) {
+  private async handleItemTap(item: ShopItem, owned: boolean, equipped: boolean) {
     if (!owned) {
       if (this.sparks < item.price) {
         this.showToast('Not enough Sparks! ✨', '#ff5555');

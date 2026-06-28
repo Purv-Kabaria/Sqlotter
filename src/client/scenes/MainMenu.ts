@@ -50,7 +50,7 @@ function makeButton(
     fontFamily: '"Arial Black", sans-serif',
     fontSize: `${Math.round(h * 0.38)}px`,
     color: C.TEXT,
-    shadow: { x: 1, y: 2, color: '#000000', blur: 4, fill: true },
+    shadow: { offsetX: 1, offsetY: 2, color: '#000000', blur: 4, fill: true },
   }).setOrigin(0.5);
   items.push(txt);
 
@@ -68,7 +68,6 @@ function makeButton(
 // ── Scene ──────────────────────────────────────────────────────
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
-  private splot: SplotMascot | null = null;
   private sparksText: Phaser.GameObjects.Text | null = null;
   private usernameText: Phaser.GameObjects.Text | null = null;
   private buttons: Phaser.GameObjects.Container[] = [];
@@ -79,7 +78,6 @@ export class MainMenu extends Phaser.Scene {
 
   init() {
     this.bgLayers = [];
-    this.splot = null;
     this.buttons = [];
     this.sparkleTimers = [];
   }
@@ -155,7 +153,7 @@ export class MainMenu extends Phaser.Scene {
     const splotY = isPortrait ? height * 0.32 : height * 0.35;
     const splotSize = isPortrait ? Math.min(width * 0.38, 180) : Math.min(height * 0.35, 170);
 
-    this.splot = new SplotMascot(this, cx, splotY, splotSize);
+    new SplotMascot(this, cx, splotY, splotSize);
 
     // SPLOT! title
     const title = this.add.text(cx, splotY - splotSize * 0.72, 'Splot!', {
@@ -164,7 +162,7 @@ export class MainMenu extends Phaser.Scene {
       color: '#6DD400',
       stroke: '#1a0a2e',
       strokeThickness: 7,
-      shadow: { x: 3, y: 4, color: '#000000', blur: 10, fill: true },
+      shadow: { offsetX: 3, offsetY: 4, color: '#000000', blur: 10, fill: true },
     }).setOrigin(0.5).setDepth(5);
 
     // Subtle pulse on title
@@ -190,12 +188,10 @@ export class MainMenu extends Phaser.Scene {
 
     // Main action buttons
     const btnW = isPortrait ? Math.min(width - 48, 320) : 280;
-    const btnH = 52;
     const btnX = isPortrait ? cx : cx + width * 0.15;
     const btnStartY = isPortrait ? height * 0.6 : height * 0.38;
-    const btnGap = btnH + 12;
 
-    const btnH2  = Math.min(btnH, 48);
+    const btnH2  = 48;
     const btnGap2 = btnH2 + 10;
 
     const btns: [string, string | null, number, string, string?][] = [

@@ -1,11 +1,6 @@
 import * as Phaser from 'phaser';
 import type { SlimeState } from '../../shared/types';
 
-type Layer = {
-  key: string;
-  img: Phaser.GameObjects.Image;
-};
-
 const LAYERS: { key: string; stateKey: keyof SlimeState | null; depth: number }[] = [
   { key: 'slime-color',    stateKey: null,         depth: 0 },
   { key: 'mod-pumpkin',    stateKey: 'pumpkin',    depth: 1 },
@@ -110,14 +105,14 @@ export class SlimeRenderer {
 
   // Win scale burst
   playWinAnim(scene: Phaser.Scene, onComplete?: () => void) {
-    scene.tweens.add({
+    const tween = scene.tweens.add({
       targets: this.container,
       scale: 1.3,
       duration: 200,
       ease: 'Back.easeOut',
       yoyo: true,
-      onComplete,
     });
+    if (onComplete) tween.on('complete', onComplete);
   }
 
   setSize(size: number) {

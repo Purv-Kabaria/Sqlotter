@@ -82,7 +82,8 @@ api.get('/daily', async (c) => {
   const dayOfYear = Math.floor(
     (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,
   );
-  const fallback = CURATED_LEVELS[dayOfYear % CURATED_LEVELS.length];
+  const fallback = CURATED_LEVELS[dayOfYear % CURATED_LEVELS.length] ?? CURATED_LEVELS[0];
+  if (!fallback) return c.json({ levelId: 'L01', date: today }, 200);
   return c.json({ levelId: fallback.id, level: fallback, date: today });
 });
 
