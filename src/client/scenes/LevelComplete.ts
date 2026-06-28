@@ -101,6 +101,7 @@ export class LevelComplete extends Phaser.Scene {
 
       this.tweens.add({ targets: [lbl, val], alpha: 1, duration: 300, delay: 900 + i * 100 });
     });
+    this.playRewardBurst(cx, panelY - panelH / 2 + 90, stars);
 
     if (streakDays !== undefined) {
       const streak = this.add.text(cx, statsY + statItems.length * 36 + 4, `🔥 Daily streak: ${streakDays} day${streakDays === 1 ? '' : 's'}`, {
@@ -176,10 +177,44 @@ export class LevelComplete extends Phaser.Scene {
       color: '#ffffff',
     }).setOrigin(0.5);
 
-    const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true });
+    const zone = this.add.zone(x, y, Math.max(w, 44), Math.max(h, 44)).setInteractive({ useHandCursor: true });
     zone.on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.05, scaleY: 1.05, duration: 80 }));
     zone.on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
     zone.on('pointerup', cb);
+  }
+
+  private playRewardBurst(cx: number, cy: number, stars: number) {
+    const count = 10 + stars * 4;
+    for (let i = 0; i < count; i++) {
+      const useSpark = i % 3 === 0;
+      const particle = useSpark
+        ? this.add.image(cx, cy, 'icon-spark').setDisplaySize(14, 14)
+        : this.add.image(cx, cy, 'icon-sparkle').setDisplaySize(12, 12);
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const distance = Phaser.Math.Between(42, 130);
+      particle.setDepth(22).setTint(useSpark ? C.GOLD : 0xffffff).setAlpha(0);
+      this.tweens.add({
+        targets: particle,
+        alpha: { from: 0, to: 1 },
+        x: cx + Math.cos(angle) * distance,
+        y: cy + Math.sin(angle) * distance,
+        scaleX: 1.35,
+        scaleY: 1.35,
+        angle: Phaser.Math.Between(-120, 120),
+        duration: 520,
+        delay: 480 + i * 18,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          this.tweens.add({
+            targets: particle,
+            alpha: 0,
+            y: particle.y - 18,
+            duration: 220,
+            onComplete: () => particle.destroy(),
+          });
+        },
+      });
+    }
   }
 
   private getNextLevelId(currentId: string): string | null {
