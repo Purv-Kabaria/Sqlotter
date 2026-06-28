@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { addPixelIconButton, addPixelPanel } from '../components/PixelUI';
 import { CURATED_LEVELS, WORLD_LABELS } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
@@ -119,6 +120,18 @@ export class LevelSelect extends Phaser.Scene {
       .on('pointerover', () => this.tweens.add({ targets: backBtn, scaleX: 1.1, scaleY: 1.1, duration: 80 }))
       .on('pointerout',  () => this.tweens.add({ targets: backBtn, scaleX: 1, scaleY: 1, duration: 80 }));
     backBtn.setDepth(20);
+    backBtn.destroy(true);
+    addPixelIconButton(this, {
+      x: 46,
+      y: 30,
+      size: 40,
+      iconKey: 'icon-arrow',
+      iconAngle: 180,
+      onClick: () => {
+        this.cameras.main.fadeOut(250, 26, 10, 46);
+        this.time.delayedCall(260, () => this.scene.start('MainMenu'));
+      },
+    }).setDepth(20);
 
     // Title
     this.add.text(width / 2, 30, 'Select Level', {
@@ -239,13 +252,9 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private buildWorldHeader(x: number, y: number, color: number, label: string) {
-    const g = this.add.graphics();
     const { width } = this.scale;
     const bw = width - 40;
-    g.fillStyle(color, 0.15);
-    g.fillRoundedRect(x - bw / 2, y - 20, bw, 40, 8);
-    g.lineStyle(2, color, 0.5);
-    g.strokeRoundedRect(x - bw / 2, y - 20, bw, 40, 8);
+    const panel = addPixelPanel(this, x, y, bw, 40).setTint(color).setAlpha(0.36);
 
     const t = this.add.text(x, y, label, {
       fontFamily: '"Arial Black", sans-serif',
@@ -253,16 +262,14 @@ export class LevelSelect extends Phaser.Scene {
       color: `#${color.toString(16).padStart(6, '0')}`,
     }).setOrigin(0.5);
 
-    const c = this.add.container(0, 0, [g, t]);
+    const c = this.add.container(0, 0, [panel, t]);
     return c;
   }
 
   private buildSectionHeader(x: number, y: number, label: string, color: number) {
-    const g = this.add.graphics();
     const { width } = this.scale;
     const bw = width - 40;
-    g.fillStyle(color, 0.12);
-    g.fillRoundedRect(x - bw / 2, y - 20, bw, 40, 8);
+    const panel = addPixelPanel(this, x, y, bw, 40).setTint(color).setAlpha(0.28);
 
     const t = this.add.text(x, y, label, {
       fontFamily: '"Arial Black", sans-serif',
@@ -270,7 +277,7 @@ export class LevelSelect extends Phaser.Scene {
       color: `#${color.toString(16).padStart(6, '0')}`,
     }).setOrigin(0.5);
 
-    return this.add.container(0, 0, [g, t]);
+    return this.add.container(0, 0, [panel, t]);
   }
 
   private buildLevelCard(
@@ -280,16 +287,19 @@ export class LevelSelect extends Phaser.Scene {
   ) {
     const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length] ?? 0x6dd400;
 
-    const bg = this.add.graphics();
-    if (locked) {
-      bg.fillStyle(C.LOCKED, 1);
-      bg.lineStyle(1, 0x3a2560, 0.8);
-    } else {
-      bg.fillStyle(C.CARD, 1);
-      bg.lineStyle(2, wColor, stars > 0 ? 0.7 : 0.3);
-    }
-    bg.fillRoundedRect(-w/2, -h/2, w, h, 12);
-    bg.strokeRoundedRect(-w/2, -h/2, w, h, 12);
+    const bg = this.add.nineslice(
+      0,
+      0,
+      locked ? 'ui-btn-disabled' : 'ui-btn-open',
+      undefined,
+      w,
+      h,
+      8,
+      8,
+      8,
+      8,
+    );
+    if (!locked && stars > 0) bg.setTint(wColor);
 
     const items: Phaser.GameObjects.GameObject[] = [bg];
 
@@ -344,13 +354,24 @@ export class LevelSelect extends Phaser.Scene {
     if (!locked) {
       c.setSize(w, h).setInteractive({ useHandCursor: true });
       c.on('pointerover', () => {
-        this.tweens.add({ targets: c, scaleX: 1.04, scaleY: 1.04, duration: 80 });
+        bg.setTexture('ui-btn-hover');
+        this.tweens.add({ targets: c, y: cy - 2, scaleX: 1.03, scaleY: 1.03, duration: 80, ease: 'Quad.easeOut' });
       });
       c.on('pointerout', () => {
-        this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 80 });
+        bg.setTexture('ui-btn-open');
+        this.tweens.add({ targets: c, y: cy, scaleX: 1, scaleY: 1, duration: 80, ease: 'Quad.easeOut' });
+      });
+      c.on('pointerdown', () => {
+        bg.setTexture('ui-btn-press');
+        this.tweens.add({ targets: c, y: cy + 1, scaleX: 0.98, scaleY: 0.98, duration: 60 });
       });
       c.on('pointerup', () => {
-        if (this.dragMoved) return;
+        if (this.dragMoved) {
+          bg.setTexture('ui-btn-open');
+          this.tweens.add({ targets: c, y: cy, scaleX: 1, scaleY: 1, duration: 80 });
+          return;
+        }
+        bg.setTexture('ui-btn-hover');
         this.cameras.main.fadeOut(250, 26, 10, 46);
         this.time.delayedCall(260, () => {
           this.scene.start('Game', { levelId: level.id });
@@ -361,11 +382,7 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private buildComingSoonCard(cx: number, cy: number, w: number, h: number) {
-    const bg = this.add.graphics();
-    bg.fillStyle(0x1a2040, 0.8);
-    bg.lineStyle(1, 0x1a6fbf, 0.4);
-    bg.fillRoundedRect(-w/2, -h/2, w, h, 10);
-    bg.strokeRoundedRect(-w/2, -h/2, w, h, 10);
+    const bg = addPixelPanel(this, 0, 0, w, h).setTint(0x1a6fbf).setAlpha(0.35);
 
     const txt = this.add.text(0, 0, 'Community levels coming soon…', {
       fontFamily: 'Arial, sans-serif',
@@ -383,15 +400,7 @@ export class LevelSelect extends Phaser.Scene {
     h: number,
     level: CommunityLevelSummary,
   ) {
-    const bg = this.add.graphics();
-    const draw = (hovered: boolean) => {
-      bg.clear();
-      bg.fillStyle(hovered ? 0x263c68 : 0x1a2040, 0.95);
-      bg.lineStyle(hovered ? 2 : 1, 0x35a7ff, hovered ? 0.9 : 0.5);
-      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    };
-    draw(false);
+    const bg = this.add.nineslice(0, 0, 'ui-btn-open', undefined, w, h, 8, 8, 8, 8).setTint(0x35a7ff);
 
     const title = this.add.text(-w / 2 + 10, -h / 2 + 10, level.title, {
       fontFamily: '"Arial Black", sans-serif',
@@ -413,10 +422,25 @@ export class LevelSelect extends Phaser.Scene {
 
     const card = this.add.container(cx, cy, [bg, title, author, details]);
     card.setSize(w, h).setInteractive({ useHandCursor: true });
-    card.on('pointerover', () => draw(true));
-    card.on('pointerout', () => draw(false));
+    card.on('pointerover', () => {
+      bg.setTexture('ui-btn-hover');
+      this.tweens.add({ targets: card, y: cy - 2, scaleX: 1.03, scaleY: 1.03, duration: 80, ease: 'Quad.easeOut' });
+    });
+    card.on('pointerout', () => {
+      bg.setTexture('ui-btn-open');
+      this.tweens.add({ targets: card, y: cy, scaleX: 1, scaleY: 1, duration: 80, ease: 'Quad.easeOut' });
+    });
+    card.on('pointerdown', () => {
+      bg.setTexture('ui-btn-press');
+      this.tweens.add({ targets: card, y: cy + 1, scaleX: 0.98, scaleY: 0.98, duration: 60 });
+    });
     card.on('pointerup', () => {
-      if (this.dragMoved) return;
+      if (this.dragMoved) {
+        bg.setTexture('ui-btn-open');
+        this.tweens.add({ targets: card, y: cy, scaleX: 1, scaleY: 1, duration: 80 });
+        return;
+      }
+      bg.setTexture('ui-btn-hover');
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => this.scene.start('Game', { levelId: level.id }));
     });
