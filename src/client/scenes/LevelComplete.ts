@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { addPixelButton, addPixelPanel } from '../components/PixelUI';
 import { SplotMascot } from '../components/SplotMascot';
 import { CURATED_LEVELS } from '../../shared/levelData';
 
@@ -35,11 +36,7 @@ export class LevelComplete extends Phaser.Scene {
     const panelW = Math.min(width - 32, 380);
     const panelH = 320;
     const panelY = height / 2;
-    const bg = this.add.graphics();
-    bg.fillStyle(C.PANEL, 0.92);
-    bg.fillRoundedRect(cx - panelW / 2, panelY - panelH / 2, panelW, panelH, 20);
-    bg.lineStyle(2, C.GREEN, 0.6);
-    bg.strokeRoundedRect(cx - panelW / 2, panelY - panelH / 2, panelW, panelH, 20);
+    addPixelPanel(this, cx, panelY, panelW, panelH).setAlpha(0.95);
 
     // "LEVEL CLEAR!" title
     const titleTxt = this.add.text(cx, panelY - panelH / 2 + 40, 'LEVEL CLEAR! 🎉', {
@@ -134,7 +131,7 @@ export class LevelComplete extends Phaser.Scene {
     const nextId = this.getNextLevelId(levelId);
     const hasNext = nextId !== null;
 
-    this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', C.GREEN, () => {
+    this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => {
         if (hasNext) {
@@ -144,11 +141,11 @@ export class LevelComplete extends Phaser.Scene {
         }
       });
     });
-    this.buildBtn(cx, btnY, btnW, 44, 'Ranks', 0xe8c234, () => {
+    this.buildBtn(cx, btnY, btnW, 44, 'Ranks', () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => this.scene.start('Leaderboard', { levelId }));
     });
-    this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', 0x1a6fbf, () => {
+    this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', () => {
       this.cameras.main.fadeOut(250, 26, 10, 46);
       this.time.delayedCall(260, () => this.scene.start('LevelSelect'));
     });
@@ -167,20 +164,16 @@ export class LevelComplete extends Phaser.Scene {
     });
   }
 
-  private buildBtn(x: number, y: number, w: number, h: number, label: string, color: number, cb: () => void) {
-    const g = this.add.graphics();
-    g.fillStyle(color, 1);
-    g.fillRoundedRect(x - w / 2, y - h / 2, w, h, 12);
-    const txt = this.add.text(x, y, label, {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '16px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
-
-    const zone = this.add.zone(x, y, Math.max(w, 44), Math.max(h, 44)).setInteractive({ useHandCursor: true });
-    zone.on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.05, scaleY: 1.05, duration: 80 }));
-    zone.on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
-    zone.on('pointerup', cb);
+  private buildBtn(x: number, y: number, w: number, h: number, label: string, cb: () => void) {
+    addPixelButton(this, {
+      x,
+      y,
+      width: w,
+      height: h,
+      label,
+      fontSize: 14,
+      onClick: cb,
+    });
   }
 
   private playRewardBurst(cx: number, cy: number, stars: number) {
