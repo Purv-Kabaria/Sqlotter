@@ -17,85 +17,159 @@ const C = {
 } as const;
 
 function modLabel(mod: ModifierDef): string {
-  if (mod.type === 'paint') return '🎨 Paint';
-  if (mod.type === 'goggles') return `🥽 ${mod.variant}`;
-  if (mod.type === 'glasses') return `👓 ${mod.variant}`;
-  if (mod.type === 'belt') return `👔 ${mod.variant}`;
-  if (mod.type === 'pendant') return `📿 ${mod.variant}`;
-  if (mod.type === 'pumpkin') return `🎃 ${mod.coverage}%`;
-  if (mod.type === 'underwear') return `🩲 Undies`;
+  if (mod.type === 'paint')    return '🎨 Paint';
+  if (mod.type === 'goggles')  return `🥽 ${mod.variant}`;
+  if (mod.type === 'glasses')  return `👓 ${mod.variant}`;
+  if (mod.type === 'belt')     return `👔 ${mod.variant}`;
+  if (mod.type === 'pendant')  return `📿 ${mod.variant}`;
+  if (mod.type === 'pumpkin')  return `🎃 ${mod.coverage}%`;
+  if (mod.type === 'underwear') return '🩲 Undies';
   return mod.id;
 }
 
 function modIconKey(mod: ModifierDef): string | null {
-  if (mod.type === 'paint') return 'icon-paint';
-  if (mod.type === 'goggles') return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
-  if (mod.type === 'glasses') return mod.variant?.includes('thin') ? 'icon-glasses-thin' : 'icon-glasses-thick';
-  if (mod.type === 'belt') return mod.variant?.includes('thin') ? 'icon-belt-thin' : 'icon-belt-thick';
-  if (mod.type === 'pendant') return 'icon-pendant';
-  if (mod.type === 'pumpkin') return 'icon-pumpkin';
+  if (mod.type === 'paint')    return 'icon-paint';
+  if (mod.type === 'goggles')  return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
+  if (mod.type === 'glasses')  return mod.variant?.includes('thin') ? 'icon-glasses-thin' : 'icon-glasses-thick';
+  if (mod.type === 'belt')     return mod.variant?.includes('thin') ? 'icon-belt-thin' : 'icon-belt-thick';
+  if (mod.type === 'pendant')  return 'icon-pendant';
+  if (mod.type === 'pumpkin')  return 'icon-pumpkin';
   if (mod.type === 'underwear') return 'icon-underwear';
   return null;
 }
 
 export class Game extends Phaser.Scene {
   private engine: LevelEngine | null = null;
-  private level: LevelData | null = null;
+  private level:  LevelData  | null = null;
+  private levelId = 'L01';
+  private isLoading = false;
 
-  private goalRenderer: SlimeRenderer | null = null;
+  private goalRenderer:    SlimeRenderer | null = null;
   private currentRenderer: SlimeRenderer | null = null;
-  private splot: SplotMascot | null = null;
+  private splot:           SplotMascot  | null = null;
 
-  private timerText: Phaser.GameObjects.Text | null = null;
-  private stepsText: Phaser.GameObjects.Text | null = null;
-  private hintText: Phaser.GameObjects.Text | null = null;
+  private timerText:    Phaser.GameObjects.Text      | null = null;
+  private stepsText:    Phaser.GameObjects.Text      | null = null;
+  private hintText:     Phaser.GameObjects.Text      | null = null;
   private conflictPopup: Phaser.GameObjects.Container | null = null;
-  private goggleWarning: Phaser.GameObjects.Text | null = null;
-  private timerEvent: Phaser.Time.TimerEvent | null = null;
+  private goggleWarning: Phaser.GameObjects.Text     | null = null;
+  private timerEvent:   Phaser.Time.TimerEvent       | null = null;
+  private loadingText:  Phaser.GameObjects.Text      | null = null;
 
   private paletteCards: Phaser.GameObjects.Container[] = [];
-  private bgLayers: Phaser.GameObjects.Image[] = [];
+  private bgLayers:     Phaser.GameObjects.Image[]    = [];
 
   constructor() { super('Game'); }
 
+  // ── Scene lifecycle ───────────────────────────────────────
   init(data: { levelId?: string }) {
-    this.engine = null;
-    this.level = null;
+    this.engine    = null;
+    this.level     = null;
+    this.levelId   = data?.levelId ?? 'L01';
+    this.isLoading = false;
     this.paletteCards = [];
     this.bgLayers = [];
-
-    const levelId = data?.levelId ?? 'L01';
-    this.level = levelId === 'daily'
-      ? CURATED_LEVELS[0]
-      : (CURATED_LEVELS.find(l => l.id === levelId) ?? CURATED_LEVELS[0]);
-    this.engine = new LevelEngine(this.level);
   }
 
   create() {
-    if (!this.engine || !this.level) return;
-
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(300, 26, 10, 46);
-
     this.buildBackground();
+
+    if (this.levelId === 'daily') {
+      // Show a spinner while fetching daily from server
+      this.showLoading();
+      void this.fetchDailyAndStart();
+    } else {
+      this.startWithLevelId(this.levelId);
+    }
+  }
+
+  private showLoading() {
+    const { width, height } = this.scale;
+    this.loadingText = this.add.text(width / 2, height / 2, 'Loading daily puzzle…', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '18px',
+      color: '#a0b0c0',
+    }).setOrigin(0.5).setDepth(20);
+    this.tweens.add({ targets: this.loadingText, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
+  }
+
+  private async fetchDailyAndStart() {
+    try {
+      const res = await fetch('/api/daily');
+      if (res.ok) {
+        const data = await res.json() as { levelId: string; level: LevelData };
+        this.levelId = data.levelId;
+        this.level   = data.level;
+      } else {
+        // Fallback: rotate curated by day
+        const dow = new Date().getDay();
+        this.level = CURATED_LEVELS[dow % CURATED_LEVELS.length];
+        this.levelId = this.level.id;
+      }
+    } catch {
+      const dow = new Date().getDay();
+      this.level = CURATED_LEVELS[dow % CURATED_LEVELS.length];
+      this.levelId = this.level.id;
+    }
+
+    this.loadingText?.destroy();
+    this.engine = new LevelEngine(this.level!);
     this.buildHUD();
     this.buildSlimeDisplays();
     this.buildPalette();
     this.startTimer();
   }
 
+  private startWithLevelId(id: string) {
+    const curated = CURATED_LEVELS.find(l => l.id === id);
+    if (curated) {
+      this.level  = curated;
+      this.engine = new LevelEngine(this.level);
+      this.buildHUD();
+      this.buildSlimeDisplays();
+      this.buildPalette();
+      this.startTimer();
+      return;
+    }
+
+    // UGC / unknown level — fetch from server
+    this.showLoading();
+    void (async () => {
+      try {
+        const res = await fetch(`/api/level/${id}`);
+        if (res.ok) {
+          const data = await res.json() as { level: LevelData };
+          this.level = data.level;
+        } else {
+          this.level = CURATED_LEVELS[0];
+        }
+      } catch {
+        this.level = CURATED_LEVELS[0];
+      }
+      this.loadingText?.destroy();
+      this.engine = new LevelEngine(this.level!);
+      this.buildHUD();
+      this.buildSlimeDisplays();
+      this.buildPalette();
+      this.startTimer();
+    })();
+  }
+
+  // ── Background ────────────────────────────────────────────
   private buildBackground() {
     const { width, height } = this.scale;
     ['bg3-1', 'bg3-2'].forEach((key, i) => {
       const img = this.add.image(width / 2, height / 2, key)
         .setAlpha(i === 0 ? 0.55 : 0.25)
         .setDepth(-10);
-      const sc = Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05;
-      img.setScale(sc);
+      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
       this.bgLayers.push(img);
     });
   }
 
+  // ── HUD ───────────────────────────────────────────────────
   private buildHUD() {
     const { width } = this.scale;
 
@@ -105,7 +179,8 @@ export class Game extends Phaser.Scene {
     });
 
     if (this.level) {
-      this.add.text(width / 2, 16, this.level.title, {
+      const titleLabel = this.level.isDaily ? `📅 ${this.level.title}` : this.level.title;
+      this.add.text(width / 2, 16, titleLabel, {
         fontFamily: '"Arial Black", sans-serif',
         fontSize: '16px',
         color: '#ffffff',
@@ -150,29 +225,30 @@ export class Game extends Phaser.Scene {
       fontSize: `${Math.round(size * 0.65)}px`,
       color: '#ffffff',
     }).setOrigin(0.5, 0.45).setDepth(16);
-
     this.add.zone(x, y, size, size).setDepth(16).setInteractive({ useHandCursor: true })
       .on('pointerup', cb)
       .on('pointerover', () => this.tweens.add({ targets: [g, txt], scaleX: 1.12, scaleY: 1.12, duration: 80 }))
       .on('pointerout',  () => this.tweens.add({ targets: [g, txt], scaleX: 1, scaleY: 1, duration: 80 }));
   }
 
+  // ── Slime displays ────────────────────────────────────────
   private buildSlimeDisplays() {
+    if (!this.engine) return;
     const { width, height } = this.scale;
     const isPortrait = height > width;
-    const slimeSize = isPortrait ? Math.min(width * 0.28, 120) : Math.min(height * 0.22, 110);
-    const panelY = isPortrait ? 160 : 130;
-    const panelH = slimeSize + 64;
+    const slimeSize  = isPortrait ? Math.min(width * 0.28, 120) : Math.min(height * 0.22, 110);
+    const panelY     = isPortrait ? 160 : 130;
+    const panelH     = slimeSize + 64;
 
     const goalX = isPortrait ? width * 0.25 : width * 0.22;
     this.buildSlimePanel(goalX, panelY, slimeSize * 1.6, panelH, 'Goal');
     this.goalRenderer = new SlimeRenderer(this, goalX, panelY, slimeSize);
-    if (this.engine) this.goalRenderer.setState(this.engine.goalState);
+    this.goalRenderer.setState(this.engine.goalState);
 
     const curX = isPortrait ? width * 0.75 : width * 0.55;
     this.buildSlimePanel(curX, panelY, slimeSize * 1.6, panelH, 'Splot');
     this.currentRenderer = new SlimeRenderer(this, curX, panelY, slimeSize);
-    if (this.engine) this.currentRenderer.setState(this.engine.currentState);
+    this.currentRenderer.setState(this.engine.currentState);
 
     if (!isPortrait) {
       this.splot = new SplotMascot(this, width * 0.83, panelY, slimeSize * 0.7);
@@ -185,7 +261,6 @@ export class Game extends Phaser.Scene {
     g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
     g.lineStyle(1, 0x6dd400, 0.3);
     g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
-
     this.add.text(cx, cy - h / 2 + 14, label, {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '13px',
@@ -193,6 +268,7 @@ export class Game extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(3);
   }
 
+  // ── Modifier palette ──────────────────────────────────────
   private buildPalette() {
     if (!this.level) return;
     const { width, height } = this.scale;
@@ -221,27 +297,26 @@ export class Game extends Phaser.Scene {
       color: C.DIM,
       wordWrap: { width: paletteW - 20 },
       align: 'center',
-    }).setOrigin(0.5, 1).setDepth(5);
+    }).setOrigin(0.5, 1).setDepth(5).setAlpha(0);
 
-    const cols = isPortrait ? 3 : 2;
-    const cardW = isPortrait ? (paletteW - 32) / cols : paletteW - 24;
-    const cardH = 56;
-    const gap = 8;
-    const startY = paletteY + 38;
+    const cols    = isPortrait ? 3 : 2;
+    const cardW   = isPortrait ? (paletteW - 32) / cols : paletteW - 24;
+    const cardH   = 56;
+    const gap     = 8;
+    const startY  = paletteY + 38;
 
     this.level.palette.forEach((mod, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      const cx = paletteX + 16 + col * (cardW + gap) + cardW / 2;
-      const cy = startY + row * (cardH + gap) + cardH / 2;
-      const card = this.buildModCard(cx, cy, cardW, cardH, mod);
-      this.paletteCards.push(card);
+      const cx  = paletteX + 16 + col * (cardW + gap) + cardW / 2;
+      const cy  = startY + row * (cardH + gap) + cardH / 2;
+      this.paletteCards.push(this.buildModCard(cx, cy, cardW, cardH, mod));
     });
   }
 
   private buildModCard(cx: number, cy: number, w: number, h: number, mod: ModifierDef) {
     const isGoggle = mod.type === 'goggles';
-    const spent = isGoggle && (this.engine?.isGogglesSpent ?? false);
+    const spent    = isGoggle && (this.engine?.isGogglesSpent ?? false);
 
     const bg = this.add.graphics();
     const drawNormal = () => {
@@ -289,17 +364,20 @@ export class Game extends Phaser.Scene {
     }).setOrigin(0, 0.5));
 
     const c = this.add.container(cx, cy, items).setDepth(5).setSize(w, h);
-    c.setInteractive({ useHandCursor: true });
-    c.on('pointerover', () => { if (!spent) drawHover(); });
-    c.on('pointerout', drawNormal);
-    c.on('pointerdown', () => this.tweens.add({ targets: c, scaleX: 0.95, scaleY: 0.95, duration: 60 }));
-    c.on('pointerup', () => {
-      this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 60 });
-      this.applyModifier(mod);
-    });
+    c.setInteractive({ useHandCursor: !spent });
+    if (!spent) {
+      c.on('pointerover', drawHover);
+      c.on('pointerout', drawNormal);
+      c.on('pointerdown', () => this.tweens.add({ targets: c, scaleX: 0.95, scaleY: 0.95, duration: 60 }));
+      c.on('pointerup', () => {
+        this.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 60 });
+        this.applyModifier(mod);
+      });
+    }
     return c;
   }
 
+  // ── Apply modifier ────────────────────────────────────────
   private applyModifier(mod: ModifierDef) {
     if (!this.engine || !this.currentRenderer) return;
 
@@ -319,7 +397,8 @@ export class Game extends Phaser.Scene {
     if (this.engine.isGogglesSpent) {
       this.goggleWarning?.setVisible(true);
       this.time.delayedCall(2500, () => this.goggleWarning?.setVisible(false));
-      this.paletteCards.forEach(c => c.destroy());
+      // Rebuild palette so goggle cards show the "used" state
+      this.paletteCards.forEach(card => card.destroy());
       this.paletteCards = [];
       this.buildPalette();
     }
@@ -327,6 +406,7 @@ export class Game extends Phaser.Scene {
     if (result.isWin) this.handleWin();
   }
 
+  // ── Win ───────────────────────────────────────────────────
   private handleWin() {
     if (!this.engine || !this.level) return;
     this.timerEvent?.destroy();
@@ -339,22 +419,42 @@ export class Game extends Phaser.Scene {
     this.currentRenderer?.playWinAnim(this);
     this.splot?.playWin();
 
-    const payload: CompletionData = { levelId: this.level.id, steps, timeMs: elapsed, stars, isOptimal: stars === 3, sparksEarned: sparks };
-    void fetch('/api/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const payload: CompletionData = {
+      levelId:      this.levelId,
+      steps,
+      timeMs:       elapsed,
+      stars,
+      isOptimal:    stars === 3,
+      sparksEarned: sparks,
+    };
+    void fetch('/api/complete', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
 
-    const lvl = this.level;
+    const lid  = this.levelId;
+    const lvl  = this.level;
     this.time.delayedCall(700, () => {
       this.cameras.main.fadeOut(300, 26, 10, 46);
       this.time.delayedCall(320, () => {
-        this.scene.start('LevelComplete', { levelId: lvl.id, steps, timeMs: elapsed, stars, sparks });
+        this.scene.start('LevelComplete', {
+          levelId: lid,
+          title:   lvl.title,
+          steps,
+          timeMs:  elapsed,
+          stars,
+          sparks,
+        });
       });
     });
   }
 
+  // ── Reset ─────────────────────────────────────────────────
   private handleReset() {
     if (!this.engine) return;
     this.engine.reset();
-    if (this.currentRenderer && this.engine) {
+    if (this.currentRenderer) {
       this.currentRenderer.setState(this.engine.currentState);
       this.currentRenderer.playShakeAnim(this);
     }
@@ -365,6 +465,7 @@ export class Game extends Phaser.Scene {
     this.buildPalette();
   }
 
+  // ── Hint ──────────────────────────────────────────────────
   private showHint() {
     if (!this.level?.hint || !this.hintText) return;
     this.hintText.setText(this.level.hint).setAlpha(1);
@@ -373,6 +474,7 @@ export class Game extends Phaser.Scene {
     });
   }
 
+  // ── Conflict popup ────────────────────────────────────────
   private showConflictPopup(message: string) {
     this.conflictPopup?.destroy();
     const { width, height } = this.scale;
@@ -386,33 +488,40 @@ export class Game extends Phaser.Scene {
 
     const txt = this.add.text(0, 0, `⚠️  ${message}`, {
       fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
-      color: '#ff8888',
-      wordWrap: { width: popW - 24 },
-      align: 'center',
+      fontSize:   '14px',
+      color:      '#ff8888',
+      wordWrap:   { width: popW - 24 },
+      align:      'center',
     }).setOrigin(0.5);
 
     this.conflictPopup = this.add.container(width / 2, height * 0.46, [bg, txt])
       .setDepth(50).setAlpha(0);
     this.tweens.add({ targets: this.conflictPopup, alpha: 1, duration: 150 });
     this.time.delayedCall(2200, () => {
-      this.tweens.add({ targets: this.conflictPopup, alpha: 0, duration: 300, onComplete: () => this.conflictPopup?.destroy() });
+      this.tweens.add({
+        targets: this.conflictPopup, alpha: 0, duration: 300,
+        onComplete: () => this.conflictPopup?.destroy(),
+      });
     });
   }
 
+  // ── Timer ─────────────────────────────────────────────────
   private startTimer() {
     this.timerEvent = this.time.addEvent({
       delay: 1000,
-      loop: true,
+      loop:  true,
       callback: () => {
         if (!this.engine || !this.timerText) return;
         const s = Math.floor(this.engine.elapsedMs() / 1000);
-        this.timerText.setText(`${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`);
+        this.timerText.setText(
+          `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`,
+        );
       },
     });
   }
 
   shutdown() {
     this.timerEvent?.destroy();
+    this.scale.off('resize', undefined, this);
   }
 }

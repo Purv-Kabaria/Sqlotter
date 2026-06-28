@@ -15,10 +15,10 @@ export class LevelComplete extends Phaser.Scene {
 
   constructor() { super('LevelComplete'); }
 
-  create(data: { levelId: string; steps: number; timeMs: number; stars: number; sparks: number }) {
+  create(data: { levelId: string; title?: string; steps: number; timeMs: number; stars: number; sparks: number }) {
     const { width, height } = this.scale;
     const cx = width / 2;
-    const { levelId, steps, timeMs, stars, sparks } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
+    const { levelId, title, steps, timeMs, stars, sparks } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
 
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(400, 26, 10, 46);
@@ -41,14 +41,14 @@ export class LevelComplete extends Phaser.Scene {
     bg.strokeRoundedRect(cx - panelW / 2, panelY - panelH / 2, panelW, panelH, 20);
 
     // "LEVEL CLEAR!" title
-    const title = this.add.text(cx, panelY - panelH / 2 + 40, 'LEVEL CLEAR! 🎉', {
+    const titleTxt = this.add.text(cx, panelY - panelH / 2 + 40, 'LEVEL CLEAR! 🎉', {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '28px',
       color: '#6DD400',
       stroke: '#1a0a2e',
       strokeThickness: 5,
     }).setOrigin(0.5).setAlpha(0);
-    this.tweens.add({ targets: title, alpha: 1, y: panelY - panelH / 2 + 34, duration: 500, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: titleTxt, alpha: 1, y: panelY - panelH / 2 + 34, duration: 500, ease: 'Back.easeOut' });
 
     // Stars (pop in one by one)
     for (let s = 0; s < 3; s++) {
