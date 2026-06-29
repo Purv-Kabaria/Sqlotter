@@ -55,7 +55,6 @@ export class SplotMascot {
     this.blob      = mk('char-blob',         10);
     if (blobColor !== undefined) {
       this.blob.setTint(blobColor);
-      this.blob.setTintFill();
     }
     this.mouth     = mk('char-mouth-happy',  20);
     this.blush     = mk('char-blush',        22, false);

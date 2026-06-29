@@ -6,7 +6,7 @@ import type { InitResponse } from '../../shared/api';
 const PIXELIFY = '"Pixelify Sans", sans-serif';
 
 const C = {
-  HEADER_BG: 0x0A0500,
+  HEADER_BG: 0x232323,
   AMBER:     '#C8940A',
   TEXT_DARK: '#3A1A08',
 } as const;
@@ -103,7 +103,7 @@ export class MainMenu extends Phaser.Scene {
 
     // SQLOTTER logo centered in strip
     if (this.textures.exists('title')) {
-      const logoW = Math.min(w * 0.55, 220);
+      const logoW = Math.min(w * 0.45, 200);
       els.push(this.add.image(cx, titleH / 2, 'title')
         .setDisplaySize(logoW, Math.round(logoW * 112 / 512)).setDepth(11));
     }
@@ -131,7 +131,7 @@ export class MainMenu extends Phaser.Scene {
   // ── Landscape ────────────────────────────────────────────────────────────
   // Full-height left panel (ui/panel.png) with Splot + dark right area with title + buttons
   private buildLandscapeLayout(w: number, h: number, els: Phaser.GameObjects.GameObject[]) {
-    const pad    = 12;
+    const pad    = 24;
     const splitX = Math.round(w * 0.46);
     const rightCx = Math.round(splitX + (w - splitX) / 2);
 
@@ -140,8 +140,8 @@ export class MainMenu extends Phaser.Scene {
     const panelH = h - pad * 2;
     els.push(addPanel9(this, splitX / 2, h / 2, panelW, panelH).setDepth(3));
 
-    // Splot: fills ~82% of the panel (uncapped for large screens)
-    const splotSz = Math.min(panelW * 0.82, panelH * 0.82, 440);
+    // Splot: fills ~72% of the panel
+    const splotSz = Math.min(panelW * 0.72, panelH * 0.72, 440);
     const splotY  = h / 2 - splotSz * 0.04;
     this.spawnMascot(splitX / 2, splotY, splotSz, els);
 
@@ -174,18 +174,25 @@ export class MainMenu extends Phaser.Scene {
     const pillH = 32, pillW = 108;
     els.push(...this.buildSparksPill(w - pillW / 2 - 10, pillH / 2 + 8, pillW, pillH, 12));
 
-    // Streak badge (optional)
-    let btnTop = h * 0.26;
-    const streakDays = this.userData?.streakDays ?? 0;
+    // Pre-compute button group dimensions for vertical centering
+    const btnW   = Math.min(rightW - 32, 420);
+    const btnH   = Math.min(Math.round(h * 0.10), 80);
+    const smallH = Math.round(btnH * 0.88);
+    const gap    = Math.max(8, Math.round(h * 0.015));
+    const groupH = btnH + gap + smallH + gap + smallH;
+
+    const streakDays  = this.userData?.streakDays ?? 0;
+    const streakExtra = streakDays > 0 ? 38 : 0;
+    // topMargin: just below the logo (logo sits at h*0.14, typically ~60px tall)
+    const topMargin   = Math.round(h * 0.22) + streakExtra;
+    const available   = h - topMargin - pad;
+    const btnTop      = topMargin + Math.max(8, Math.round((available - groupH) / 2));
+
     if (streakDays > 0) {
-      els.push(this.buildStreakBadge(rightCx, btnTop, streakDays).setDepth(5));
-      btnTop += 34;
+      els.push(this.buildStreakBadge(rightCx, Math.round(h * 0.22), streakDays).setDepth(5));
     }
 
-    // Play (full-width) + 2×2 grid
-    const btnW = Math.min(rightW - 32, 420);
-    const btnH = Math.min(Math.round((h - btnTop - pad) / 4.6), 80);
-    this.buildMenuButtons(rightCx, btnTop, btnW, btnH, 8, els, 'landscape');
+    this.buildMenuButtons(rightCx, btnTop, btnW, btnH, gap, els, 'landscape');
   }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
@@ -197,6 +204,7 @@ export class MainMenu extends Phaser.Scene {
     this.mascot = new SplotMascot(
       this, x, y, size,
       this.userData?.equippedItems ?? {},
+      0x6DD400,
     );
     this.mascot.container.setDepth(5);
 
@@ -215,14 +223,18 @@ export class MainMenu extends Phaser.Scene {
   private buildSparksPill(
     x: number, y: number, w: number, h: number, depth: number,
   ): Phaser.GameObjects.GameObject[] {
-    const pill = addBeigeCard(this, x, y, w, h).setDepth(depth);
-    const ic   = addDepthIcon(this, x - w / 2 + h / 2 + 2, y, 'icon-spark', h - 6, h - 6);
-    ic.setDepth(depth + 1);
-    const fs = Math.round(h * 0.52);
-    this.sparksText = this.add.text(x - w / 2 + h + 4, y, `${this.userData?.sparks ?? 0}`, {
-      fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.AMBER,
-    }).setOrigin(0, 0.5).setDepth(depth + 1);
-    return [pill, ic, this.sparksText];
+    const fs = Math.round(h * 0.50);
+    const pill = addBeigeButton(this, {
+      x, y, width: w, height: h,
+      label: `${this.userData?.sparks ?? 0}`,
+      iconKey: 'icon-spark',
+      fontSize: fs, fontFamily: PIXELIFY,
+      onClick: () => {},
+    }).setDepth(depth);
+    // Recolour the text to amber after button builds it
+    this.sparksText = pill.list[pill.list.length - 1] as Phaser.GameObjects.Text;
+    this.sparksText.setColor(C.AMBER);
+    return [pill];
   }
 
   private buildMenuButtons(
