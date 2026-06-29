@@ -152,17 +152,8 @@ const IMG: AssetDef[] = [
   { key: 'bg4-3', path: 'background/background 4/3.png' },
   { key: 'bg4-4', path: 'background/background 4/4.png' },
 
-  // ── Flat UI extras (loaded early by Boot) ─────────────────
-  { key: 'ui-banner',          path: 'more ui/UI_Flat_Banner02a.png' },
-  { key: 'ui-frame-blue',      path: 'more ui/UI_Flat_Frame02a.png' },
-  { key: 'ui-bar-fill',        path: 'more ui/UI_Flat_BarFill01a.png' },
-  { key: 'ui-bar-track',       path: 'more ui/UI_Flat_Bar01a.png' },
-  // Flat button + slot nine-slice sources (32×32, slice=10)
-  { key: 'ui-flat-btn',        path: 'more ui/UI_Flat_Button01a_1.png' },
-  { key: 'ui-flat-btn-hover',  path: 'more ui/UI_Flat_Button01a_2.png' },
-  { key: 'ui-flat-btn-press',  path: 'more ui/UI_Flat_Button01a_4.png' },
-  { key: 'ui-flat-slot',       path: 'more ui/UI_Flat_FrameSlot01c.png' },
-  { key: 'ui-flat-slot-dark',  path: 'more ui/UI_Flat_FrameSlot01a.png' },
+  // ── Flat UI slot (beige card nine-slice source, loaded early by Boot) ──────
+  { key: 'ui-flat-slot', path: 'more ui/UI_Flat_FrameSlot01c.png' },
 ];
 
 export class Preloader extends Scene {
@@ -188,10 +179,14 @@ export class Preloader extends Scene {
     this.scale.on('resize', this.onResize, this);
 
     const BOOT_KEYS = new Set([
-      'title', 'bg4-1', 'ui-banner', 'ui-frame-blue', 'ui-bar-fill', 'ui-bar-track',
+      'title', 'bg4-1',
       'loading-border', 'loading-filler',
       'slime-color', 'slime-border', 'slime-shine',
-      'ui-flat-btn', 'ui-flat-btn-hover', 'ui-flat-btn-press', 'ui-flat-slot', 'ui-flat-slot-dark',
+      'ui-flat-slot',
+      // Pre-sliced panel + button cells loaded by Boot
+      ...(['tl','tc','tr','ml','mc','mr','bl','bc','br'].map(p => `pnl-${p}`)),
+      ...(['open','hover','press'].flatMap(s => ['tl','tc','tr','ml','mc','mr','bl','bc','br'].map(p => `btn-${s}-${p}`))),
+      ...(['tl','tc','tr','ml','mc','mr','bl','bc','br'].map(p => `btn-dis-${p}`)),
     ]);
 
     this.load.setPath('assets');

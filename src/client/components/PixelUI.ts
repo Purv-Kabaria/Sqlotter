@@ -2,14 +2,58 @@ import * as Phaser from 'phaser';
 
 export const PIXEL_FONT = '"Press Start 2P", monospace';
 
-// Legacy panel/button slice constants — sources are 4× upscaled (96×96, 128×96)
-const PANEL_SLICE = 32;
-const BUTTON_SLICE_X = 32;
+// Nine-slice constants for legacy NineSlice API (addPixelPanel / addPixelButton)
+const PANEL_SLICE    = 32;  // panel.png 96×96, each cell = 32px
+const BUTTON_SLICE_X = 32;  // button*.png 128×96, corner cell = 32px
 const BUTTON_SLICE_Y = 32;
 
 // Flat UI pack — 32×32 source textures, 10px corners
 const FLAT_SLICE  = 10;
 const DARK_SLICE  = 12;
+
+// Pre-sliced corner size (pixels in source image)
+// panel.png 96×96 = 3×3 grid of 32×32 cells
+// button*.png 128×96 = 4×3 grid of 32×32 cells (col 2 skipped — same fill as col 1)
+const PNL_CW = 32, PNL_CH = 32;
+const BTN_CW = 32, BTN_CH = 32;
+
+const SLICE_POS = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
+
+type SlicePiece = Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite;
+
+// Builds 9 pieces filling a rect of (w×h) centred at (0,0).
+// Corners → Image (natural pixel size, no scaling).
+// Edges + center → TileSprite (GPU-tiled, no stretching, single draw call each).
+// prefix: 'pnl' | 'btn-open' | 'btn-hover' | 'btn-press' | 'btn-dis'
+function build9Pieces(
+  scene: Phaser.Scene, w: number, h: number, cw: number, ch: number, prefix: string,
+): SlicePiece[] {
+  const ox = -w / 2, oy = -h / 2;
+  const mw = w - 2 * cw, mh = h - 2 * ch;
+  // Order mirrors SLICE_POS: tl, tc, tr, ml, mc, mr, bl, bc, br
+  return [
+    scene.add.image(ox + cw / 2,      oy + ch / 2,      `${prefix}-tl`),           // 0 corner
+    scene.add.tileSprite(0,            oy + ch / 2,      mw, ch,  `${prefix}-tc`),  // 1 top edge
+    scene.add.image(-ox - cw / 2,     oy + ch / 2,      `${prefix}-tr`),           // 2 corner
+    scene.add.tileSprite(ox + cw / 2,  0,               cw, mh,  `${prefix}-ml`),  // 3 left edge
+    scene.add.tileSprite(0,            0,               mw, mh,  `${prefix}-mc`),  // 4 center
+    scene.add.tileSprite(-ox - cw / 2, 0,               cw, mh,  `${prefix}-mr`),  // 5 right edge
+    scene.add.image(ox + cw / 2,     -oy - ch / 2,      `${prefix}-bl`),           // 6 corner
+    scene.add.tileSprite(0,           -oy - ch / 2,     mw, ch,  `${prefix}-bc`),  // 7 bottom edge
+    scene.add.image(-ox - cw / 2,    -oy - ch / 2,      `${prefix}-br`),           // 8 corner
+  ];
+}
+
+// ── Panel: pre-sliced, tiled nine-slice ────────────────────────────────────
+export function addPanel9(
+  scene: Phaser.Scene, x: number, y: number, w: number, h: number,
+): Phaser.GameObjects.Container {
+  // Even dimensions guarantee integer half-widths → no sub-pixel gaps between pieces
+  const W = Math.round(w / 2) * 2;
+  const H = Math.round(h / 2) * 2;
+  const pieces = build9Pieces(scene, W, H, PNL_CW, PNL_CH, 'pnl');
+  return scene.add.container(Math.round(x), Math.round(y), pieces as Phaser.GameObjects.GameObject[]);
+}
 
 // ── Depth icon (shadow copy 1-2px below for depth) ──────────────────────────
 
@@ -46,18 +90,6 @@ export function addBeigeCard(
   );
 }
 
-export function addDarkSlot(
-  scene: Phaser.Scene,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): Phaser.GameObjects.NineSlice {
-  return scene.add.nineslice(
-    x, y, 'ui-flat-slot-dark', undefined, width, height,
-    FLAT_SLICE, FLAT_SLICE, FLAT_SLICE, FLAT_SLICE,
-  );
-}
 
 export function addDarkPanel(
   scene: Phaser.Scene,
@@ -81,6 +113,7 @@ export type BeigeButtonOptions = {
   label: string;
   iconKey?: string | undefined;
   fontSize?: number;
+  fontFamily?: string;
   disabled?: boolean;
   onClick: () => void;
 };
@@ -91,25 +124,28 @@ export function addBeigeButton(
 ): Phaser.GameObjects.Container {
   const {
     x, y, width, height, label, iconKey,
-    fontSize = Math.min(10, Math.round(height * 0.25)),
+    fontSize = Math.max(9, Math.round(height * 0.28)),
+    fontFamily = PIXEL_FONT,
     disabled = false,
     onClick,
   } = options;
 
-  const bg = scene.add.nineslice(
-    0, 0, disabled ? 'ui-flat-slot' : 'ui-flat-btn', undefined, width, height,
-    FLAT_SLICE, FLAT_SLICE, FLAT_SLICE, FLAT_SLICE,
-  );
-  if (disabled) bg.setAlpha(0.5);
+  // Even dimensions guarantee integer half-widths → no sub-pixel gaps between pieces
+  const W = Math.round(width / 2) * 2;
+  const H = Math.round(height / 2) * 2;
+  const rx = Math.round(x), ry = Math.round(y);
 
-  const items: Phaser.GameObjects.GameObject[] = [bg];
+  const btnState = disabled ? 'btn-dis' : 'btn-open';
+  const bgPieces = build9Pieces(scene, W, H, BTN_CW, BTN_CH, btnState);
+  if (disabled) bgPieces.forEach(p => (p as Phaser.GameObjects.Image).setAlpha(0.5));
 
-  const iconSize = Math.min(22, height * 0.48);
+  const items: Phaser.GameObjects.GameObject[] = [...(bgPieces as Phaser.GameObjects.GameObject[])];
+
+  const iconSize = Math.min(H * 0.50, 24);
   const hasIcon  = !!iconKey;
-  // Icon + label layout: icon left of center, label right of icon
-  const totalW   = hasIcon ? iconSize + 6 + label.length * (fontSize * 0.7) : 0;
-  const iconX    = hasIcon ? -Math.min(totalW / 2, width * 0.32) : 0;
-  const textX    = hasIcon ? iconX + iconSize * 0.6 + 6 : 0;
+  const totalW   = hasIcon ? iconSize + 8 + label.length * (fontSize * 0.68) : 0;
+  const iconX    = hasIcon ? -Math.min(totalW / 2, W * 0.34) : 0;
+  const textX    = hasIcon ? iconX + iconSize * 0.60 + 8 : 0;
 
   if (hasIcon) {
     const ic = addDepthIcon(scene, iconX, 0, iconKey!, iconSize, iconSize);
@@ -118,33 +154,43 @@ export function addBeigeButton(
   }
 
   const txt = scene.add.text(textX, 0, label, {
-    fontFamily: PIXEL_FONT,
+    fontFamily,
     fontSize: `${fontSize}px`,
     color: disabled ? '#9A7A5A' : '#3A1A08',
     shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
   }).setOrigin(hasIcon ? 0 : 0.5, 0.5);
   items.push(txt);
 
-  const container = scene.add.container(x, y, items).setSize(Math.max(width, 44), Math.max(height, 44));
+  const container = scene.add.container(rx, ry, items).setSize(Math.max(W, 44), Math.max(H, 44));
+
+  const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') =>
+    SLICE_POS.forEach((pos, i) =>
+      (bgPieces[i] as Phaser.GameObjects.Image | undefined)?.setTexture(`${state}-${pos}`),
+    );
 
   if (!disabled) {
-    container.setInteractive({ useHandCursor: true });
+    // Inset by 4px to exclude the transparent outer margin of the button asset
+    container.setInteractive(
+      new Phaser.Geom.Rectangle(-W / 2 + 4, -H / 2 + 4, W - 8, H - 8),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    container.input!.cursor = 'pointer';
     container
       .on('pointerover', () => {
-        bg.setTexture('ui-flat-btn-hover');
-        scene.tweens.add({ targets: container, y: y - 3, duration: 80, ease: 'Quad.easeOut' });
+        swapBg('btn-hover');
+        scene.tweens.add({ targets: container, y: ry - 3, duration: 80, ease: 'Quad.easeOut' });
       })
       .on('pointerout', () => {
-        bg.setTexture('ui-flat-btn');
-        scene.tweens.add({ targets: container, y, duration: 90, ease: 'Quad.easeOut' });
+        swapBg('btn-open');
+        scene.tweens.add({ targets: container, y: ry, duration: 90, ease: 'Quad.easeOut' });
       })
       .on('pointerdown', () => {
-        bg.setTexture('ui-flat-btn-press');
-        scene.tweens.add({ targets: container, y: y + 2, scaleX: 0.97, scaleY: 0.97, duration: 60 });
+        swapBg('btn-press');
+        scene.tweens.add({ targets: container, y: ry + 2, scaleX: 0.97, scaleY: 0.97, duration: 60 });
       })
       .on('pointerup', () => {
-        bg.setTexture('ui-flat-btn-hover');
-        scene.tweens.add({ targets: container, y: y - 3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
+        swapBg('btn-hover');
+        scene.tweens.add({ targets: container, y: ry - 3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
       });
   }
 

@@ -8,16 +8,7 @@ export class Boot extends Scene {
     this.load.setPath('assets');
     this.load.image('title',         'title.png');
     this.load.image('bg4-1',         'background/background 4/1.png');
-    this.load.image('ui-banner',     'more ui/UI_Flat_Banner02a.png');
-    this.load.image('ui-frame-blue', 'more ui/UI_Flat_Frame02a.png');
-    this.load.image('ui-bar-fill',   'more ui/UI_Flat_BarFill01a.png');
-    this.load.image('ui-bar-track',  'more ui/UI_Flat_Bar01a.png');
-    // Flat UI pack — 32×32 nine-slice sources
-    this.load.image('ui-flat-btn',        'more ui/UI_Flat_Button01a_1.png');
-    this.load.image('ui-flat-btn-hover',  'more ui/UI_Flat_Button01a_2.png');
-    this.load.image('ui-flat-btn-press',  'more ui/UI_Flat_Button01a_4.png');
-    this.load.image('ui-flat-slot',       'more ui/UI_Flat_FrameSlot01c.png');
-    this.load.image('ui-flat-slot-dark',  'more ui/UI_Flat_FrameSlot01a.png');
+    this.load.image('ui-flat-slot', 'more ui/UI_Flat_FrameSlot01c.png');
     // Loading bar assets
     this.load.image('loading-border', 'ui/loading-border.png');
     this.load.image('loading-filler', 'ui/loading-filler.png');
@@ -25,25 +16,29 @@ export class Boot extends Scene {
     this.load.image('slime-color',  'slime/color.png');
     this.load.image('slime-border', 'slime/border.png');
     this.load.image('slime-shine',  'slime/overlay-normal.png');
+    // Pre-sliced panel cells (panel.png 96×96, corner=8px)
+    const pnlPos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
+    for (const pos of pnlPos) this.load.image(`pnl-${pos}`, `ui/slices/pnl-${pos}.png`);
+    // Pre-sliced button cells (button 128×96, corner=12px)
+    const btnStates = ['open','hover','press'] as const;
+    const btnPos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
+    for (const st of btnStates)
+      for (const pos of btnPos) this.load.image(`btn-${st}-${pos}`, `ui/slices/btn-${st}-${pos}.png`);
+    this.load.image('btn-dis-tl', 'ui/slices/btn-dis-tl.png');
+    this.load.image('btn-dis-tc', 'ui/slices/btn-dis-tc.png');
+    this.load.image('btn-dis-tr', 'ui/slices/btn-dis-tr.png');
+    this.load.image('btn-dis-ml', 'ui/slices/btn-dis-ml.png');
+    this.load.image('btn-dis-mc', 'ui/slices/btn-dis-mc.png');
+    this.load.image('btn-dis-mr', 'ui/slices/btn-dis-mr.png');
+    this.load.image('btn-dis-bl', 'ui/slices/btn-dis-bl.png');
+    this.load.image('btn-dis-bc', 'ui/slices/btn-dis-bc.png');
+    this.load.image('btn-dis-br', 'ui/slices/btn-dis-br.png');
   }
 
   create() {
     this.cameras.main.setBackgroundColor(0x232323);
-    this.genBeigeCardTexture();
     this.genDarkPanelTexture();
     this.scene.start('Preloader');
-  }
-
-  // Warm-beige rounded card with dark-brown border (modifier slots, slime panels)
-  private genBeigeCardTexture() {
-    if (this.textures.exists('ui-beige-card')) return;
-    const g = this.add.graphics();
-    g.fillStyle(0x3D1808); // dark border
-    g.fillRoundedRect(0, 0, 64, 64, 14);
-    g.fillStyle(0xDEC998); // warm beige fill
-    g.fillRoundedRect(4, 4, 56, 56, 11);
-    g.generateTexture('ui-beige-card', 64, 64);
-    g.destroy();
   }
 
   // Near-black panel (modifier palette background, right-side panels)

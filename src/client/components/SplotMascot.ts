@@ -43,6 +43,7 @@ export class SplotMascot {
   constructor(
     scene: Phaser.Scene, x: number, y: number, size: number,
     equipped: Record<string, string> = {},
+    blobColor?: number,
   ) {
     this.scene = scene;
 
@@ -52,8 +53,10 @@ export class SplotMascot {
 
     this.shadow    = mk('char-shadow',        0).setAlpha(0.6);
     this.blob      = mk('char-blob',         10);
-    this.blob.setTint(0x6dd400);
-    this.blob.setTintFill();
+    if (blobColor !== undefined) {
+      this.blob.setTint(blobColor);
+      this.blob.setTintFill();
+    }
     this.mouth     = mk('char-mouth-happy',  20);
     this.blush     = mk('char-blush',        22, false);
     this.cry       = mk('char-cry',          22, false);
@@ -114,14 +117,15 @@ export class SplotMascot {
       ease: 'Sine.easeInOut',
     });
 
-    // Eye blink
+    // Eye blink — skipped for expressions where eyes are already shut or styled
     this.blinkTimer = this.scene.time.addEvent({
       delay: 3200,
       loop: true,
       callback: () => {
-        const orig = this.eye.texture.key;
+        const key = this.eye.texture.key;
+        if (key === 'char-eye-pain' || key === 'char-eye-happy') return;
         this.eye.setVisible(false);
-        this.scene.time.delayedCall(130, () => this.eye.setVisible(true).setTexture(orig));
+        this.scene.time.delayedCall(130, () => this.eye.setVisible(true));
       },
     });
   }
