@@ -18,6 +18,9 @@ export class Boot extends Scene {
     this.load.image('ui-flat-btn-press',  'more ui/UI_Flat_Button01a_4.png');
     this.load.image('ui-flat-slot',       'more ui/UI_Flat_FrameSlot01c.png');
     this.load.image('ui-flat-slot-dark',  'more ui/UI_Flat_FrameSlot01a.png');
+    // Loading bar assets
+    this.load.image('loading-border', 'ui/loading-border.png');
+    this.load.image('loading-filler', 'ui/loading-filler.png');
     // Slime assets for animated loading mascot
     this.load.image('slime-color',  'slime/color.png');
     this.load.image('slime-border', 'slime/border.png');
@@ -25,7 +28,7 @@ export class Boot extends Scene {
   }
 
   create() {
-    this.cameras.main.setBackgroundColor(0x0A0500);
+    this.cameras.main.setBackgroundColor(0x232323);
     this.genBeigeCardTexture();
     this.genDarkPanelTexture();
     this.scene.start('Preloader');

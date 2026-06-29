@@ -1,6 +1,5 @@
 import { GameObjects, Scene } from 'phaser';
 import { getLaunchLevelId } from '../launch';
-import { PIXEL_FONT } from '../components/PixelUI';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -167,17 +166,30 @@ const IMG: AssetDef[] = [
 ];
 
 export class Preloader extends Scene {
-  private bar: GameObjects.Rectangle | null = null;
+  // Loading UI object refs — created once, repositioned on resize
+  private logo: GameObjects.Image | null = null;
+  private logoFallback: GameObjects.Text | null = null;
+  private slimeShadow: GameObjects.Image | null = null;
+  private slime: GameObjects.Image | null = null;
+  private slimeShine: GameObjects.Image | null = null;
+  private slimeBorder: GameObjects.Image | null = null;
+  private filler: GameObjects.Image | null = null;
+  private fillerBorder: GameObjects.Image | null = null;
   private tipText: GameObjects.Text | null = null;
+  private bobTween: Phaser.Tweens.Tween | null = null;
+  private squishTween: Phaser.Tweens.TweenChain | null = null;
+  private currentProgress = 0;
 
   constructor() { super('Preloader'); }
 
   preload() {
-    this.cameras.main.setBackgroundColor(0x1a0a2e);
+    this.cameras.main.setBackgroundColor(0x232323);
     this.createLoadingUI();
+    this.scale.on('resize', this.onResize, this);
 
     const BOOT_KEYS = new Set([
       'title', 'bg4-1', 'ui-banner', 'ui-frame-blue', 'ui-bar-fill', 'ui-bar-track',
+      'loading-border', 'loading-filler',
       'slime-color', 'slime-border', 'slime-shine',
       'ui-flat-btn', 'ui-flat-btn-hover', 'ui-flat-btn-press', 'ui-flat-slot', 'ui-flat-slot-dark',
     ]);
@@ -189,92 +201,115 @@ export class Preloader extends Scene {
     }
 
     this.load.on('progress', (p: number) => {
-      if (this.bar) {
-        const maxW = Math.min(this.scale.width * 0.65, 300) - 4;
-        this.bar.width = 4 + maxW * p;
+      this.currentProgress = p;
+      if (this.filler) {
+        this.filler.setCrop(0, 0, Math.max(1, Math.round(128 * p)), 16);
       }
     });
   }
 
+  // Creates all display objects at placeholder positions, then lays them out.
   private createLoadingUI() {
+    const cx = this.scale.width / 2;
+
+    if (this.textures.exists('title')) {
+      this.logo = this.add.image(cx, 0, 'title');
+    } else {
+      this.logoFallback = this.add.text(cx, 0, 'Sqlotter', {
+        fontFamily: '"Pixelify Sans", sans-serif', fontSize: '24px', color: '#DEC998',
+      }).setOrigin(0.5);
+    }
+
+    if (this.textures.exists('slime-color')) {
+      this.slimeShadow = this.add.image(cx, 0, 'slime-color');
+      this.slimeShadow.setTint(0x000000);
+      this.slimeShadow.setTintFill();
+      this.slimeShadow.setAlpha(0.30);
+      this.slime       = this.add.image(cx, 0, 'slime-color').setTint(0x6DD400);
+      this.slimeShine  = this.add.image(cx, 0, 'slime-shine').setAlpha(0.80);
+      this.slimeBorder = this.add.image(cx, 0, 'slime-border');
+    }
+
+    this.filler = this.add.image(cx, 0, 'loading-filler').setOrigin(0, 0.5);
+    this.filler.setCrop(0, 0, 1, 16);
+    this.fillerBorder = this.add.image(cx, 0, 'loading-border');
+    this.tipText = this.add.text(cx, 0, 'Loading...', {
+      fontFamily: '"Pixelify Sans", sans-serif', fontSize: '16px', color: '#a8a090',
+    }).setOrigin(0.5);
+
+    this.layoutLoadingUI();
+  }
+
+  // Recalculates and applies sizes + positions for the current canvas dimensions.
+  // Safe to call repeatedly — stops old tweens and restarts them with updated values.
+  private layoutLoadingUI() {
     const { width, height } = this.scale;
     const cx = width / 2;
-    const cy = height / 2;
 
-    // Background
-    if (this.textures.exists('bg4-1')) {
-      const bg = this.add.image(cx, cy, 'bg4-1');
-      bg.setScale(Math.max(width / (bg.width || 1), height / (bg.height || 1)) * 1.05);
-      bg.setAlpha(0.30);
-    }
-    this.add.rectangle(cx, cy, width, height, 0x0A0500, 0.60);
+    const slimeSz = Math.min(width * 0.50, height * 0.32, 280);
+    const logoW   = Math.min(width * 0.75, 350);
+    const logoH   = Math.round(logoW * 112 / 512);
+    const barW    = Math.min(width * 0.80, 380);
+    const barH    = Math.round(barW * 16 / 128);
 
-    // Animated slime mascot (assets loaded by Boot)
-    if (this.textures.exists('slime-color')) {
-      const slimeSz = Math.min(width * 0.22, 90);
-      const slimeY  = cy - 50;
-      // Shadow
-      const shadow = this.add.image(cx + 3, slimeY + 3, 'slime-color')
-        .setDisplaySize(slimeSz, slimeSz);
-      shadow.setTint(0x000000); shadow.setTintFill(); shadow.setAlpha(0.30);
-      // Body (green)
-      const slime = this.add.image(cx, slimeY, 'slime-color')
-        .setDisplaySize(slimeSz, slimeSz).setTint(0x6DD400);
-      // Shine
-      const shine = this.add.image(cx, slimeY, 'slime-shine')
-        .setDisplaySize(slimeSz, slimeSz).setAlpha(0.80);
-      // Border
-      const border = this.add.image(cx, slimeY, 'slime-border')
-        .setDisplaySize(slimeSz, slimeSz);
+    // Pack the 3 elements into the top 65% with equal gaps between them
+    const topMargin = Math.round(height * 0.06);
+    const totalElH  = logoH + slimeSz + barH;
+    const gap       = Math.max(16, Math.round((height * 0.65 - topMargin - totalElH) / 2));
 
-      // Idle bob animation
-      this.tweens.add({
-        targets: [slime, shine, border, shadow],
+    const titleY = topMargin + Math.ceil(logoH / 2);
+    const slimeY = topMargin + logoH + gap + Math.ceil(slimeSz / 2);
+    const barY   = topMargin + logoH + gap + slimeSz + gap + Math.ceil(barH / 2);
+
+    this.logo?.setPosition(cx, titleY).setDisplaySize(logoW, logoH);
+    this.logoFallback?.setPosition(cx, titleY);
+
+    if (this.slime && this.slimeShine && this.slimeBorder && this.slimeShadow) {
+      // Stop running tweens before snapping positions (prevents mid-tween offsets)
+      this.bobTween?.stop();
+      this.squishTween?.stop();
+
+      this.slimeShadow.setPosition(cx + 3, slimeY + 3).setDisplaySize(slimeSz, slimeSz);
+      this.slime      .setPosition(cx,     slimeY    ).setDisplaySize(slimeSz, slimeSz);
+      this.slimeShine .setPosition(cx,     slimeY    ).setDisplaySize(slimeSz, slimeSz);
+      this.slimeBorder.setPosition(cx,     slimeY    ).setDisplaySize(slimeSz, slimeSz);
+
+      // Capture base scale AFTER setDisplaySize — tween values are absolute in Phaser
+      const bs = this.slime.scaleX;
+
+      this.bobTween = this.tweens.add({
+        targets: [this.slime, this.slimeShine, this.slimeBorder, this.slimeShadow],
         y: `+=${slimeSz * 0.08}`,
         duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       });
-      // Squish loop
-      this.tweens.chain({
-        targets: [slime, shine, border],
+      this.squishTween = this.tweens.chain({
+        targets: [this.slime, this.slimeShine, this.slimeBorder],
         tweens: [
-          { scaleX: 1.06, scaleY: 0.94, duration: 300, ease: 'Sine.easeInOut' },
-          { scaleX: 0.97, scaleY: 1.05, duration: 300, ease: 'Sine.easeInOut' },
-          { scaleX: 1, scaleY: 1, duration: 200, ease: 'Sine.easeInOut' },
-          { scaleX: 1, scaleY: 1, duration: 400 }, // pause
+          { scaleX: bs * 1.06, scaleY: bs * 0.94, duration: 300, ease: 'Sine.easeInOut' },
+          { scaleX: bs * 0.97, scaleY: bs * 1.05, duration: 300, ease: 'Sine.easeInOut' },
+          { scaleX: bs,        scaleY: bs,         duration: 200, ease: 'Sine.easeInOut' },
+          { scaleX: bs,        scaleY: bs,         duration: 400 },
         ],
         repeat: -1,
       });
     }
 
-    // SQLOTTER logo
-    if (this.textures.exists('title')) {
-      const logo = this.add.image(cx, cy + 22, 'title');
-      const maxW = Math.min(width * 0.62, 260);
-      logo.setDisplaySize(maxW, maxW * 0.22);
-    } else {
-      this.add.text(cx, cy + 22, 'Sqlotter', {
-        fontFamily: PIXEL_FONT, fontSize: '24px', color: '#DEC998',
-        stroke: '#3A1A08', strokeThickness: 4,
-      }).setOrigin(0.5);
+    if (this.filler) {
+      this.filler.setPosition(cx - barW / 2, barY).setDisplaySize(barW, barH);
+      // Re-apply progress crop in case resize happens mid-load
+      this.filler.setCrop(0, 0, Math.max(1, Math.round(128 * this.currentProgress)), 16);
     }
+    this.fillerBorder?.setPosition(cx, barY).setDisplaySize(barW, barH);
+    this.tipText?.setPosition(cx, barY + Math.ceil(barH / 2) + 14);
+  }
 
-    // Progress bar track
-    const barW = Math.min(width * 0.65, 300);
-    if (this.textures.exists('ui-bar-track')) {
-      const track = this.add.image(cx, cy + 72, 'ui-bar-track');
-      track.setScale(barW / (track.width || 1), 20 / (track.height || 1));
-    } else {
-      this.add.rectangle(cx, cy + 72, barW, 18, 0x1e0e3e);
-    }
-    this.bar = this.add.rectangle(cx - barW / 2 + 2, cy + 72, 4, 12, 0xDEC998).setOrigin(0, 0.5);
-
-    // Loading label
-    this.tipText = this.add.text(cx, cy + 94, 'Loading...', {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#7a8a9a',
-    }).setOrigin(0.5);
+  private onResize(gameSize: Phaser.Structs.Size) {
+    this.cameras.resize(gameSize.width, gameSize.height);
+    this.layoutLoadingUI();
   }
 
   create() {
+    this.scale.off('resize', this.onResize, this);
     if (this.tipText) this.tipText.setText('Ready!');
     const launchLevelId = getLaunchLevelId();
     this.time.delayedCall(200, () => {
