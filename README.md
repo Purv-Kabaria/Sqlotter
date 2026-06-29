@@ -30,14 +30,14 @@
 
 **Splot!** is a logic puzzle game where every level presents a **goal slime** — a round, blob-shaped character decorated with a specific combination of accessories (goggles, belts, paint colours, pumpkin masks, etc.). The player's job is to reproduce that exact appearance by applying the available **modifiers** in the correct sequence.
 
-The concept is inspired by the classic browser game **Factory Balls** (Bart Bonte, 2009), where players drag balls through tools in the right order to decorate them. Splot! adapts this for:
+Each level asks you to reproduce a **goal slime** by applying modifiers in the right sequence — order matters, and every valid combination is discoverable. Splot! is built for:
 
 - **Reddit's Devvit platform** (Interactive Posts, runs in the feed)
 - **Mobile-first design** (tap-to-apply modifiers)
 - **Community features** (daily puzzles, user-generated levels, leaderboards)
 - **Persistent mascot** (Splot, customisable with Sparks)
 
-**Elevator pitch:** "Wordle meets Factory Balls on Reddit — solve the slime, climb the board, come back tomorrow."
+**Elevator pitch:** "Wordle meets sequence puzzles on Reddit — solve the slime, climb the board, come back tomorrow."
 
 ---
 
@@ -1125,7 +1125,7 @@ npm run launch    # deploy + publish (triggers Reddit review)
 
 - AI-generated art placeholder aesthetic → all sprites are custom
 - Literal Reddit theming (karma, Snoo) → focus is on slimes and puzzles
-- Cloning a popular game → Factory Balls is relatively obscure; Splot adapts it with original mechanics
+- Derivative aesthetic → Splot uses original sprites and original mechanics tailored to Reddit
 - Mobile-unfriendly layout → portrait-first throughout, tested on 390-wide viewports
 
 ---

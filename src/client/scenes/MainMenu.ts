@@ -9,12 +9,13 @@ const C = {
   HEADER_BG:  0x0A0500,
   PANEL_BG:   0x180C02,
   GOLD:       0xFFD700,
+  TEXT_DARK:  '#3A1A08',
   TEXT_BEIGE: '#DEC998',
-  TEXT_LIGHT: '#FFFCE8',
   DIM:        '#9A8A7A',
+  AMBER:      '#C8940A',
 } as const;
 
-const HEADER_H = 52;
+const HEADER_H = 56;
 
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
@@ -58,6 +59,7 @@ export class MainMenu extends Phaser.Scene {
 
   private buildBackground() {
     const { width, height } = this.scale;
+    // bg4 = the sky/clouds background matching frame designs
     const keys   = ['bg4-1', 'bg4-2', 'bg4-3', 'bg4-4'];
     const alphas = [1, 0.80, 0.55, 0.30];
 
@@ -90,28 +92,30 @@ export class MainMenu extends Phaser.Scene {
     const isPortrait = height > width;
     const elements: Phaser.GameObjects.GameObject[] = [];
 
-    // Header strip
-    elements.push(this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(10));
+    // ── Header strip ──────────────────────────────────────────────────────
+    const header = this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG)
+      .setDepth(10);
+    elements.push(header);
 
     if (this.textures.exists('title')) {
-      const logoW = Math.min(width * 0.5, 200);
-      const logo  = this.add.image(width / 2, HEADER_H / 2, 'title')
-        .setDisplaySize(logoW, logoW * 0.22).setDepth(11);
+      const maxW = Math.min(width * 0.52, 220);
+      const logo = this.add.image(width / 2, HEADER_H / 2, 'title')
+        .setDisplaySize(maxW, maxW * 0.22).setDepth(11);
       elements.push(logo);
     }
 
-    // Sparks counter (top-right)
-    const sparkPillW = 100, sparkPillH = 30;
-    const sparkCx    = width - sparkPillW / 2 - 8;
-    const sparkCy    = HEADER_H / 2;
-    addBeigeCard(this, sparkCx, sparkCy, sparkPillW, sparkPillH).setDepth(12);
-    const sparkIcContainer = addDepthIcon(this, sparkCx - 34, sparkCy, 'icon-spark', 14, 14);
-    sparkIcContainer.setDepth(13);
-    this.sparksText = this.add.text(sparkCx - 18, sparkCy, `${this.userData?.sparks ?? 0}`, {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#C8940A',
+    // ── Sparks counter pill (top-right in header) ─────────────────────────
+    const pillW = 108, pillH = 32;
+    const pillX = width - pillW / 2 - 10;
+    const pillY = HEADER_H / 2;
+    const sparkPill = addBeigeCard(this, pillX, pillY, pillW, pillH).setDepth(12);
+    const sparkIc   = addDepthIcon(this, pillX - pillW / 2 + 18, pillY, 'icon-spark', 16, 16);
+    sparkIc.setDepth(13);
+    this.sparksText = this.add.text(pillX - pillW / 2 + 32, pillY, `${this.userData?.sparks ?? 0}`, {
+      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.AMBER,
       shadow: { offsetX: 1, offsetY: 1, color: '#5A3A00', blur: 0, fill: true },
     }).setOrigin(0, 0.5).setDepth(13);
-    elements.push(sparkIcContainer, this.sparksText);
+    elements.push(sparkPill, sparkIc, this.sparksText);
 
     if (isPortrait) {
       this.buildPortraitLayout(width, height, elements);
@@ -123,112 +127,163 @@ export class MainMenu extends Phaser.Scene {
     this.uiLayer = this.add.container(0, 0, elements);
   }
 
+  // ── Portrait layout: mascot floats in sky, 5 wide stacked buttons ────────
   private buildPortraitLayout(width: number, height: number, elements: Phaser.GameObjects.GameObject[]) {
     const cx = width / 2;
 
-    // Mascot (floating in game-area background)
-    const splotSz  = Math.min(width * 0.38, 160);
-    const splotY   = HEADER_H + splotSz * 0.65 + 20;
-    this.mascot    = new SplotMascot(this, cx, splotY, splotSz);
+    // Splot mascot — large, centered below header
+    const splotSz = Math.min(width * 0.52, 200);
+    const splotY  = HEADER_H + splotSz * 0.58 + 16;
+    this.mascot = new SplotMascot(this, cx, splotY, splotSz);
     this.mascot.container.setDepth(5);
     elements.push(this.mascot.container);
 
-    // Greeting
+    // Greeting + streak
+    const greetY = splotY + splotSz * 0.54;
     const username = this.userData?.username ?? '';
-    const greetY   = splotY + splotSz * 0.58;
     if (username) {
-      const greet = this.add.text(cx, greetY, `Hey ${username}!`, {
+      elements.push(this.add.text(cx, greetY, `Hey ${username}!`, {
         fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DIM,
         shadow: { offsetX: 1, offsetY: 1, color: '#000', blur: 0, fill: true },
-      }).setOrigin(0.5).setDepth(5);
-      elements.push(greet);
+      }).setOrigin(0.5).setDepth(5));
     }
-
-    // Streak badge
     const streakDays = this.userData?.streakDays ?? 0;
     if (streakDays > 0) {
-      const badge = this.buildStreakBadge(cx, greetY + 24, streakDays);
-      badge.setDepth(5);
-      elements.push(badge);
+      elements.push(this.buildStreakBadge(cx, greetY + 26, streakDays).setDepth(5));
     }
 
-    // Buttons: 5 tall beige pill buttons stacked vertically
-    const btnW      = Math.min(width - 40, 310);
-    const btnH      = 50;
-    const btnGap    = btnH + 10;
-    const btnStartY = Math.max(greetY + 52, height * 0.54);
-    this.buildMenuButtons(cx, btnStartY, btnW, btnH, btnGap, elements);
+    // 5 stacked wide beige pill buttons
+    const btnW   = Math.min(width - 32, 320);
+    const btnH   = 52;
+    const gap    = 10;
+    const totalH = 5 * btnH + 4 * gap;
+    const startY = Math.max(greetY + 44, height - totalH - 20);
+
+    this.buildMenuButtons(cx, startY, btnW, btnH, gap, elements, 'portrait');
   }
 
+  // ── Landscape layout: mascot card left, logo+buttons right ───────────────
   private buildLandscapeLayout(width: number, height: number, elements: Phaser.GameObjects.GameObject[]) {
-    const splitX  = width * 0.48;
+    const splitX  = width * 0.47;
     const rightCx = splitX + (width - splitX) / 2;
+    const contentY = HEADER_H;
 
-    // Left panel: mascot + bg
-    const panelH  = height - HEADER_H - 16;
-    const panelCy = HEADER_H + panelH / 2 + 8;
-    addDarkPanel(this, splitX / 2, panelCy, splitX - 16, panelH).setDepth(3).setAlpha(0.75);
+    // Left panel: large beige card containing Splot
+    const panelW = splitX - 20;
+    const panelH = height - contentY - 16;
+    const panelCy = contentY + panelH / 2 + 8;
+    const leftCard = addBeigeCard(this, splitX / 2, panelCy, panelW, panelH).setDepth(3);
+    elements.push(leftCard);
 
-    const splotSz  = Math.min((splitX - 32) * 0.55, panelH * 0.55, 140);
-    const splotY   = HEADER_H + splotSz * 0.7 + 16;
-    this.mascot    = new SplotMascot(this, splitX / 2, splotY, splotSz);
+    const splotSz = Math.min(panelW * 0.72, panelH * 0.72, 200);
+    const splotY  = panelCy - splotSz * 0.04;
+    this.mascot = new SplotMascot(this, splitX / 2, splotY, splotSz);
     this.mascot.container.setDepth(5);
     elements.push(this.mascot.container);
 
+    // Right panel: dark background
+    const rightW = width - splitX;
+    const darkBg = addDarkPanel(this, splitX + rightW / 2, contentY + (height - contentY) / 2, rightW, height - contentY)
+      .setDepth(2).setAlpha(0.92);
+    elements.push(darkBg);
+
+    // SQLOTTER logo in right panel
+    if (this.textures.exists('title')) {
+      const maxW = Math.min(rightW * 0.58, 240);
+      const logo = this.add.image(rightCx, contentY + 58, 'title')
+        .setDisplaySize(maxW, maxW * 0.22).setDepth(11);
+      elements.push(logo);
+    }
+
+    // Right-side username/streak below logo
     const username = this.userData?.username ?? '';
-    const greetY   = splotY + splotSz * 0.58;
+    let infoY = contentY + 82;
     if (username) {
-      const greet = this.add.text(splitX / 2, greetY, `Hey ${username}!`, {
+      elements.push(this.add.text(rightCx, infoY, `Hey ${username}!`, {
         fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DIM,
-      }).setOrigin(0.5).setDepth(5);
-      elements.push(greet);
+      }).setOrigin(0.5).setDepth(5));
+      infoY += 18;
     }
     const streakDays = this.userData?.streakDays ?? 0;
     if (streakDays > 0) {
-      const badge = this.buildStreakBadge(splitX / 2, greetY + 22, streakDays);
-      badge.setDepth(5);
-      elements.push(badge);
+      elements.push(this.buildStreakBadge(rightCx, infoY, streakDays).setDepth(5));
+      infoY += 22;
     }
 
-    // Right panel: buttons
-    const btnW      = Math.min(width - splitX - 32, 260);
-    const btnH      = 46;
-    const btnGap    = btnH + 8;
-    const totalBtnH = 5 * btnH + 4 * 8;
-    const btnStartY = HEADER_H + (height - HEADER_H - totalBtnH) / 2 + btnH / 2;
-    this.buildMenuButtons(rightCx, btnStartY, btnW, btnH, btnGap, elements);
+    const btnAreaTop = infoY + 14;
+    const btnW = Math.min(rightW - 32, 300);
+    const btnH = 48;
+    this.buildMenuButtons(rightCx, btnAreaTop, btnW, btnH, 8, elements, 'landscape');
   }
 
   private buildMenuButtons(
-    x: number, startY: number, w: number, h: number, gap: number,
+    cx: number, startY: number, btnW: number, btnH: number, gap: number,
     elements: Phaser.GameObjects.GameObject[],
+    mode: 'portrait' | 'landscape',
   ) {
     const defs: [string, string, string, (string | undefined)?][] = [
-      ['Play',      'icon-play',   'LevelSelect'],
-      ['Daily',     'icon-timer',  'Game',        'daily'],
-      ['Create',    'icon-pencil', 'Editor'],
-      ['Shop',      'icon-bag',    'Shop'],
-      ['Ranking',   'icon-trophy', 'Leaderboard'],
+      ['Play',    'icon-play',   'LevelSelect'],
+      ['Daily',   'icon-timer',  'Game',        'daily'],
+      ['Create',  'icon-pencil', 'Editor'],
+      ['Shop',    'icon-price',  'Shop'],
+      ['Ranking', 'icon-trophy', 'Leaderboard'],
     ];
 
-    defs.forEach(([label, icon, scene, param], i) => {
-      const btn = addBeigeButton(this, {
-        x,
-        y: startY + i * gap,
-        width: w,
-        height: h,
-        label,
-        iconKey: icon,
-        onClick: () => {
-          this.cameras.main.fadeOut(250, 10, 5, 14);
-          this.time.delayedCall(260, () => {
-            this.scene.start(scene, param ? { levelId: param } : undefined);
-          });
-        },
+    if (mode === 'portrait') {
+      // All 5 buttons full width, stacked
+      defs.forEach(([label, icon, scene, param], i) => {
+        const btn = addBeigeButton(this, {
+          x: cx, y: startY + i * (btnH + gap),
+          width: btnW, height: btnH,
+          label, iconKey: icon,
+          onClick: () => this.goToScene(scene, param),
+        });
+        btn.setDepth(8).setAlpha(0);
+        this.tweens.add({ targets: btn, alpha: 1, duration: 280, delay: 160 + i * 70 });
+        elements.push(btn);
       });
-      btn.setDepth(8).setAlpha(0);
-      this.tweens.add({ targets: btn, alpha: 1, duration: 280, delay: 200 + i * 70 });
-      elements.push(btn);
+    } else {
+      // Landscape: Play full-width, then 2×2 grid for Daily/Create/Shop/Ranking
+      const [play, daily, create, shop, ranking] = defs;
+
+      const playBtn = addBeigeButton(this, {
+        x: cx, y: startY,
+        width: btnW, height: btnH,
+        label: play![0], iconKey: play![1],
+        onClick: () => this.goToScene(play![2]),
+      });
+      playBtn.setDepth(8).setAlpha(0);
+      this.tweens.add({ targets: playBtn, alpha: 1, duration: 280, delay: 160 });
+      elements.push(playBtn);
+
+      const halfW = (btnW - 8) / 2;
+      const smallH = Math.round(btnH * 0.85);
+      const gridTop = startY + btnH + 10;
+      const gridDefs = [daily!, create!, shop!, ranking!];
+
+      gridDefs.forEach(([label, icon, scene, param], i) => {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const bx  = cx - btnW / 2 + halfW / 2 + col * (halfW + 8);
+        const by  = gridTop + row * (smallH + 8);
+        const btn = addBeigeButton(this, {
+          x: bx, y: by,
+          width: halfW, height: smallH,
+          label, iconKey: icon,
+          fontSize: Math.min(9, Math.round(smallH * 0.22)),
+          onClick: () => this.goToScene(scene, param),
+        });
+        btn.setDepth(8).setAlpha(0);
+        this.tweens.add({ targets: btn, alpha: 1, duration: 280, delay: 220 + i * 60 });
+        elements.push(btn);
+      });
+    }
+  }
+
+  private goToScene(scene: string, param?: string) {
+    this.cameras.main.fadeOut(250, 10, 5, 14);
+    this.time.delayedCall(260, () => {
+      this.scene.start(scene, param ? { levelId: param } : undefined);
     });
   }
 
@@ -248,16 +303,16 @@ export class MainMenu extends Phaser.Scene {
     this.sparkleTimers = [];
     const { width, height } = this.scale;
     const t = this.time.addEvent({
-      delay: 1200, loop: true,
+      delay: 1400, loop: true,
       callback: () => {
         if (!this.scene.isActive('MainMenu')) return;
         const rx = Phaser.Math.Between(40, width - 40);
-        const ry = Phaser.Math.Between(height * 0.38, height * 0.92);
+        const ry = Phaser.Math.Between(height * 0.15, height * 0.70);
         const s  = this.add.image(rx, ry, 'icon-sparkle')
           .setDisplaySize(10, 10).setAlpha(0).setDepth(4).setTint(C.GOLD);
         this.tweens.add({
-          targets: s, alpha: { from: 0, to: 0.65 }, y: ry - 32,
-          scale: { from: 0.4, to: 1.0 }, duration: 620, yoyo: true,
+          targets: s, alpha: { from: 0, to: 0.7 }, y: ry - 28,
+          scale: { from: 0.4, to: 1.0 }, duration: 600, yoyo: true,
           onComplete: () => s.destroy(),
         });
       },

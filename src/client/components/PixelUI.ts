@@ -2,13 +2,13 @@ import * as Phaser from 'phaser';
 
 export const PIXEL_FONT = '"Press Start 2P", monospace';
 
-// Legacy panel/button slice constants (keep for existing usage)
-const PANEL_SLICE = 8;
-const BUTTON_SLICE_X = 8;
-const BUTTON_SLICE_Y = 8;
+// Legacy panel/button slice constants — sources are 4× upscaled (96×96, 128×96)
+const PANEL_SLICE = 32;
+const BUTTON_SLICE_X = 32;
+const BUTTON_SLICE_Y = 32;
 
-// New design constants
-const BEIGE_SLICE = 20;
+// Flat UI pack — 32×32 source textures, 10px corners
+const FLAT_SLICE  = 10;
 const DARK_SLICE  = 12;
 
 // ── Depth icon (shadow copy 1-2px below for depth) ──────────────────────────
@@ -41,8 +41,21 @@ export function addBeigeCard(
   height: number,
 ): Phaser.GameObjects.NineSlice {
   return scene.add.nineslice(
-    x, y, 'ui-beige-card', undefined, width, height,
-    BEIGE_SLICE, BEIGE_SLICE, BEIGE_SLICE, BEIGE_SLICE,
+    x, y, 'ui-flat-slot', undefined, width, height,
+    FLAT_SLICE, FLAT_SLICE, FLAT_SLICE, FLAT_SLICE,
+  );
+}
+
+export function addDarkSlot(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Phaser.GameObjects.NineSlice {
+  return scene.add.nineslice(
+    x, y, 'ui-flat-slot-dark', undefined, width, height,
+    FLAT_SLICE, FLAT_SLICE, FLAT_SLICE, FLAT_SLICE,
   );
 }
 
@@ -84,8 +97,8 @@ export function addBeigeButton(
   } = options;
 
   const bg = scene.add.nineslice(
-    0, 0, 'ui-beige-card', undefined, width, height,
-    BEIGE_SLICE, BEIGE_SLICE, BEIGE_SLICE, BEIGE_SLICE,
+    0, 0, disabled ? 'ui-flat-slot' : 'ui-flat-btn', undefined, width, height,
+    FLAT_SLICE, FLAT_SLICE, FLAT_SLICE, FLAT_SLICE,
   );
   if (disabled) bg.setAlpha(0.5);
 
@@ -118,19 +131,19 @@ export function addBeigeButton(
     container.setInteractive({ useHandCursor: true });
     container
       .on('pointerover', () => {
-        bg.setAlpha(0.85);
+        bg.setTexture('ui-flat-btn-hover');
         scene.tweens.add({ targets: container, y: y - 3, duration: 80, ease: 'Quad.easeOut' });
       })
       .on('pointerout', () => {
-        bg.setAlpha(1);
+        bg.setTexture('ui-flat-btn');
         scene.tweens.add({ targets: container, y, duration: 90, ease: 'Quad.easeOut' });
       })
       .on('pointerdown', () => {
-        bg.setAlpha(0.7);
+        bg.setTexture('ui-flat-btn-press');
         scene.tweens.add({ targets: container, y: y + 2, scaleX: 0.97, scaleY: 0.97, duration: 60 });
       })
       .on('pointerup', () => {
-        bg.setAlpha(1);
+        bg.setTexture('ui-flat-btn-hover');
         scene.tweens.add({ targets: container, y: y - 3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
       });
   }

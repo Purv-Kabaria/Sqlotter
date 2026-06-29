@@ -12,6 +12,12 @@ export class Boot extends Scene {
     this.load.image('ui-frame-blue', 'more ui/UI_Flat_Frame02a.png');
     this.load.image('ui-bar-fill',   'more ui/UI_Flat_BarFill01a.png');
     this.load.image('ui-bar-track',  'more ui/UI_Flat_Bar01a.png');
+    // Flat UI pack — 32×32 nine-slice sources
+    this.load.image('ui-flat-btn',        'more ui/UI_Flat_Button01a_1.png');
+    this.load.image('ui-flat-btn-hover',  'more ui/UI_Flat_Button01a_2.png');
+    this.load.image('ui-flat-btn-press',  'more ui/UI_Flat_Button01a_4.png');
+    this.load.image('ui-flat-slot',       'more ui/UI_Flat_FrameSlot01c.png');
+    this.load.image('ui-flat-slot-dark',  'more ui/UI_Flat_FrameSlot01a.png');
     // Slime assets for animated loading mascot
     this.load.image('slime-color',  'slime/color.png');
     this.load.image('slime-border', 'slime/border.png');

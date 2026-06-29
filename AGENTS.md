@@ -1,6 +1,6 @@
 # Splot Development Guide
 
-Splot is a Factory Balls-style sequence puzzle built as a Devvit Web app for Reddit. Players apply modifiers in order to match a target slime, earn Sparks, solve a daily puzzle, customize the Splot mascot, and publish community levels.
+Splot is an original sequence puzzle built as a Devvit Web app for Reddit. Players apply modifiers in order to match a target slime, earn Sparks, solve a daily puzzle, customize the Splot mascot, and publish community levels.
 
 ## Stack
 
