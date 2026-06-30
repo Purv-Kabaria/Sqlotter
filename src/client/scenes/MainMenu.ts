@@ -122,20 +122,22 @@ export class MainMenu extends Phaser.Scene {
 
     // Username below Splot in sky area
     const username = this.userData?.username ?? '';
+    const usernameY = splotY + Math.round(splotSz * 0.58);
     if (username) {
-      els.push(this.add.text(cx, splotY + Math.round(splotSz * 0.58), username, {
+      els.push(this.add.text(cx, usernameY, username, {
         fontFamily: PIXELIFY, fontSize: '18px', color: C.TEXT_DARK,
         shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
       }).setOrigin(0.5).setDepth(6));
     }
 
-    // 5 stacked buttons, evenly distributed in remaining space
-    const remaining = h - titleH - skyH;
+    // Buttons start at least 26px below the username so they never overlap
+    const btnAreaStart = Math.max(titleH + skyH, usernameY + 26);
+    const remaining = h - btnAreaStart;
     const rawBtnH = Math.round((remaining - pad * 2) / 5) - 8;
     const btnH  = Math.min(Math.max(rawBtnH, 66), 84);
     const btnW  = Math.min(w - pad * 2, 460);
     const gap   = Math.max(4, Math.round((remaining - pad * 2 - 5 * btnH) / 4));
-    const startY = titleH + skyH + pad;
+    const startY = btnAreaStart + pad;
     this.buildMenuButtons(cx, startY, btnW, btnH, gap, els, 'portrait');
   }
 
@@ -172,7 +174,7 @@ export class MainMenu extends Phaser.Scene {
 
     // SQLOTTER title — slow floating bob
     if (this.textures.exists('title')) {
-      const logoW = Math.min(rightW * 0.72, 270);
+      const logoW = Math.min(rightW * 0.80, 420);
       const logoY = Math.round(h * 0.14);
       const logo  = this.add.image(rightCx, logoY, 'title')
         .setDisplaySize(logoW, Math.round(logoW * 112 / 512)).setDepth(11);
@@ -188,8 +190,8 @@ export class MainMenu extends Phaser.Scene {
     els.push(...this.buildSparksPill(w - pillW / 2 - 10, pillH / 2 + 8, pillW, pillH, 12));
 
     // Pre-compute button group dimensions for vertical centering
-    const btnW   = Math.min(rightW - 32, 420);
-    const btnH   = Math.min(Math.round(h * 0.11), 100);
+    const btnW   = Math.min(rightW - 48, Math.round(rightW * 0.88));
+    const btnH   = Math.min(Math.round(h * 0.12), 110);
     const smallH = Math.round(btnH * 0.88);
     const gap    = Math.max(8, Math.round(h * 0.015));
     const groupH = btnH + gap + smallH + gap + smallH;
