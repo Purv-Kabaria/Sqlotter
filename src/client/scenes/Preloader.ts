@@ -1,4 +1,4 @@
-import { GameObjects, Scene } from 'phaser';
+import { GameObjects, Scene, Structs, Tweens } from 'phaser';
 import { getLaunchLevelId } from '../launch';
 
 // All asset definitions to load
@@ -167,8 +167,9 @@ export class Preloader extends Scene {
   private filler: GameObjects.Image | null = null;
   private fillerBorder: GameObjects.Image | null = null;
   private tipText: GameObjects.Text | null = null;
-  private bobTween: Phaser.Tweens.Tween | null = null;
-  private squishTween: Phaser.Tweens.TweenChain | null = null;
+  private titlePulseTween: Tweens.Tween | null = null;
+  private bobTween: Tweens.Tween | null = null;
+  private squishTween: Tweens.TweenChain | null = null;
   private currentProgress = 0;
 
   constructor() { super('Preloader'); }
@@ -256,8 +257,23 @@ export class Preloader extends Scene {
     const slimeY = topMargin + logoH + gap + Math.ceil(slimeSz / 2);
     const barY   = topMargin + logoH + gap + slimeSz + gap + Math.ceil(barH / 2);
 
+    this.titlePulseTween?.stop();
     this.logo?.setPosition(cx, titleY).setDisplaySize(logoW, logoH);
     this.logoFallback?.setPosition(cx, titleY);
+    const titleTarget = this.logo ?? this.logoFallback;
+    if (titleTarget) {
+      const baseScaleX = titleTarget.scaleX;
+      const baseScaleY = titleTarget.scaleY;
+      this.titlePulseTween = this.tweens.add({
+        targets: titleTarget,
+        scaleX: baseScaleX * 1.04,
+        scaleY: baseScaleY * 1.04,
+        duration: 1000,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
 
     if (this.slime && this.slimeShine && this.slimeBorder && this.slimeShadow) {
       // Stop running tweens before snapping positions (prevents mid-tween offsets)
@@ -298,7 +314,7 @@ export class Preloader extends Scene {
     this.tipText?.setPosition(cx, barY + Math.ceil(barH / 2) + 14);
   }
 
-  private onResize(gameSize: Phaser.Structs.Size) {
+  private onResize(gameSize: Structs.Size) {
     this.cameras.resize(gameSize.width, gameSize.height);
     this.layoutLoadingUI();
   }

@@ -108,10 +108,10 @@ export class MainMenu extends Phaser.Scene {
         .setDisplaySize(logoW, Math.round(logoW * 112 / 512)).setDepth(11));
     }
 
-    // Sparks pill in top-right of title strip
-    const pillH = Math.round(titleH * 0.60);
-    const pillW = 88;
-    els.push(...this.buildSparksPill(w - pillW / 2 - 8, titleH / 2, pillW, pillH, 12));
+    // Sparks counter in a non-interactive button frame.
+    const pillH = Math.max(66, Math.round(titleH * 0.80));
+    const pillW = 112;
+    els.push(this.buildSparksPill(w - pillW / 2 - 8, Math.max(titleH / 2, pillH / 2 + 4), pillW, pillH, 12));
 
     // Sky area: 36% of height, but never so tall that 5×66px buttons can't fit below
     const minBtnArea = 5 * 66 + 4 * 4 + pad * 2;
@@ -185,9 +185,9 @@ export class MainMenu extends Phaser.Scene {
       });
     }
 
-    // Sparks pill — top-right corner of screen
-    const pillH = 32, pillW = 108;
-    els.push(...this.buildSparksPill(w - pillW / 2 - 10, pillH / 2 + 8, pillW, pillH, 12));
+    // Sparks counter in a non-interactive button frame.
+    const pillH = 66, pillW = 122;
+    els.push(this.buildSparksPill(w - pillW / 2 - 10, pillH / 2 + 10, pillW, pillH, 12));
 
     // Pre-compute button group dimensions for vertical centering
     const btnW   = Math.min(rightW - 48, Math.round(rightW * 0.88));
@@ -237,20 +237,22 @@ export class MainMenu extends Phaser.Scene {
 
   private buildSparksPill(
     x: number, y: number, w: number, h: number, depth: number,
-  ): Phaser.GameObjects.GameObject[] {
+  ): Phaser.GameObjects.Container {
     const fs = Math.round(h * 0.50);
-    const iconSz = Math.round(h * 0.55);
-    // Use a card (NineSlice) — correct for a small badge; button tiles need h ≥ 65px to render cleanly
-    const card = addBeigeCard(this, x, y, w, h).setDepth(depth);
-    const icon = addDepthIcon(this, x - w * 0.22, y, 'icon-spark', iconSz, iconSz);
-    icon.setDepth(depth + 1);
+    const iconSz = Math.round(h * 0.46);
+    const button = addBeigeButton(this, {
+      x, y, width: w, height: h,
+      label: '', fontSize: fs, fontFamily: PIXELIFY,
+    }).setDepth(depth);
+    const icon = addDepthIcon(this, -w * 0.24, -1, 'icon-spark', iconSz, iconSz);
     this.sparksText = this.add.text(
-      x - w * 0.22 + iconSz * 0.60 + 4, y,
+      -w * 0.24 + iconSz * 0.60 + 5, -1,
       `${this.userData?.sparks ?? 0}`,
       { fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.AMBER,
         shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true } },
-    ).setOrigin(0, 0.5).setDepth(depth + 1);
-    return [card, icon, this.sparksText];
+    ).setOrigin(0, 0.5);
+    button.add([icon, this.sparksText]);
+    return button;
   }
 
   private buildMenuButtons(

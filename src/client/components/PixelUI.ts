@@ -115,7 +115,7 @@ export type BeigeButtonOptions = {
   fontSize?: number;
   fontFamily?: string;
   disabled?: boolean;
-  onClick: () => void;
+  onClick?: () => void;
 };
 
 export function addBeigeButton(
@@ -171,7 +171,7 @@ export function addBeigeButton(
       (bgPieces[i] as Phaser.GameObjects.Image | undefined)?.setTexture(`${state}-${pos}`),
     );
 
-  if (!disabled) {
+  if (!disabled && onClick) {
     // Phaser adds displayOriginX (= W/2) and displayOriginY (= H/2) to local coords before
     // testing Rectangle.Contains, so the Rectangle must use top-left-origin space (0,0 = TL).
     // 4px inset matches the button asset's 4px transparent outer corner margin exactly.
