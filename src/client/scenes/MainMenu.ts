@@ -113,17 +113,28 @@ export class MainMenu extends Phaser.Scene {
     const pillW = 88;
     els.push(...this.buildSparksPill(w - pillW / 2 - 8, titleH / 2, pillW, pillH, 12));
 
-    // Splot: fills sky area (top 40% below title strip)
-    const skyH    = h * 0.40;
-    const splotSz = Math.min(w * 0.65, skyH * 0.82, 240);
-    const splotY  = titleH + skyH * 0.50;
+    // Sky area: 36% of height, but never so tall that 5×66px buttons can't fit below
+    const minBtnArea = 5 * 66 + 4 * 4 + pad * 2;
+    const skyH    = Math.min(h * 0.36, h - titleH - minBtnArea);
+    const splotSz = Math.min(w * 0.65, skyH * 0.80, 240);
+    const splotY  = titleH + skyH * 0.44;
     this.spawnMascot(cx, splotY, splotSz, els);
+
+    // Username below Splot in sky area
+    const username = this.userData?.username ?? '';
+    if (username) {
+      els.push(this.add.text(cx, splotY + Math.round(splotSz * 0.58), username, {
+        fontFamily: PIXELIFY, fontSize: '18px', color: C.TEXT_DARK,
+        shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
+      }).setOrigin(0.5).setDepth(6));
+    }
 
     // 5 stacked buttons, evenly distributed in remaining space
     const remaining = h - titleH - skyH;
-    const btnH  = Math.min(Math.round((remaining - pad * 2) / 5) - 8, 72);
+    const rawBtnH = Math.round((remaining - pad * 2) / 5) - 8;
+    const btnH  = Math.min(Math.max(rawBtnH, 66), 84);
     const btnW  = Math.min(w - pad * 2, 460);
-    const gap   = Math.max(6, Math.round((remaining - pad * 2 - 5 * btnH) / 4));
+    const gap   = Math.max(4, Math.round((remaining - pad * 2 - 5 * btnH) / 4));
     const startY = titleH + skyH + pad;
     this.buildMenuButtons(cx, startY, btnW, btnH, gap, els, 'portrait');
   }
@@ -148,8 +159,10 @@ export class MainMenu extends Phaser.Scene {
     // Username label below Splot inside panel
     const username = this.userData?.username ?? '';
     if (username) {
+      const usernameFs = Math.max(16, Math.round(panelW * 0.038));
       els.push(this.add.text(splitX / 2, h / 2 + panelH * 0.38, username, {
-        fontFamily: PIXELIFY, fontSize: '14px', color: C.TEXT_DARK,
+        fontFamily: PIXELIFY, fontSize: `${usernameFs}px`, color: C.TEXT_DARK,
+        shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
       }).setOrigin(0.5).setDepth(6));
     }
 
@@ -176,7 +189,7 @@ export class MainMenu extends Phaser.Scene {
 
     // Pre-compute button group dimensions for vertical centering
     const btnW   = Math.min(rightW - 32, 420);
-    const btnH   = Math.min(Math.round(h * 0.10), 80);
+    const btnH   = Math.min(Math.round(h * 0.11), 100);
     const smallH = Math.round(btnH * 0.88);
     const gap    = Math.max(8, Math.round(h * 0.015));
     const groupH = btnH + gap + smallH + gap + smallH;
@@ -224,17 +237,18 @@ export class MainMenu extends Phaser.Scene {
     x: number, y: number, w: number, h: number, depth: number,
   ): Phaser.GameObjects.GameObject[] {
     const fs = Math.round(h * 0.50);
-    const pill = addBeigeButton(this, {
-      x, y, width: w, height: h,
-      label: `${this.userData?.sparks ?? 0}`,
-      iconKey: 'icon-spark',
-      fontSize: fs, fontFamily: PIXELIFY,
-      onClick: () => {},
-    }).setDepth(depth);
-    // Recolour the text to amber after button builds it
-    this.sparksText = pill.list[pill.list.length - 1] as Phaser.GameObjects.Text;
-    this.sparksText.setColor(C.AMBER);
-    return [pill];
+    const iconSz = Math.round(h * 0.55);
+    // Use a card (NineSlice) — correct for a small badge; button tiles need h ≥ 65px to render cleanly
+    const card = addBeigeCard(this, x, y, w, h).setDepth(depth);
+    const icon = addDepthIcon(this, x - w * 0.22, y, 'icon-spark', iconSz, iconSz);
+    icon.setDepth(depth + 1);
+    this.sparksText = this.add.text(
+      x - w * 0.22 + iconSz * 0.60 + 4, y,
+      `${this.userData?.sparks ?? 0}`,
+      { fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.AMBER,
+        shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true } },
+    ).setOrigin(0, 0.5).setDepth(depth + 1);
+    return [card, icon, this.sparksText];
   }
 
   private buildMenuButtons(
@@ -252,7 +266,7 @@ export class MainMenu extends Phaser.Scene {
     ];
 
     const ff   = PIXELIFY;
-    const fs   = Math.max(11, Math.round(btnH * 0.28));
+    const fs   = Math.max(12, Math.round(btnH * 0.28));
 
     if (mode === 'portrait') {
       defs.forEach(([label, icon, scene, param], i) => {
@@ -283,7 +297,7 @@ export class MainMenu extends Phaser.Scene {
       const halfW  = (btnW - gap) / 2;
       const smallH = Math.round(btnH * 0.88);
       const gridTop = startY + btnH + gap;
-      const gridFs  = Math.max(9, Math.round(smallH * 0.26));
+      const gridFs  = Math.max(10, Math.round(smallH * 0.26));
       const gridDefs: BtnDef[] = [defs[1]!, defs[2]!, defs[3]!, defs[4]!];
 
       gridDefs.forEach(([label, icon, scene, param], i) => {

@@ -139,7 +139,7 @@ export function addBeigeButton(
   const bgPieces = build9Pieces(scene, W, H, BTN_CW, BTN_CH, btnState);
   if (disabled) bgPieces.forEach(p => (p as Phaser.GameObjects.Image).setAlpha(0.5));
 
-  const items: Phaser.GameObjects.GameObject[] = [...(bgPieces as Phaser.GameObjects.GameObject[])];
+  const visualItems: Phaser.GameObjects.GameObject[] = [...(bgPieces as Phaser.GameObjects.GameObject[])];
 
   const iconSize = Math.min(H * 0.50, 24);
   const hasIcon  = !!iconKey;
@@ -150,7 +150,7 @@ export function addBeigeButton(
   if (hasIcon) {
     const ic = addDepthIcon(scene, iconX, 0, iconKey!, iconSize, iconSize);
     if (disabled) ic.setAlpha(0.4);
-    items.push(ic);
+    visualItems.push(ic);
   }
 
   const txt = scene.add.text(textX, 0, label, {
@@ -159,9 +159,12 @@ export function addBeigeButton(
     color: disabled ? '#9A7A5A' : '#3A1A08',
     shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
   }).setOrigin(hasIcon ? 0 : 0.5, 0.5);
-  items.push(txt);
+  visualItems.push(txt);
 
-  const container = scene.add.container(rx, ry, items).setSize(Math.max(W, 44), Math.max(H, 44));
+  // Visual sub-container holds all graphics and is the only thing that animates.
+  // The outer container stays at a fixed world position so the hitbox never shifts.
+  const visual = scene.add.container(0, 0, visualItems);
+  const container = scene.add.container(rx, ry, [visual]).setSize(Math.max(W, 44), Math.max(H, 44));
 
   const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') =>
     SLICE_POS.forEach((pos, i) =>
@@ -169,28 +172,30 @@ export function addBeigeButton(
     );
 
   if (!disabled) {
-    // Inset by 4px to exclude the transparent outer margin of the button asset
+    // Phaser adds displayOriginX (= W/2) and displayOriginY (= H/2) to local coords before
+    // testing Rectangle.Contains, so the Rectangle must use top-left-origin space (0,0 = TL).
+    // 4px inset matches the button asset's 4px transparent outer corner margin exactly.
     container.setInteractive(
-      new Phaser.Geom.Rectangle(-W / 2 + 4, -H / 2 + 4, W - 8, H - 8),
+      new Phaser.Geom.Rectangle(4, 4, W - 8, H - 8),
       Phaser.Geom.Rectangle.Contains,
     );
     container.input!.cursor = 'pointer';
     container
       .on('pointerover', () => {
         swapBg('btn-hover');
-        scene.tweens.add({ targets: container, y: ry - 3, duration: 80, ease: 'Quad.easeOut' });
+        scene.tweens.add({ targets: visual, y: -3, duration: 80, ease: 'Quad.easeOut' });
       })
       .on('pointerout', () => {
         swapBg('btn-open');
-        scene.tweens.add({ targets: container, y: ry, duration: 90, ease: 'Quad.easeOut' });
+        scene.tweens.add({ targets: visual, y: 0, duration: 90, ease: 'Quad.easeOut' });
       })
       .on('pointerdown', () => {
         swapBg('btn-press');
-        scene.tweens.add({ targets: container, y: ry + 2, scaleX: 0.97, scaleY: 0.97, duration: 60 });
+        scene.tweens.add({ targets: visual, y: 2, scaleX: 0.97, scaleY: 0.97, duration: 60 });
       })
       .on('pointerup', () => {
         swapBg('btn-hover');
-        scene.tweens.add({ targets: container, y: ry - 3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
+        scene.tweens.add({ targets: visual, y: -3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
       });
   }
 
