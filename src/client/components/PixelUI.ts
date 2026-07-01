@@ -17,6 +17,11 @@ const DARK_SLICE  = 12;
 const PNL_CW = 32, PNL_CH = 32;
 const BTN_CW = 32, BTN_CH = 32;
 
+// Half-scale button corner — pre-downsampled 'btn-open-sm-*' textures (16px corners).
+// Lets a beige-button-styled badge shrink down to ~33px instead of the 65px floor
+// the full-size 32px corners require (see docs/9-slicing.md minimum-size formula).
+const BTN_SM_CW = 16, BTN_SM_CH = 16;
+
 const SLICE_POS = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
 
 type SlicePiece = Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite;
@@ -102,6 +107,19 @@ export function addDarkPanel(
     x, y, 'ui-dark-panel', undefined, width, height,
     DARK_SLICE, DARK_SLICE, DARK_SLICE, DARK_SLICE,
   );
+}
+
+// Non-interactive beige-button-styled badge using half-scale (16px) corners — for HUD
+// elements (e.g. the sparks pill) that need the button's pill look but must fit inside
+// a footprint smaller than the 65px floor the full-size button corners require.
+// Minimum size: 33×33 (2×16 + 1).
+export function addBeigeBadge(
+  scene: Phaser.Scene, x: number, y: number, width: number, height: number,
+): Phaser.GameObjects.Container {
+  const W = Math.round(width / 2) * 2;
+  const H = Math.round(height / 2) * 2;
+  const pieces = build9Pieces(scene, W, H, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm');
+  return scene.add.container(Math.round(x), Math.round(y), pieces as Phaser.GameObjects.GameObject[]);
 }
 
 // Beige rounded button with dark-brown text (new design language)

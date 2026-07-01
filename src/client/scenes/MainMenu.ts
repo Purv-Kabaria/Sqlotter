@@ -1,13 +1,12 @@
 import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
-import { addBeigeButton, addBeigeCard, addDepthIcon, addPanel9 } from '../components/PixelUI';
+import { addBeigeBadge, addBeigeButton, addBeigeCard, addDepthIcon, addPanel9 } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
 
 const C = {
   HEADER_BG: 0x232323,
-  AMBER:     '#C8940A',
   TEXT_DARK: '#3A1A08',
 } as const;
 
@@ -62,14 +61,23 @@ export class MainMenu extends Phaser.Scene {
         .setAlpha(alphas[i] ?? 0.3).setDepth(-10 + i);
       img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
       this.bgLayers.push(img);
+      this.startBgDrift(img, i, width);
+    });
+  }
 
-      const dir = i % 2 === 0 ? 1 : -1;
-      this.tweens.add({
-        targets: img,
-        x: width / 2 + dir * 18,
-        duration: 13000 + i * 3500,
-        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-      });
+  // Each layer drifts side to side around the canvas center. The tween's target x is
+  // captured at creation time, so it must be re-created (from repositionBgLayers)
+  // whenever the canvas width changes — otherwise a resize snaps the image to the new
+  // center but the old tween keeps running and, on its next cycle, pulls it back toward
+  // the STALE center, which can drag it far enough off-center to expose the background
+  // color behind it (very noticeable after a large resize, e.g. portrait <-> landscape).
+  private startBgDrift(img: Phaser.GameObjects.Image, index: number, width: number) {
+    const dir = index % 2 === 0 ? 1 : -1;
+    this.tweens.add({
+      targets: img,
+      x: width / 2 + dir * 18,
+      duration: 13000 + index * 3500,
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     });
   }
 
@@ -95,28 +103,37 @@ export class MainMenu extends Phaser.Scene {
   // Title strip at top → large Splot floating in sky → 5 stacked buttons
   private buildPortraitLayout(w: number, h: number, els: Phaser.GameObjects.GameObject[]) {
     const cx     = w / 2;
-    const titleH = Math.round(h * 0.10);
     const pad    = 14;
+    const titleH = Math.max(52, Math.min(130, Math.round(h * 0.13)));
 
     // Title strip (dark bar)
     els.push(this.add.rectangle(cx, titleH / 2, w, titleH, C.HEADER_BG).setDepth(10));
 
-    // SQLOTTER logo centered in strip
+    // Sparks counter — sized to always fit inside the title strip, never overflow it.
+    // Floor of 34 (not lower) keeps it above the 33px minimum the small badge asset needs.
+    const pillH = Math.max(34, Math.min(titleH - 10, Math.round(titleH * 0.58)));
+    const pillW = Math.max(64, Math.min(100, Math.round(w * 0.24)));
+    els.push(this.buildSparksPill(w - pillW / 2 - 8, titleH / 2, pillW, pillH, 12));
+
+    // SQLOTTER logo centered in strip — capped so it can never run into the pill. Bobs gently.
     if (this.textures.exists('title')) {
-      const logoW = Math.min(w * 0.45, 200);
-      els.push(this.add.image(cx, titleH / 2, 'title')
-        .setDisplaySize(logoW, Math.round(logoW * 112 / 512)).setDepth(11));
+      const logoW = Math.max(0, Math.min(w * 0.58, 260, w - 2 * pillW - 36));
+      const logoH = Math.round(logoW * 112 / 512);
+      const logo = this.add.image(cx, titleH / 2, 'title')
+        .setDisplaySize(logoW, logoH).setDepth(11);
+      els.push(logo);
+      this.tweens.add({
+        targets: logo, y: titleH / 2 + 4,
+        duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
     }
 
-    // Sparks counter in a non-interactive button frame.
-    const pillH = Math.max(66, Math.round(titleH * 0.80));
-    const pillW = 112;
-    els.push(this.buildSparksPill(w - pillW / 2 - 8, Math.max(titleH / 2, pillH / 2 + 4), pillW, pillH, 12));
-
-    // Sky area: 36% of height, but never so tall that 5×66px buttons can't fit below
+    // Sky area: 36% of height, but never so tall that 5×66px buttons can't fit below.
+    // 66 is a hard floor, not a preference — see docs/9-slicing.md (32px button corners
+    // need 2×32=64px minimum before they overlap).
     const minBtnArea = 5 * 66 + 4 * 4 + pad * 2;
-    const skyH    = Math.min(h * 0.36, h - titleH - minBtnArea);
-    const splotSz = Math.min(w * 0.65, skyH * 0.80, 240);
+    const skyH    = Math.max(0, Math.min(h * 0.36, h - titleH - minBtnArea));
+    const splotSz = Math.max(0, Math.min(w * 0.65, skyH * 0.80, 240));
     const splotY  = titleH + skyH * 0.44;
     this.spawnMascot(cx, splotY, splotSz, els);
 
@@ -132,7 +149,7 @@ export class MainMenu extends Phaser.Scene {
 
     // Buttons start at least 26px below the username so they never overlap
     const btnAreaStart = Math.max(titleH + skyH, usernameY + 26);
-    const remaining = h - btnAreaStart;
+    const remaining = Math.max(0, h - btnAreaStart);
     const rawBtnH = Math.round((remaining - pad * 2) / 5) - 8;
     const btnH  = Math.min(Math.max(rawBtnH, 66), 84);
     const btnW  = Math.min(w - pad * 2, 460);
@@ -142,11 +159,14 @@ export class MainMenu extends Phaser.Scene {
   }
 
   // ── Landscape ────────────────────────────────────────────────────────────
-  // Full-height left panel (ui/panel.png) with Splot + dark right area with title + buttons
+  // Full-height left panel (ui/panel.png) with Splot + dark right area with title + buttons.
+  // The right column is laid out as a top-to-bottom stack (pill → logo → streak → buttons),
+  // each positioned off the previous element's actual bottom edge so nothing can overlap.
   private buildLandscapeLayout(w: number, h: number, els: Phaser.GameObjects.GameObject[]) {
-    const pad    = 24;
-    const splitX = Math.round(w * 0.46);
-    const rightCx = Math.round(splitX + (w - splitX) / 2);
+    const pad     = 24;
+    const splitX  = Math.round(w * 0.46);
+    const rightW  = w - splitX;
+    const rightCx = Math.round(splitX + rightW / 2);
 
     // ── Left panel — pre-sliced panel.png ──────────────────
     const panelW = splitX - pad;
@@ -169,15 +189,24 @@ export class MainMenu extends Phaser.Scene {
     }
 
     // ── Right area ─────────────────────────────────────────
-    const rightW = w - splitX;
     els.push(this.add.rectangle(splitX + rightW / 2, h / 2, rightW, h, 0x232323).setDepth(2));
 
-    // SQLOTTER title — slow floating bob
+    // Sparks pill — top-right corner, scaled with height so it never collides with the logo.
+    const pillH = Math.max(34, Math.min(66, Math.round(h * 0.09)));
+    const pillW = Math.max(90, Math.min(122, Math.round(rightW * 0.30)));
+    const pillTop = 10;
+    els.push(this.buildSparksPill(w - pillW / 2 - 10, pillTop + pillH / 2, pillW, pillH, 12));
+
+    // SQLOTTER title — placed below the pill's row with guaranteed clearance.
+    let logoBottom = pillTop + pillH;
     if (this.textures.exists('title')) {
-      const logoW = Math.min(rightW * 0.80, 420);
-      const logoY = Math.round(h * 0.14);
-      const logo  = this.add.image(rightCx, logoY, 'title')
-        .setDisplaySize(logoW, Math.round(logoW * 112 / 512)).setDepth(11);
+      const logoW   = Math.max(0, Math.min(rightW * 0.80, 420, w - pillW - 40));
+      const logoH   = Math.round(logoW * 112 / 512);
+      const logoTop = logoBottom + 12;
+      const logoY   = logoTop + logoH / 2;
+      logoBottom    = logoTop + logoH;
+      const logo = this.add.image(rightCx, logoY, 'title')
+        .setDisplaySize(logoW, logoH).setDepth(11);
       els.push(logo);
       this.tweens.add({
         targets: logo, y: logoY + 5,
@@ -185,27 +214,25 @@ export class MainMenu extends Phaser.Scene {
       });
     }
 
-    // Sparks counter in a non-interactive button frame.
-    const pillH = 66, pillW = 122;
-    els.push(this.buildSparksPill(w - pillW / 2 - 10, pillH / 2 + 10, pillW, pillH, 12));
+    // Streak badge (optional), stacked below the logo.
+    const streakDays = this.userData?.streakDays ?? 0;
+    let contentBottom = logoBottom + 8;
+    if (streakDays > 0) {
+      const streakY = logoBottom + 16 + 12;
+      els.push(this.buildStreakBadge(rightCx, streakY, streakDays).setDepth(5));
+      contentBottom = streakY + 12;
+    }
 
     // Pre-compute button group dimensions for vertical centering
+    const topMargin  = contentBottom + 16;
     const btnW   = Math.min(rightW - 48, Math.round(rightW * 0.88));
     const btnH   = Math.min(Math.round(h * 0.12), 110);
     const smallH = Math.round(btnH * 0.88);
     const gap    = Math.max(8, Math.round(h * 0.015));
     const groupH = btnH + gap + smallH + gap + smallH;
 
-    const streakDays  = this.userData?.streakDays ?? 0;
-    const streakExtra = streakDays > 0 ? 38 : 0;
-    // topMargin: just below the logo (logo sits at h*0.14, typically ~60px tall)
-    const topMargin   = Math.round(h * 0.22) + streakExtra;
-    const available   = h - topMargin - pad;
-    const btnTop      = topMargin + Math.max(8, Math.round((available - groupH) / 2));
-
-    if (streakDays > 0) {
-      els.push(this.buildStreakBadge(rightCx, Math.round(h * 0.22), streakDays).setDepth(5));
-    }
+    const available = Math.max(0, h - topMargin - pad);
+    const btnTop    = topMargin + Math.max(8, Math.round((available - groupH) / 2));
 
     this.buildMenuButtons(rightCx, btnTop, btnW, btnH, gap, els, 'landscape');
   }
@@ -219,7 +246,8 @@ export class MainMenu extends Phaser.Scene {
     this.mascot = new SplotMascot(
       this, x, y, size,
       this.userData?.equippedItems ?? {},
-      0x6DD400,
+      undefined,
+      true, // home screen uses the CSS-style procedural shadow instead of the sprite
     );
     this.mascot.container.setDepth(5);
 
@@ -238,17 +266,19 @@ export class MainMenu extends Phaser.Scene {
   private buildSparksPill(
     x: number, y: number, w: number, h: number, depth: number,
   ): Phaser.GameObjects.Container {
-    const fs = Math.round(h * 0.50);
-    const iconSz = Math.round(h * 0.46);
-    const button = addBeigeButton(this, {
-      x, y, width: w, height: h,
-      label: '', fontSize: fs, fontFamily: PIXELIFY,
-    }).setDepth(depth);
+    const fs = Math.max(9, Math.round(h * 0.28));
+    const iconSz = Math.max(11, Math.round(h * 0.38));
+    // The 32px-corner button assets corrupt below 65px (see docs/9-slicing.md); on small
+    // screens the pill can shrink past that floor, so fall back to the 16px-corner variant.
+    const button = (h < 65 || w < 65
+      ? addBeigeBadge(this, x, y, w, h)
+      : addBeigeButton(this, { x, y, width: w, height: h, label: '', fontSize: fs, fontFamily: PIXELIFY })
+    ).setDepth(depth);
     const icon = addDepthIcon(this, -w * 0.24, -1, 'icon-spark', iconSz, iconSz);
     this.sparksText = this.add.text(
       -w * 0.24 + iconSz * 0.60 + 5, -1,
       `${this.userData?.sparks ?? 0}`,
-      { fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.AMBER,
+      { fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.TEXT_DARK,
         shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true } },
     ).setOrigin(0, 0.5);
     button.add([icon, this.sparksText]);
@@ -341,9 +371,11 @@ export class MainMenu extends Phaser.Scene {
   }
 
   private repositionBgLayers(width: number, height: number) {
-    this.bgLayers.forEach(img => {
+    this.bgLayers.forEach((img, i) => {
+      this.tweens.killTweensOf(img);
       img.setPosition(width / 2, height / 2);
       img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
+      this.startBgDrift(img, i, width);
     });
   }
 

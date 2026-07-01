@@ -204,10 +204,11 @@ Splot is a separate 11-layer system from the puzzle slime. See `docs/splot-masco
 
 | File | Key | Size | Notes |
 |------|-----|------|-------|
-| `character/blob.png` | `char-blob` | **512×512** | The blob body — tinted for color customization |
+| `character/blob.png` | `char-blob` | **512×512** | The blob body — tinted `0x6DD400` (splash-screen green) by default, tint overridable |
 | `character/outline.png` | `char-outline` | 128×128 | Black outline, always on top |
-| `character/shadow.png` | `char-shadow` | 128×128 | Soft drop shadow, depth 0, alpha 0.6 |
-| `character/overlay-normal.png` | `char-shine` | 128×128 | Gloss highlight, alpha 0.82 |
+| `character/shadow.png` | `char-shadow` | 128×128 | Sprite contact shadow, depth 5 — default everywhere except the home screen |
+| — (procedural, `Boot.ts`) | `splot-shadow` | 256×96 | Soft blurred contact-shadow ellipse, depth 0 — generated at boot from concentric `fillEllipse` calls; used only on the home screen (`MainMenu`) in place of `char-shadow`; see `docs/splot-mascot.md` |
+| `character/overlay-normal.png` | `char-shine` | 128×128 | Gloss highlight, alpha 0.5 |
 | `character/overlay-applied.png` | `char-applied` | 128×128 | Flash on interaction, tweened to alpha 0 |
 
 **Note:** `char-blob` is 512×512 while all other character layers are 128×128. All are rendered at the same `setDisplaySize(size, size)` regardless — Phaser scales them to match. The higher-resolution blob gives Splot a crisper appearance at large sizes (240–440px display).

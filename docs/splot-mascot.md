@@ -11,29 +11,61 @@ He is rendered by `SplotMascot` (`src/client/components/SplotMascot.ts`).
 Splot is 11 images inside a `Phaser.GameObjects.Container`. Depths are internal to the container.
 
 ```
-depth  0  shadow     — char-shadow       (alpha 0.6, offset slightly down-right)
-depth 10  blob       — char-blob         (body; tinted for color customization)
-depth 20  mouth      — char-mouth-*      (switches per expression)
-depth 22  blush      — char-blush        (visible only on excited/kiss)
-depth 22  cry        — char-cry          (visible only on sad)
-depth 30  eye        — char-eye-*        (switches per expression; blinks in idle)
-depth 40  eyebrow    — char-eyebrow-*    (switches per expression)
+depth  0/5  shadow   — splot-shadow (home screen) or char-shadow sprite (everywhere else) — see below
+depth 10  blob       — char-blob         (body; splash-screen green by default, tint overridable)
+depth 20  mouth      — char-mouth-*      (switches per expression; default char-mouth-smile)
+depth 22  blush      — char-blush        (fades in/out — visible only on excited/kiss)
+depth 22  cry        — char-cry          (fades in/out — visible only on sad)
+depth 30  eye        — char-eye-*        (switches per expression; blinks in idle; default char-eye-normal)
+depth 40  eyebrow    — char-brow-*       (switches per expression/equip; default char-brow-normal, always visible)
 depth 50  accessory  — char-acc-*        (hidden when none equipped)
 depth 58  applied    — char-applied      (flash overlay; tweened alpha only during playAppliedFlash)
-depth 60  shine      — char-shine        (alpha 0.82, always visible)
+depth 60  shine      — char-shine        (alpha 0.5, always visible)
 depth 65  outline    — char-outline      (always visible)
 ```
 
-All images are set to `setDisplaySize(size, size)` where `size` is passed to the constructor.
+All images are set to `setDisplaySize(size, size)` where `size` is passed to the constructor,
+**except the shadow when the CSS-style variant is active** (see below), which is a flattened
+ellipse sized off `size` separately.
 
 ### Asset dimensions
 
 | Layer | Source file | Source size | Notes |
 |-------|-------------|-------------|-------|
 | blob | `character/blob.png` | **512×512** | Higher res than all other layers |
-| all others | `character/*.png` | **128×128** | Eyes, mouth, outline, shine, shadow, accessories |
+| shadow (sprite) | `character/shadow.png` | 128×128 | Default everywhere except the home screen |
+| shadow (CSS-style) | procedural, `Boot.ts` | 256×96 (source texture) | Home screen only — see "Shadow" below |
+| all others | `character/*.png` | **128×128** | Eyes, mouth, outline, shine, accessories |
 
-The blob is 512×512 so it stays sharp at large display sizes (240–440px). All other layers are 128×128 and share the same coordinate space when displayed at the same `size`.
+The blob is 512×512 so it stays sharp at large display sizes (240–440px). All other square layers
+are 128×128 and share the same coordinate space when displayed at the same `size`.
+
+### Shadow: sprite vs. CSS-style
+
+`SplotMascot`'s constructor takes a `useCssShadow` flag (last param, default `false`):
+
+```typescript
+new SplotMascot(scene, x, y, size, equipped, blobColor, useCssShadow)
+```
+
+- **Default (`false`)** — used by `Shop.ts` and `LevelComplete.ts`. Renders `character/shadow.png`
+  (key `char-shadow`) as a normal `size × size` layer at depth 5, like every other layer.
+- **`true`** — used only by `MainMenu.spawnMascot()` for the home-screen Splot. Instead of the
+  sprite, `Boot.ts#genSplotShadowTexture()` generates a `splot-shadow` texture once at boot: 8
+  concentric semi-transparent black ellipses (`fillEllipse`, alpha 0.05 each) drawn into a 256×96
+  `Graphics` object and baked with `generateTexture`. Overlapping alpha builds up toward the center
+  and falls off toward the edges, faking the soft blur a CSS `box-shadow`/`drop-shadow` would
+  produce. It's displayed as a flat ellipse under the character rather than a character-shaped
+  silhouette, at depth 0:
+
+  ```typescript
+  this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
+    .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
+  ```
+
+`setSize(s)` follows the same branch: the CSS-style shadow resizes/repositions as `s * 0.85` wide,
+`s * 0.30` tall, offset `s * 0.40` down from center; the sprite shadow just resizes to `s × s` like
+every other layer. Either way it scales correctly with the mascot at any display size.
 
 ---
 
@@ -80,14 +112,18 @@ Eight built-in expressions map to specific eye/eyebrow/mouth/effect combinations
 
 | Name | Eye | Eyebrow | Mouth | Extras |
 |------|-----|---------|-------|--------|
-| `happy` | `char-eye-happy` | `char-brow-normal` | `char-mouth-happy` | — |
-| `excited` | `char-eye-cute` | `char-brow-surprise` | `char-mouth-kiss` | blush visible |
-| `sad` | `char-eye-pain` | `char-brow-sad` | `char-mouth-frown` | cry visible |
+| `happy` (default/resting) | `char-eye-normal` | `char-brow-normal` | `char-mouth-smile` | — |
+| `excited` (tap reaction) | `char-eye-cute` | `char-brow-surprise` | `char-mouth-kiss` | blush fades in |
+| `sad` | `char-eye-pain` | `char-brow-sad` | `char-mouth-frown` | cry fades in |
 | `shocked` | `char-eye-shock` | `char-brow-surprise` | `char-mouth-ooo` | — |
 | `doubt` | `char-eye-doubt` | `char-brow-normal` | `char-mouth-squiggle` | — |
 | `pain` | `char-eye-pain` | `char-brow-angry` | `char-mouth-frown` | — |
-| `kiss` | `char-eye-cute` | `char-brow-normal` | `char-mouth-kiss` | blush visible |
+| `kiss` | `char-eye-cute` | `char-brow-normal` | `char-mouth-kiss` | blush fades in |
 | `squiggle` | `char-eye-open` | `char-brow-normal` | `char-mouth-squiggle` | — |
+
+The eyebrow layer is always visible — `setExpression` swaps its texture just like eye/mouth, and
+an equipped eyebrow item (see "Equipped items" below) overrides the texture again once the
+expression reverts to `happy`.
 
 **Setting an expression:**
 
@@ -99,7 +135,9 @@ mascot.setExpression('shocked');
 mascot.setExpression('shocked', 1500);
 ```
 
-`setExpression` swaps the three textures and toggles `blush`/`cry` visibility in one frame. The revert uses `scene.time.delayedCall`.
+`setExpression` swaps the eye/eyebrow/mouth textures instantly, but fades `blush`/`cry` in or out
+with a short alpha tween (`animateFacePart`, ~150ms) instead of an abrupt visibility toggle. The
+revert uses `scene.time.delayedCall`.
 
 ### Idle blink
 
@@ -118,7 +156,10 @@ this.blinkTimer = scene.time.addEvent({
 });
 ```
 
-Expressions that use `char-eye-pain` or `char-eye-happy` suppress blinking because those textures are already closed/squinted. Add new "no-blink" keys to the guard condition if needed.
+Expressions that use `char-eye-pain` suppress blinking because that texture is already
+closed/squinted. `char-eye-happy` is no longer used by any built-in expression (the default
+resting eye is now `char-eye-normal`), but the guard is left in place since a user can still
+equip `eye-happy` as a shop item. Add new "no-blink" keys to the guard condition if needed.
 
 ### Adding a new expression
 
@@ -262,16 +303,17 @@ The `value` in `equippedItems` is the shop item ID minus the type prefix:
 ```typescript
 private applyEquipped(items: Record<string, string>) {
   if (items.eye)       this.eye.setTexture(`char-${items.eye}`);
-  if (items.eyebrow)   this.eyebrow.setTexture(`char-${items.eyebrow}`);
+  this.eyebrow.setTexture(items.eyebrow ? `char-${items.eyebrow}` : 'char-brow-normal');
   if (items.mouth)     this.mouth.setTexture(`char-${items.mouth}`);
   if (items.accessory) this.accessory.setTexture(`char-${items.accessory}`).setVisible(true);
 }
 ```
 
-**Default textures** (when no item equipped):
+**Default appearance** (when no item equipped, and no `blobColor` passed):
 - Eye: `char-eye-normal`
-- Eyebrow: `char-brow-normal`
-- Mouth: `char-mouth-happy`
+- Eyebrow: `char-brow-normal`, always visible
+- Mouth: `char-mouth-smile`
+- Body: splash-screen green (`char-blob` tinted `0x6DD400`, `DEFAULT_BLOB_COLOR`)
 - Accessory: hidden
 
 ### Updating equipped items live
@@ -281,7 +323,9 @@ private applyEquipped(items: Record<string, string>) {
 mascot.refresh(newEquippedItems);
 ```
 
-`refresh()` hides the accessory first (clearing the previous one), then re-applies the new items.
+`refresh()` hides the accessory first (clearing whichever was previously equipped), then
+re-applies the new items — so unequipping it correctly goes back to hidden. The eyebrow layer
+is never hidden; unequipping an eyebrow item just falls back to `char-brow-normal`.
 
 ---
 
@@ -313,6 +357,12 @@ shutdown() {
 mascot.setSize(300);
 ```
 
+The shadow is the one exception, and only when the mascot was constructed with `useCssShadow: true`
+(home screen). In that case it isn't a `size × size` square like the other layers — it's resized as
+a flat ellipse (`s * 0.85` wide, `s * 0.30` tall) offset `s * 0.40` below center, so it keeps looking
+like a contact shadow instead of stretching into a circle at every size. Everywhere else the shadow
+sprite resizes to `s × s` along with the rest of the layers.
+
 The bob tween targets the container `y`, so if you also move the container, stop and recreate the tween. A common pattern:
 
 ```typescript
@@ -334,7 +384,7 @@ Pass a hex integer as the `blobColor` argument to tint the blob:
 const mascot = new SplotMascot(scene, x, y, size, equipped, 0xFF4136); // red Splot
 ```
 
-Omit `blobColor` (or pass `undefined`) for the default white blob (use if skin color comes from a shop item later). All other layers (outline, eyes, etc.) are not tinted.
+Omit `blobColor` (or pass `undefined`) for the default splash-screen-green blob (`DEFAULT_BLOB_COLOR = 0x6DD400`; use this if skin color comes from a shop item later). All other layers (outline, eyes, etc.) are not tinted.
 
 ---
 

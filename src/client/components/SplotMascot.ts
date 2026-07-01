@@ -10,8 +10,11 @@ type ExpressionConfig = {
   cry?:    boolean;
 };
 
+// Default blob tint when no blobColor is passed — matches the slime tint on the splash/loading screen.
+const DEFAULT_BLOB_COLOR = 0x6DD400;
+
 const EXPRESSIONS: Record<SplotExpression, ExpressionConfig> = {
-  happy:   { eye: 'char-eye-happy',  eyebrow: 'char-brow-normal',   mouth: 'char-mouth-happy' },
+  happy:   { eye: 'char-eye-normal', eyebrow: 'char-brow-normal',   mouth: 'char-mouth-smile' },
   excited: { eye: 'char-eye-cute',   eyebrow: 'char-brow-surprise', mouth: 'char-mouth-kiss', blush: true },
   sad:     { eye: 'char-eye-pain',   eyebrow: 'char-brow-sad',      mouth: 'char-mouth-frown', cry: true },
   shocked: { eye: 'char-eye-shock',  eyebrow: 'char-brow-surprise', mouth: 'char-mouth-ooo' },
@@ -40,30 +43,40 @@ export class SplotMascot {
   private squishTween: Phaser.Tweens.Tween | null = null;
   private scene: Phaser.Scene;
 
+  private useCssShadow: boolean;
+
   constructor(
     scene: Phaser.Scene, x: number, y: number, size: number,
     equipped: Record<string, string> = {},
     blobColor?: number,
+    useCssShadow = false,
   ) {
     this.scene = scene;
+    this.useCssShadow = useCssShadow;
 
     const s = size;
     const mk = (key: string, depth: number, vis = true) =>
       scene.add.image(0, 0, key).setDisplaySize(s, s).setDepth(depth).setVisible(vis);
 
-    this.shadow    = mk('char-shadow',        0).setAlpha(0.6);
-    this.blob      = mk('char-blob',         10);
-    if (blobColor !== undefined) {
-      this.blob.setTint(blobColor);
+    if (useCssShadow) {
+      // Soft procedural "CSS-style" contact shadow (see Boot.ts genSplotShadowTexture) —
+      // a flat blurred ellipse under the character instead of the shadow-shaped sprite.
+      // Used on the home screen only; other screens keep the sprite shadow below.
+      this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
+        .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
+    } else {
+      this.shadow = mk('char-shadow', 5);
     }
-    this.mouth     = mk('char-mouth-happy',  20);
+    this.blob      = mk('char-blob',         10);
+    this.blob.setTint(blobColor ?? DEFAULT_BLOB_COLOR);
+    this.mouth     = mk('char-mouth-smile',  20);
     this.blush     = mk('char-blush',        22, false);
     this.cry       = mk('char-cry',          22, false);
     this.eye       = mk('char-eye-normal',   30);
     this.eyebrow   = mk('char-brow-normal',  40);
     this.accessory = mk('char-acc-horns',    50, false);
     this.applied   = mk('char-applied',      58, false).setAlpha(0);
-    this.shine     = mk('char-shine',        60).setAlpha(0.82);
+    this.shine     = mk('char-shine',        60).setAlpha(0.5);
     this.outline   = mk('char-outline',      65);
 
     this.container = scene.add.container(x, y, [
@@ -77,7 +90,7 @@ export class SplotMascot {
 
   private applyEquipped(items: Record<string, string>) {
     if (items.eye)       this.eye.setTexture(`char-${items.eye}`);
-    if (items.eyebrow)   this.eyebrow.setTexture(`char-${items.eyebrow}`);
+    this.eyebrow.setTexture(items.eyebrow ? `char-${items.eyebrow}` : 'char-brow-normal');
     if (items.mouth)     this.mouth.setTexture(`char-${items.mouth}`);
     if (items.accessory) {
       // item IDs are already prefixed: 'acc-crown' → 'char-acc-crown'
@@ -95,12 +108,26 @@ export class SplotMascot {
     this.eye.setTexture(cfg.eye);
     this.eyebrow.setTexture(cfg.eyebrow);
     this.mouth.setTexture(cfg.mouth);
-    this.blush.setVisible(cfg.blush === true);
-    this.cry.setVisible(cfg.cry === true);
+    this.animateFacePart(this.blush, cfg.blush === true);
+    this.animateFacePart(this.cry, cfg.cry === true);
 
     if (revertAfterMs) {
       this.scene.time.delayedCall(revertAfterMs, () => {
         this.setExpression('happy');
+      });
+    }
+  }
+
+  // Fades blush/cry in or out instead of an abrupt visibility cut.
+  private animateFacePart(layer: Phaser.GameObjects.Image, show: boolean) {
+    this.scene.tweens.killTweensOf(layer);
+    if (show) {
+      layer.setVisible(true).setAlpha(0);
+      this.scene.tweens.add({ targets: layer, alpha: 1, duration: 180, ease: 'Quad.easeOut' });
+    } else if (layer.visible) {
+      this.scene.tweens.add({
+        targets: layer, alpha: 0, duration: 140, ease: 'Quad.easeIn',
+        onComplete: () => layer.setVisible(false).setAlpha(1),
       });
     }
   }
@@ -199,8 +226,13 @@ export class SplotMascot {
   }
 
   setSize(s: number) {
-    [this.shadow, this.blob, this.mouth, this.blush, this.cry,
+    [this.blob, this.mouth, this.blush, this.cry,
      this.eye, this.eyebrow, this.accessory, this.applied, this.shine, this.outline]
       .forEach(img => img.setDisplaySize(s, s));
+    if (this.useCssShadow) {
+      this.shadow.setDisplaySize(s * 0.85, s * 0.30).setY(s * 0.40);
+    } else {
+      this.shadow.setDisplaySize(s, s);
+    }
   }
 }
