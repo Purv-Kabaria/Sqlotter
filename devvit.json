@@ -32,6 +32,13 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
+      },
+      {
+        "label": "Reset All Level Statistics",
+        "description": "Wipe every user's level completion/stars and all leaderboards (sparks and shop items are untouched)",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/reset-level-stats"
       }
     ]
   },

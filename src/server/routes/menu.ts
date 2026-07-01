@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
-import { generateDailyLevel } from '../../shared/levelData';
+import { CURATED_LEVELS, generateDailyLevel } from '../../shared/levelData';
 
 export const menu = new Hono();
 
@@ -61,6 +61,46 @@ menu.post('/post-daily', async (c) => {
     );
   } catch (error) {
     console.error('Error posting daily puzzle:', error);
+    return c.json<UiResponse>({ showToast: `Failed: ${String(error)}` }, 400);
+  }
+});
+
+// Mod action: wipe every user's level completion stars/completion state, first-completer
+// records, and all per-level leaderboards. Sparks, unlocked/equipped shop items are untouched —
+// those are currency/cosmetics, not level statistics.
+menu.post('/reset-level-stats', async (c) => {
+  try {
+    const solvedCount = await redis.zCard('lb:global:solved');
+    const usernames = solvedCount > 0
+      ? (await redis.zRange('lb:global:solved', 0, solvedCount - 1, { by: 'rank' })).map((r) => r.member)
+      : [];
+
+    for (const username of usernames) {
+      const userKey = `user:${username}`;
+      const fields = await redis.hKeys(userKey);
+      const toClear = fields.filter((f) =>
+        f.startsWith('done:') || f.startsWith('stars:') || f.startsWith('daily:'));
+      if (toClear.length > 0) await redis.hDel(userKey, toClear);
+    }
+
+    await redis.del('lb:global:solved');
+    await redis.del('level:first-completer');
+
+    const ugcCount = await redis.zCard('ugc:index');
+    const communityIds = ugcCount > 0
+      ? (await redis.zRange('ugc:index', 0, ugcCount - 1, { by: 'rank' })).map((r) => r.member)
+      : [];
+
+    for (const levelId of [...CURATED_LEVELS.map((l) => l.id), ...communityIds]) {
+      await redis.del(`lb:steps:${levelId}`, `lb:time:${levelId}`);
+    }
+
+    return c.json<UiResponse>(
+      { showToast: `Reset level stats for ${usernames.length} user(s)` },
+      200,
+    );
+  } catch (error) {
+    console.error('Error resetting level stats:', error);
     return c.json<UiResponse>({ showToast: `Failed: ${String(error)}` }, 400);
   }
 });

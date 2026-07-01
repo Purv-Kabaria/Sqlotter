@@ -160,6 +160,71 @@ btn.setDepth(8);
 
 ---
 
+### `addBeigeButtonShell(scene, x, y, width, height, disabled, onClick)`
+
+The background + hover/press interaction logic behind `addBeigeButton`, extracted so scenes that
+need a beige-button-styled surface with *custom* content (not just a label + optional icon) can
+reuse the same texture-swap/tween behavior. `LevelSelect`'s level and community cards use this —
+each card needs a number badge, difficulty dots, title, and stars laid out inside the button shell.
+
+```typescript
+import { addBeigeButtonShell } from '../components/PixelUI';
+
+const shell = addBeigeButtonShell(scene, cx, cy, cardW, cardH, isLocked, () => {
+  scene.scene.start('Game', { levelId: level.id });
+});
+
+shell.addContent([titleText, starIcon1, starIcon2, starIcon3]); // added into shell.visual
+```
+
+- Returns `{ container, visual, addContent }` — `container` is what you position/depth/return;
+  `visual` is the inner sub-container the hover/press tweens move (see "No flicker-prevention
+  extension needed" above — same reasoning applies here).
+- `addBeigeButton` is now a thin wrapper: it calls this, then adds its label/icon via `addContent`.
+- Same 65px minimum as `addBeigeButton` (32px corners) — see "Minimum size constraints" below.
+- To tint just the background (e.g. per-world accent color) without recoloring text/icons added
+  via `addContent`, tint the background pieces directly:
+  ```typescript
+  shell.visual.list
+    .filter((o): o is Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite =>
+      o instanceof Phaser.GameObjects.Image || o instanceof Phaser.GameObjects.TileSprite)
+    .forEach(p => p.setTint(accentColor));
+  ```
+  Do this **before** calling `addContent` — otherwise the filter also catches any `Image` content
+  you added (e.g. star icons) and tints those too.
+
+---
+
+### `addBeigeIconButton(scene, options)`
+
+Small icon-only beige button — for a header back button or similar compact controls that don't
+need a label. Uses the half-scale `btn-open-sm-*` corner set (16px, from `addBeigeBadge`), so it
+can go as small as 33px, well below the 65px floor a full label button needs.
+
+```typescript
+import { addBeigeIconButton } from '../components/PixelUI';
+
+const back = addBeigeIconButton(scene, {
+  x: 38, y: headerH / 2,
+  size: 44,
+  iconKey: 'icon-arrow',
+  iconAngle: 180,        // optional — rotates the icon (and its drop shadow) together
+  onClick: () => scene.scene.start('MainMenu'),
+});
+```
+
+**Tradeoff vs. `addBeigeButton`:** the `sm` corner set only has one state (`btn-open-sm-*`) — there
+is no `btn-hover-sm`/`btn-press-sm`/`btn-dis-sm`. So this component has **no texture swap**, only
+scale/position tweens on hover/press/up. If you need the full three-state swap, the button must be
+≥65px and should use `addBeigeButton` or `addBeigeButtonShell` instead.
+
+The tap target is floored to 44×44 regardless of `size` — the hitbox `Rectangle` is expanded and
+re-centered around the (possibly smaller) visual button, the same principle as `setSize` in
+`addBeigeButton` but applied to the actual hitbox since there's no `onClick`-driven `addBeigeButton`
+sizing floor to rely on here.
+
+---
+
 ### `addBeigeCard(scene, x, y, width, height)`
 
 Non-interactive beige slot via Phaser's built-in NineSlice. Use for HUD badges, sparks pills,
@@ -195,6 +260,8 @@ const bg = addDarkPanel(scene, cx, cy, paletteW, paletteH);
 | Use case | Component | Reason |
 |----------|-----------|--------|
 | Main menu / game buttons | `addBeigeButton` | Multi-state texture swap + animation |
+| Buttons with custom content (level cards, etc.) | `addBeigeButtonShell` | Same shell/interaction, caller supplies content |
+| Compact icon-only header button (back, etc.) | `addBeigeIconButton` | Fits below the 65px floor; no label needed |
 | Left sidebar / card frames | `addPanel9` | Large panel, beige border |
 | Stat boxes, HUD slots, pills | `addBeigeCard` | Small, single-state, cheap |
 | Modifier palette background | `addDarkPanel` | Dark, procedural, cheap |

@@ -122,32 +122,21 @@ export function addBeigeBadge(
   return scene.add.container(Math.round(x), Math.round(y), pieces as Phaser.GameObjects.GameObject[]);
 }
 
-// Beige rounded button with dark-brown text (new design language)
-export type BeigeButtonOptions = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  label: string;
-  iconKey?: string | undefined;
-  fontSize?: number;
-  fontFamily?: string;
-  disabled?: boolean;
-  onClick?: () => void;
+// ── Beige button shell — background + hover/press interaction only. Callers supply
+// their own content via `addContent`. `addBeigeButton` (label/icon) and level cards
+// in LevelSelect both build on this so the swap/tween behavior stays in one place.
+export type BeigeButtonShell = {
+  container: Phaser.GameObjects.Container;
+  visual: Phaser.GameObjects.Container;
+  addContent: (items: Phaser.GameObjects.GameObject[]) => void;
 };
 
-export function addBeigeButton(
+export function addBeigeButtonShell(
   scene: Phaser.Scene,
-  options: BeigeButtonOptions,
-): Phaser.GameObjects.Container {
-  const {
-    x, y, width, height, label, iconKey,
-    fontSize = Math.max(9, Math.round(height * 0.28)),
-    fontFamily = PIXEL_FONT,
-    disabled = false,
-    onClick,
-  } = options;
-
+  x: number, y: number, width: number, height: number,
+  disabled: boolean,
+  onClick?: () => void,
+): BeigeButtonShell {
   // Even dimensions guarantee integer half-widths → no sub-pixel gaps between pieces
   const W = Math.round(width / 2) * 2;
   const H = Math.round(height / 2) * 2;
@@ -157,31 +146,9 @@ export function addBeigeButton(
   const bgPieces = build9Pieces(scene, W, H, BTN_CW, BTN_CH, btnState);
   if (disabled) bgPieces.forEach(p => (p as Phaser.GameObjects.Image).setAlpha(0.5));
 
-  const visualItems: Phaser.GameObjects.GameObject[] = [...(bgPieces as Phaser.GameObjects.GameObject[])];
-
-  const iconSize = Math.min(H * 0.50, 24);
-  const hasIcon  = !!iconKey;
-  const totalW   = hasIcon ? iconSize + 8 + label.length * (fontSize * 0.68) : 0;
-  const iconX    = hasIcon ? -Math.min(totalW / 2, W * 0.34) : 0;
-  const textX    = hasIcon ? iconX + iconSize * 0.60 + 8 : 0;
-
-  if (hasIcon) {
-    const ic = addDepthIcon(scene, iconX, 0, iconKey!, iconSize, iconSize);
-    if (disabled) ic.setAlpha(0.4);
-    visualItems.push(ic);
-  }
-
-  const txt = scene.add.text(textX, 0, label, {
-    fontFamily,
-    fontSize: `${fontSize}px`,
-    color: disabled ? '#9A7A5A' : '#3A1A08',
-    shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-  }).setOrigin(hasIcon ? 0 : 0.5, 0.5);
-  visualItems.push(txt);
-
   // Visual sub-container holds all graphics and is the only thing that animates.
   // The outer container stays at a fixed world position so the hitbox never shifts.
-  const visual = scene.add.container(0, 0, visualItems);
+  const visual = scene.add.container(0, 0, bgPieces as Phaser.GameObjects.GameObject[]);
   const container = scene.add.container(rx, ry, [visual]).setSize(Math.max(W, 44), Math.max(H, 44));
 
   const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') =>
@@ -215,6 +182,108 @@ export function addBeigeButton(
         swapBg('btn-hover');
         scene.tweens.add({ targets: visual, y: -3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
       });
+  }
+
+  return { container, visual, addContent: (items) => visual.add(items) };
+}
+
+// Beige rounded button with dark-brown text (new design language)
+export type BeigeButtonOptions = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
+  iconKey?: string | undefined;
+  fontSize?: number;
+  fontFamily?: string;
+  disabled?: boolean;
+  onClick?: () => void;
+};
+
+export function addBeigeButton(
+  scene: Phaser.Scene,
+  options: BeigeButtonOptions,
+): Phaser.GameObjects.Container {
+  const {
+    x, y, width, height, label, iconKey,
+    fontSize = Math.max(9, Math.round(height * 0.28)),
+    fontFamily = PIXEL_FONT,
+    disabled = false,
+    onClick,
+  } = options;
+
+  const W = Math.round(width / 2) * 2;
+  const H = Math.round(height / 2) * 2;
+  const shell = addBeigeButtonShell(scene, x, y, width, height, disabled, onClick);
+
+  const iconSize = Math.min(H * 0.50, 24);
+  const hasIcon  = !!iconKey;
+  const totalW   = hasIcon ? iconSize + 8 + label.length * (fontSize * 0.68) : 0;
+  const iconX    = hasIcon ? -Math.min(totalW / 2, W * 0.34) : 0;
+  const textX    = hasIcon ? iconX + iconSize * 0.60 + 8 : 0;
+
+  const content: Phaser.GameObjects.GameObject[] = [];
+
+  if (hasIcon) {
+    const ic = addDepthIcon(scene, iconX, 0, iconKey!, iconSize, iconSize);
+    if (disabled) ic.setAlpha(0.4);
+    content.push(ic);
+  }
+
+  const txt = scene.add.text(textX, 0, label, {
+    fontFamily,
+    fontSize: `${fontSize}px`,
+    color: disabled ? '#9A7A5A' : '#3A1A08',
+    shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+  }).setOrigin(hasIcon ? 0 : 0.5, 0.5);
+  content.push(txt);
+
+  shell.addContent(content);
+  return shell.container;
+}
+
+// Small beige icon-only button (uses the half-scale 16px-corner variant so it can sit
+// comfortably in a compact header, e.g. a back button). No hover/press texture swap
+// (the "sm" corner set only has the open state) — feedback is scale/position tweens only.
+export type BeigeIconButtonOptions = {
+  x: number;
+  y: number;
+  size: number;
+  iconKey: string;
+  iconAngle?: number;
+  onClick?: () => void;
+};
+
+export function addBeigeIconButton(
+  scene: Phaser.Scene,
+  options: BeigeIconButtonOptions,
+): Phaser.GameObjects.Container {
+  const { x, y, size, iconKey, iconAngle = 0, onClick } = options;
+  const W = Math.round(size / 2) * 2;
+
+  const pieces = build9Pieces(scene, W, W, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm');
+  const iconSize = Math.min(W * 0.55, 22);
+  const icon = addDepthIcon(scene, 0, -1, iconKey, iconSize, iconSize).setAngle(iconAngle);
+
+  const visual = scene.add.container(0, 0, [...(pieces as Phaser.GameObjects.GameObject[]), icon]);
+  const container = scene.add.container(Math.round(x), Math.round(y), [visual])
+    .setSize(Math.max(W, 44), Math.max(W, 44));
+
+  if (onClick) {
+    // Tap target floor is 44×44 regardless of the visual button size (see CLAUDE.md).
+    const hitSize = Math.max(W, 44);
+    const hitOff  = (W - hitSize) / 2;
+    container.setInteractive(
+      new Phaser.Geom.Rectangle(hitOff, hitOff, hitSize, hitSize),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    container.input!.cursor = 'pointer';
+    container
+      .on('pointerover', () => scene.tweens.add({ targets: visual, y: -2, duration: 80, ease: 'Quad.easeOut' }))
+      .on('pointerout', () => scene.tweens.add({ targets: visual, y: 0, scaleX: 1, scaleY: 1, duration: 90, ease: 'Quad.easeOut' }))
+      .on('pointerdown', () => scene.tweens.add({ targets: visual, y: 1, scaleX: 0.90, scaleY: 0.90, duration: 60 }))
+      .on('pointerup', () => scene.tweens.add({ targets: visual, y: -2, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick }));
   }
 
   return container;

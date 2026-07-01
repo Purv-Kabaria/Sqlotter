@@ -1,43 +1,27 @@
 import * as Phaser from 'phaser';
-import { addPixelIconButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
-import { CURATED_LEVELS, WORLD_LABELS } from '../../shared/levelData';
+import { addBeigeButton, addBeigeButtonShell, addBeigeIconButton, addDepthIcon } from '../components/PixelUI';
+import { CURATED_LEVELS } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 
-const C = {
-  BG:      0x1a0a2e,
-  CARD:    0x2d1b4e,
-  LOCKED:  0x1a1030,
-  GREEN:   0x6dd400,
-  GOLD:    0xffd700,
-  ORANGE:  0xff6b35,
-  TEXT:    '#ffffff',
-  DIM:     '#7a8a9a',
-  ACCENT:  '#6DD400',
-  STAR_ON: '#FFD700',
-  STAR_OFF:'#3a2560',
-} as const;
+const PIXELIFY = '"Pixelify Sans", sans-serif';
 
-// World difficulty colour accents
-const WORLD_COLORS = [0x6dd400, 0x7b2ff7, 0xff6b35, 0xe91e63];
-
-// Groups of 4 per world
+// Groups of 4 per world (matches the difficulty tiers curated levels are authored in)
 function getWorldForLevel(level: LevelData): number {
   const idx = CURATED_LEVELS.findIndex(l => l.id === level.id);
   return Math.floor(idx / 4) + 1;
 }
 
+type GridItem = { label: string; disabled: boolean; onClick?: (() => void) | undefined };
+type WorldPage = { kind: 'world'; worldNum: number; levels: LevelData[] };
+type CommunityPage = { kind: 'community' };
+type Page = WorldPage | CommunityPage;
+
 export class LevelSelect extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
-  private scrollContainer: Phaser.GameObjects.Container | null = null;
-  private scrollBar: Phaser.GameObjects.Graphics | null = null;
-  private isDragging = false;
-  private dragMoved = false;
-  private dragStartY = 0;
-  private pointerDownY = 0;
-  private scrollY = 0;
-  private maxScrollY = 0;
-  private contentHeight = 0;
+  private contentLayer: Phaser.GameObjects.Container | null = null;
+  private pages: Page[] = [];
+  private pageIndex = 0;
   private completedLevels: Record<string, { stars: number }> = {};
   private communityLevels: CommunityLevelSummary[] = [];
 
@@ -45,25 +29,27 @@ export class LevelSelect extends Phaser.Scene {
 
   init() {
     this.bgLayers = [];
-    this.scrollContainer = null;
-    this.scrollBar = null;
-    this.scrollY = 0;
-    this.dragMoved = false;
+    this.contentLayer = null;
+    this.pages = [];
+    this.pageIndex = 0;
     this.completedLevels = {};
     this.communityLevels = [];
   }
 
   async create() {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
-    this.cameras.main.setBackgroundColor(C.BG);
+    this.cameras.main.setBackgroundColor(0x2a1a4a);
     this.cameras.main.fadeIn(350, 26, 10, 46);
 
+    this.buildBackground();
+
+    // Load progress/community data before the first render so level buttons never
+    // flash an incorrect locked state.
     await Promise.all([this.loadProgress(), this.loadCommunityLevels()]);
 
-    this.buildBackground();
-    this.buildHeader();
-    this.buildScrollContent();
-    this.setupScrollInput();
+    this.buildPages();
+    this.buildPage();
+    this.scale.on('resize', this.onResize, this);
   }
 
   private async loadProgress() {
@@ -88,343 +74,216 @@ export class LevelSelect extends Phaser.Scene {
     } catch { /* fallback: empty */ }
   }
 
-  private buildBackground() {
-    const { width, height } = this.scale;
-    ['bg4-1', 'bg4-2'].forEach((key, i) => {
-      const img = this.add.image(width / 2, height / 2, key)
-        .setAlpha(i === 0 ? 0.6 : 0.3)
-        .setDepth(-10);
-      const sc = Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05;
-      img.setScale(sc);
-      this.bgLayers.push(img);
-    });
-  }
-
-  private buildHeader() {
-    const { width } = this.scale;
-
-    // Back button
-    addPixelIconButton(this, {
-      x: 46,
-      y: 30,
-      size: 40,
-      iconKey: 'icon-arrow',
-      iconAngle: 180,
-      onClick: () => {
-        this.cameras.main.fadeOut(250, 26, 10, 46);
-        this.time.delayedCall(260, () => this.scene.start('MainMenu'));
-      },
-    }).setDepth(20);
-
-    // Title
-    this.add.text(width / 2, 30, 'Select Level', {
-      fontFamily: PIXEL_FONT,
-      fontSize: '10px',
-      color: '#ffffff',
-      stroke: '#1a0a2e',
-      strokeThickness: 4,
-      shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 3, fill: true },
-    }).setOrigin(0.5).setDepth(20);
-
-    // Divider
-    const div = this.add.graphics().setDepth(20);
-    div.lineStyle(1, 0x6dd400, 0.3);
-    div.lineBetween(0, 54, width, 54);
-  }
-
-  private buildScrollContent() {
-    const { width, height } = this.scale;
-
-    this.scrollContainer = this.add.container(0, 60).setDepth(5);
-    let cursorY = 20;
-
-    // Group levels by world
+  private buildPages() {
     const worlds: Map<number, LevelData[]> = new Map();
     for (const level of CURATED_LEVELS) {
       const w = getWorldForLevel(level);
       if (!worlds.has(w)) worlds.set(w, []);
       worlds.get(w)!.push(level);
     }
-
-    worlds.forEach((levels, worldNum) => {
-      // World header
-      const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length] ?? 0x6dd400;
-      const worldHeader = this.buildWorldHeader(width / 2, cursorY, wColor, WORLD_LABELS[worldNum] ?? `World ${worldNum}`);
-      this.scrollContainer!.add(worldHeader);
-      cursorY += 52;
-
-      // Level cards grid — 2 per row
-      const cardW = (width - 60) / 2;
-      const cardH = 88;
-      const colGap = 12;
-      const rowGap = 12;
-
-      levels.forEach((level, i) => {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        const cx = 20 + col * (cardW + colGap) + cardW / 2;
-        const cy = cursorY + row * (cardH + rowGap) + cardH / 2;
-
-        const progress = this.completedLevels[level.id];
-        const isLocked = this.isLevelLocked(level);
-        const card = this.buildLevelCard(cx, cy, cardW, cardH, level, worldNum, progress?.stars ?? 0, isLocked);
-        this.scrollContainer!.add(card);
-      });
-
-      const rows = Math.ceil(levels.length / 2);
-      cursorY += rows * (cardH + rowGap) + 24;
-    });
-
-    // Community section
-    const communityHeader = this.buildSectionHeader(width / 2, cursorY, 'Community Levels', 0x1a6fbf);
-    this.scrollContainer!.add(communityHeader);
-    cursorY += 52;
-
-    if (this.communityLevels.length === 0) {
-      const comingCard = this.buildComingSoonCard(width / 2, cursorY, width - 40, 64);
-      this.scrollContainer!.add(comingCard);
-      cursorY += 80;
-    } else {
-      const cardW = (width - 60) / 2;
-      const cardH = 88;
-      const colGap = 12;
-      const rowGap = 12;
-
-      this.communityLevels.forEach((level, i) => {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        const cx = 20 + col * (cardW + colGap) + cardW / 2;
-        const cy = cursorY + row * (cardH + rowGap) + cardH / 2;
-        const card = this.buildCommunityCard(cx, cy, cardW, cardH, level);
-        this.scrollContainer!.add(card);
-      });
-
-      const rows = Math.ceil(this.communityLevels.length / 2);
-      cursorY += rows * (cardH + rowGap) + 24;
-    }
-
-    this.contentHeight = cursorY;
-    this.maxScrollY = Math.max(0, this.contentHeight - (height - 60));
-    this.scrollBar = this.add.graphics().setDepth(30);
-    this.drawScrollBar();
+    this.pages = [...worlds.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([worldNum, levels]) => ({ kind: 'world' as const, worldNum, levels }));
+    this.pages.push({ kind: 'community' });
+    this.pageIndex = Math.min(this.pageIndex, this.pages.length - 1);
   }
 
-  private setScrollY(nextY: number) {
-    this.scrollY = Phaser.Math.Clamp(nextY, -this.maxScrollY, 0);
-    if (this.scrollContainer) this.scrollContainer.y = 60 + this.scrollY;
-    this.drawScrollBar();
-  }
-
-  private drawScrollBar() {
-    if (!this.scrollBar) return;
-    this.scrollBar.clear();
-    if (this.maxScrollY <= 0) return;
-
+  // ── Background ─────────────────────────────────────────────────────────
+  private buildBackground() {
     const { width, height } = this.scale;
-    const trackX = width - 8;
-    const trackY = 66;
-    const trackH = height - 78;
-    const visibleH = height - 60;
-    const thumbH = Math.max(32, trackH * (visibleH / Math.max(this.contentHeight, visibleH)));
-    const progress = -this.scrollY / this.maxScrollY;
-    const thumbY = trackY + (trackH - thumbH) * progress;
+    const keys   = ['bg3-1', 'bg3-2', 'bg3-3', 'bg3-4'];
+    const alphas = [1, 0.5, 0.7, 0.9];
 
-    this.scrollBar.fillStyle(0xffffff, 0.12);
-    this.scrollBar.fillRoundedRect(trackX, trackY, 4, trackH, 2);
-    this.scrollBar.fillStyle(C.GREEN, 0.72);
-    this.scrollBar.fillRoundedRect(trackX - 1, thumbY, 6, thumbH, 3);
+    this.bgLayers.forEach(img => img.destroy());
+    this.bgLayers = [];
+
+    keys.forEach((key, i) => {
+      const img = this.add.image(width / 2, height / 2, key)
+        .setAlpha(alphas[i] ?? 0.6).setDepth(-10 + i);
+      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
+      this.bgLayers.push(img);
+      this.startBgDrift(img, i, width);
+    });
   }
 
-  private buildWorldHeader(x: number, y: number, color: number, label: string) {
-    const { width } = this.scale;
-    const bw = width - 40;
-    const panel = addPixelPanel(this, x, y, bw, 40).setTint(color).setAlpha(0.36);
-
-    const t = this.add.text(x, y, label, {
-      fontFamily: PIXEL_FONT,
-      fontSize: '10px',
-      color: `#${color.toString(16).padStart(6, '0')}`,
-    }).setOrigin(0.5);
-
-    return this.add.container(0, 0, [panel, t]);
+  private startBgDrift(img: Phaser.GameObjects.Image, index: number, width: number) {
+    const dir = index % 2 === 0 ? 1 : -1;
+    this.tweens.add({
+      targets: img,
+      x: width / 2 + dir * 14,
+      duration: 13000 + index * 3000,
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
   }
 
-  private buildSectionHeader(x: number, y: number, label: string, color: number) {
-    const { width } = this.scale;
-    const bw = width - 40;
-    const panel = addPixelPanel(this, x, y, bw, 40).setTint(color).setAlpha(0.28);
-
-    const icon = this.add.image(x - bw / 2 + 24, y, 'icon-people').setDisplaySize(20, 20);
-    const t = this.add.text(x + 8, y, label, {
-      fontFamily: PIXEL_FONT,
-      fontSize: '9px',
-      color: `#${color.toString(16).padStart(6, '0')}`,
-    }).setOrigin(0.5);
-
-    return this.add.container(0, 0, [panel, icon, t]);
+  private repositionBgLayers(width: number, height: number) {
+    this.bgLayers.forEach((img, i) => {
+      this.tweens.killTweensOf(img);
+      img.setPosition(width / 2, height / 2);
+      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
+      this.startBgDrift(img, i, width);
+    });
   }
 
-  private buildLevelCard(
-    cx: number, cy: number, w: number, h: number,
-    level: LevelData, worldNum: number,
-    stars: number, locked: boolean,
-  ) {
-    const wColor = WORLD_COLORS[(worldNum - 1) % WORLD_COLORS.length] ?? 0x6dd400;
+  // ── Page content (title + grid + nav arrows + back button) ──────────────
+  private buildPage() {
+    this.contentLayer?.destroy(true);
+    const { width, height } = this.scale;
+    const isPortrait = height >= width;
+    const els: Phaser.GameObjects.GameObject[] = [];
 
-    const bg = this.add.nineslice(
-      0,
-      0,
-      locked ? 'ui-btn-disabled' : 'ui-btn-open',
-      undefined,
-      w,
-      h,
-      8,
-      8,
-      8,
-      8,
-    );
-    if (!locked && stars > 0) bg.setTint(wColor);
-
-    const items: Phaser.GameObjects.GameObject[] = [bg];
-
-    if (locked) {
-      const lockIcon = this.add.image(0, 0, 'icon-lock').setDisplaySize(28, 28).setAlpha(0.5);
-      items.push(lockIcon);
-    } else {
-      // Level number
-      const numTxt = this.add.text(-w/2 + 12, -h/2 + 10, level.id, {
-        fontFamily: PIXEL_FONT,
-        fontSize: '7px',
-        color: `#${wColor.toString(16).padStart(6, '0')}`,
-      }).setOrigin(0, 0);
-      items.push(numTxt);
-
-      // Difficulty dots
-      for (let d = 0; d < 5; d++) {
-        const dot = this.add.circle(w/2 - 14 - d * 10, -h/2 + 14, 3,
-          d < level.difficulty ? wColor : 0x3a2560);
-        items.push(dot);
-      }
-
-      // Title
-      const titleTxt = this.add.text(0, -4, level.title, {
-        fontFamily: PIXEL_FONT,
-        fontSize: '8px',
-        color: '#ffffff',
-        wordWrap: { width: w - 20 },
-      }).setOrigin(0.5, 0.5);
-      items.push(titleTxt);
-
-      // Stars row using icon-star images
-      for (let s = 0; s < 3; s++) {
-        const starImg = this.add.image(-16 + s * 16, h/2 - 18, 'icon-star')
-          .setDisplaySize(14, 14)
-          .setTint(s < stars ? 0xFFD700 : 0x3a2560);
-        items.push(starImg);
-      }
-
-      // Optimal badge using check icon
-      if (stars === 3) {
-        const checkImg = this.add.image(w/2 - 12, h/2 - 12, 'icon-check').setDisplaySize(14, 14);
-        items.push(checkImg);
-      }
-    }
-
-    const c = this.add.container(cx, cy, items);
-    if (!locked) {
-      c.setSize(w, h).setInteractive({ useHandCursor: true });
-      c.on('pointerover', () => {
-        bg.setTexture('ui-btn-hover');
-        this.tweens.add({ targets: c, y: cy - 2, scaleX: 1.03, scaleY: 1.03, duration: 80, ease: 'Quad.easeOut' });
-      });
-      c.on('pointerout', () => {
-        bg.setTexture('ui-btn-open');
-        this.tweens.add({ targets: c, y: cy, scaleX: 1, scaleY: 1, duration: 80, ease: 'Quad.easeOut' });
-      });
-      c.on('pointerdown', () => {
-        bg.setTexture('ui-btn-press');
-        this.tweens.add({ targets: c, y: cy + 1, scaleX: 0.98, scaleY: 0.98, duration: 60 });
-      });
-      c.on('pointerup', () => {
-        if (this.dragMoved) {
-          bg.setTexture('ui-btn-open');
-          this.tweens.add({ targets: c, y: cy, scaleX: 1, scaleY: 1, duration: 80 });
-          return;
-        }
-        bg.setTexture('ui-btn-hover');
+    // Back-to-menu (small, top-left corner — not part of the reference mock, but
+    // needed since the world pager has no other way out of this screen)
+    const backSize = 40;
+    els.push(addBeigeIconButton(this, {
+      x: 16 + backSize / 2, y: 16 + backSize / 2,
+      size: backSize, iconKey: 'icon-arrow', iconAngle: 180,
+      onClick: () => {
         this.cameras.main.fadeOut(250, 26, 10, 46);
-        this.time.delayedCall(260, () => {
-          this.scene.start('Game', { levelId: level.id });
+        this.time.delayedCall(260, () => this.scene.start('MainMenu'));
+      },
+    }));
+
+    const page = this.pages[this.pageIndex];
+    if (!page) return;
+
+    // Title panel — 66px floor: the beige button asset's 32px corners corrupt below 65px
+    // (see docs/9-slicing.md), and every element on this screen reuses that asset.
+    const titleW  = Math.min(width * 0.8, isPortrait ? 300 : 360);
+    const titleH  = Math.max(66, Math.min(96, Math.round(height * (isPortrait ? 0.11 : 0.135))));
+    const titleY  = Math.max(titleH / 2 + 16, height * (isPortrait ? 0.09 : 0.11));
+    const titleFs = Math.max(20, Math.min(34, Math.round(titleH * 0.36)));
+    const titleBtn = addBeigeButton(this, {
+      x: width / 2, y: titleY, width: titleW, height: titleH,
+      label: page.kind === 'world' ? `World ${page.worldNum}` : 'Community Levels',
+      fontSize: page.kind === 'world' ? titleFs : Math.round(titleFs * 0.6),
+      fontFamily: PIXELIFY,
+    });
+    titleBtn.setAlpha(0);
+    this.tweens.add({ targets: titleBtn, alpha: 1, duration: 220, ease: 'Quad.easeOut' });
+    els.push(titleBtn);
+
+    // Grid geometry — btnH/arrowSize both floor at 66px for the same corner-asset reason.
+    const arrowSize  = isPortrait
+      ? Math.max(66, Math.min(78, width * 0.19))
+      : Math.max(66, Math.min(76, height * 0.10));
+    const cols       = isPortrait ? 2 : 4;
+    const outerPad   = isPortrait ? Math.max(14, width * 0.05) : Math.max(96, width * 0.10);
+    const gridW      = width - outerPad * 2;
+    const colGap     = isPortrait ? 12 : 24;
+    const rowGap     = isPortrait ? 12 : 20;
+    const btnW       = (gridW - colGap * (cols - 1)) / cols;
+    const btnH       = isPortrait
+      ? Math.max(66, Math.min(74, height * 0.09))
+      : Math.max(66, Math.min(80, height * 0.11));
+    const fs         = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
+    const gridTop    = titleY + titleH / 2 + (isPortrait ? 26 : 34);
+
+    // Portrait reserves a bottom row for the pagination arrows; landscape has them
+    // in the margins beside the grid, so the grid can use the full remaining height.
+    const gridBottom = isPortrait ? height - 20 - arrowSize - 16 : height - 24;
+    const maxRows    = Math.max(1, Math.floor((gridBottom - gridTop + rowGap) / (btnH + rowGap)));
+
+    // Community levels aren't capped by the API to a page-sized batch (up to 20), and
+    // this screen has no scrolling — cap to whatever grid capacity actually fits so
+    // buttons never overflow past the arrows/screen edge. World pages never need this;
+    // curated levels are authored in small batches (4 per world) that always fit.
+    const items = this.buildGridItems(page, cols * maxRows);
+
+    if (page.kind === 'community' && items.length === 1 && items[0]!.disabled) {
+      // "Coming soon" placeholder — spans the full grid width instead of one cell.
+      const bw  = gridW;
+      const bh  = btnH;
+      const btn = addBeigeButton(this, {
+        x: width / 2, y: gridTop + bh / 2, width: bw, height: bh,
+        label: items[0]!.label, fontSize: fs, fontFamily: PIXELIFY, disabled: true,
+      });
+      btn.setAlpha(0);
+      this.tweens.add({ targets: btn, alpha: 1, duration: 220, delay: 80, ease: 'Quad.easeOut' });
+      els.push(btn);
+    } else {
+      items.forEach((item, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const cx  = outerPad + btnW / 2 + col * (btnW + colGap);
+        const cy  = gridTop + btnH / 2 + row * (btnH + rowGap);
+        const btn = addBeigeButton(this, {
+          x: cx, y: cy, width: btnW, height: btnH,
+          label: item.label, fontSize: fs, fontFamily: PIXELIFY,
+          disabled: item.disabled, onClick: item.onClick,
         });
+        const targetY = cy;
+        btn.setAlpha(0).setY(targetY + 8);
+        this.tweens.add({
+          targets: btn, alpha: 1, y: targetY,
+          duration: 220, delay: Math.min(i * 35, 300), ease: 'Quad.easeOut',
+        });
+        els.push(btn);
       });
     }
-    return c;
+
+    // Pagination arrows
+    const canPrev = this.pageIndex > 0;
+    const canNext = this.pageIndex < this.pages.length - 1;
+
+    let prevX: number, prevY: number, nextX: number, nextY: number;
+    if (isPortrait) {
+      prevX = outerPad + arrowSize / 2;
+      nextX = width - outerPad - arrowSize / 2;
+      prevY = nextY = height - 20 - arrowSize / 2;
+    } else {
+      prevX = Math.max(24, outerPad * 0.35);
+      nextX = width - Math.max(24, outerPad * 0.35);
+      prevY = nextY = height / 2;
+    }
+
+    els.push(this.buildArrow(prevX, prevY, arrowSize, 180, !canPrev, () => this.changePage(-1)));
+    els.push(this.buildArrow(nextX, nextY, arrowSize, 0, !canNext, () => this.changePage(1)));
+
+    this.contentLayer = this.add.container(0, 0, els).setDepth(5);
   }
 
-  private buildComingSoonCard(cx: number, cy: number, w: number, h: number) {
-    const bg = addPixelPanel(this, 0, 0, w, h).setTint(0x1a6fbf).setAlpha(0.35);
-
-    const txt = this.add.text(0, 0, 'Community levels coming soon...', {
-      fontFamily: PIXEL_FONT,
-      fontSize: '8px',
-      color: C.DIM,
-    }).setOrigin(0.5);
-
-    return this.add.container(cx, cy, [bg, txt]);
+  private buildGridItems(page: Page, maxItems: number): GridItem[] {
+    if (page.kind === 'world') {
+      return page.levels.map((level) => {
+        const overallIdx = CURATED_LEVELS.findIndex(l => l.id === level.id);
+        const locked = this.isLevelLocked(level);
+        return {
+          label: `Level ${overallIdx + 1}`,
+          disabled: locked,
+          onClick: locked ? undefined : () => this.openLevel(level.id),
+        };
+      });
+    }
+    if (this.communityLevels.length === 0) {
+      return [{ label: 'Coming soon...', disabled: true }];
+    }
+    return this.communityLevels.slice(0, Math.max(1, maxItems)).map((level) => ({
+      label: level.title,
+      disabled: false,
+      onClick: () => this.openLevel(level.id),
+    }));
   }
 
-  private buildCommunityCard(
-    cx: number,
-    cy: number,
-    w: number,
-    h: number,
-    level: CommunityLevelSummary,
-  ) {
-    const bg = this.add.nineslice(0, 0, 'ui-btn-open', undefined, w, h, 8, 8, 8, 8).setTint(0x35a7ff);
+  private buildArrow(x: number, y: number, size: number, angle: number, disabled: boolean, onClick: () => void) {
+    const shell = addBeigeButtonShell(this, x, y, size, size, disabled, disabled ? undefined : onClick);
+    const iconSize = Math.round(size * 0.42);
+    const icon = addDepthIcon(this, 0, -1, 'icon-arrow', iconSize, iconSize).setAngle(angle);
+    if (disabled) icon.setAlpha(0.4);
+    shell.addContent([icon]);
+    return shell.container;
+  }
 
-    const title = this.add.text(-w / 2 + 10, -h / 2 + 12, level.title, {
-      fontFamily: PIXEL_FONT,
-      fontSize: '8px',
-      color: '#ffffff',
-      wordWrap: { width: w - 20 },
-      maxLines: 1,
-    });
-    const author = this.add.text(-w / 2 + 10, 2, `u/${level.authorName ?? 'anonymous'}`, {
-      fontFamily: PIXEL_FONT,
-      fontSize: '7px',
-      color: '#9acfff',
-    });
-    const details = this.add.text(-w / 2 + 10, h / 2 - 12, `Diff: ${level.difficulty}  Steps: ${level.optimalSteps}`, {
-      fontFamily: PIXEL_FONT,
-      fontSize: '7px',
-      color: C.DIM,
-    }).setOrigin(0, 1);
+  private changePage(delta: number) {
+    const next = Phaser.Math.Clamp(this.pageIndex + delta, 0, this.pages.length - 1);
+    if (next === this.pageIndex) return;
+    this.pageIndex = next;
+    this.buildPage();
+  }
 
-    const card = this.add.container(cx, cy, [bg, title, author, details]);
-    card.setSize(w, h).setInteractive({ useHandCursor: true });
-    card.on('pointerover', () => {
-      bg.setTexture('ui-btn-hover');
-      this.tweens.add({ targets: card, y: cy - 2, scaleX: 1.03, scaleY: 1.03, duration: 80, ease: 'Quad.easeOut' });
-    });
-    card.on('pointerout', () => {
-      bg.setTexture('ui-btn-open');
-      this.tweens.add({ targets: card, y: cy, scaleX: 1, scaleY: 1, duration: 80, ease: 'Quad.easeOut' });
-    });
-    card.on('pointerdown', () => {
-      bg.setTexture('ui-btn-press');
-      this.tweens.add({ targets: card, y: cy + 1, scaleX: 0.98, scaleY: 0.98, duration: 60 });
-    });
-    card.on('pointerup', () => {
-      if (this.dragMoved) {
-        bg.setTexture('ui-btn-open');
-        this.tweens.add({ targets: card, y: cy, scaleX: 1, scaleY: 1, duration: 80 });
-        return;
-      }
-      bg.setTexture('ui-btn-hover');
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('Game', { levelId: level.id }));
-    });
-    return card;
+  private openLevel(levelId: string) {
+    this.cameras.main.fadeOut(250, 26, 10, 46);
+    this.time.delayedCall(260, () => this.scene.start('Game', { levelId }));
   }
 
   private isLevelLocked(level: LevelData): boolean {
@@ -435,34 +294,13 @@ export class LevelSelect extends Phaser.Scene {
     return !this.completedLevels[prev.id];
   }
 
-  private setupScrollInput() {
-    const headerH = 60;
-
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (p.y < headerH) return;
-      this.isDragging = true;
-      this.dragMoved = false;
-      this.dragStartY = p.y - this.scrollY;
-      this.pointerDownY = p.y;
-    });
-
-    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!this.isDragging) return;
-      if (Math.abs(p.y - this.pointerDownY) > 8) this.dragMoved = true;
-      const newY = p.y - this.dragStartY;
-      this.setScrollY(newY);
-    });
-
-    this.input.on('pointerup', () => { this.isDragging = false; });
-
-    // Mouse wheel
-    this.input.on('wheel', (_p: unknown, _gos: unknown, _dx: number, dy: number) => {
-      this.setScrollY(this.scrollY - dy * 0.8);
-    });
+  private onResize(gameSize: Phaser.Structs.Size) {
+    this.cameras.resize(gameSize.width, gameSize.height);
+    this.repositionBgLayers(gameSize.width, gameSize.height);
+    this.buildPage();
   }
 
   shutdown() {
-    this.scrollBar?.destroy();
-    this.input.removeAllListeners();
+    this.scale.off('resize', this.onResize, this);
   }
 }
