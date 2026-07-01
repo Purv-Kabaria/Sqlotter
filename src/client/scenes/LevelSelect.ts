@@ -37,6 +37,10 @@ export class LevelSelect extends Phaser.Scene {
   // immediately after (that was the earlier bug: the frame silently never rendered).
   private frameSolid: Phaser.GameObjects.Graphics | null = null;
   private frameHole: Phaser.GameObjects.Graphics | null = null;
+  // Guards every scene.start(...) call — prevents double-tapping a level
+  // button, or tapping a level button and the back arrow in quick succession,
+  // from queuing more than one scene transition.
+  private navigating = false;
 
   constructor() { super('LevelSelect'); }
 
@@ -49,6 +53,7 @@ export class LevelSelect extends Phaser.Scene {
     this.communityLevels = [];
     this.frameSolid = null;
     this.frameHole = null;
+    this.navigating = false;
   }
 
   async create() {
@@ -182,10 +187,7 @@ export class LevelSelect extends Phaser.Scene {
     // reference mock, but needed since the world pager has no other way out of this
     // screen. Uses the same full-corner button as the pagination arrows below (not the
     // compact "sm" variant) so it matches their size and gets proper hover/press states.
-    els.push(this.buildArrow(leftPad + arrowSize / 2, titleY, arrowSize, 180, false, () => {
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('MainMenu'));
-    }));
+    els.push(this.buildArrow(leftPad + arrowSize / 2, titleY, arrowSize, 180, false, () => this.goToScene('MainMenu')));
 
     // Grid geometry — every page reserves space for up to WORLD_CAPACITY levels
     // (8 rows × 2 cols portrait, 4 rows × 4 cols desktop) so any world can be
@@ -240,7 +242,8 @@ export class LevelSelect extends Phaser.Scene {
         const btn = addBeigeButton(this, {
           x: cx, y: cy, width: btnW, height: btnH,
           label: item.label, fontSize: fs, fontFamily: PIXELIFY,
-          disabled: item.disabled, onClick: item.onClick,
+          disabled: item.disabled,
+          ...(item.onClick ? { onClick: item.onClick } : {}),
         });
         const targetY = cy;
         btn.setAlpha(0).setY(targetY + 8);
@@ -319,11 +322,17 @@ export class LevelSelect extends Phaser.Scene {
 
     const rt = this.add.renderTexture(0, 0, width, height).setOrigin(0, 0);
 
-    // RenderTexture.draw()/erase() only *queue* the draw for the next render pass —
-    // they don't render synchronously — so these scratch shapes must stay alive past
-    // this call. Reused across every buildFrame() call instead of destroy()'d
-    // immediately (that was the earlier bug: destroying them right away meant the
-    // queued draw ran against already-destroyed objects and silently rendered nothing).
+    // RenderTexture.draw()/erase() only *queue* the draw — they don't execute it.
+    // Two things are required for anything to actually show up:
+    // 1. The default renderMode is 'render', which just displays whatever the
+    //    texture already contains and never calls render() itself — you must call
+    //    `rt.render()` explicitly to flush the queued commands (Phaser 3's
+    //    RenderTexture drew immediately; Phaser 4's doesn't). Without this the
+    //    texture just stays blank forever, which is why the whole frame — not just
+    //    the corners — was invisible.
+    // 2. Because the queue is processed later, not synchronously, the source
+    //    Graphics objects must still exist when it runs — reused as persistent
+    //    fields instead of destroy()'d right after queuing (an earlier bug here).
     this.frameSolid ??= this.make.graphics({});
     this.frameSolid.clear();
     this.frameSolid.fillStyle(0x66483D, 1);
@@ -336,6 +345,8 @@ export class LevelSelect extends Phaser.Scene {
     this.frameHole.fillRoundedRect(B, B, width - 2 * B, height - 2 * B, R);
     rt.erase(this.frameHole);
 
+    rt.render();
+
     return rt;
   }
 
@@ -347,8 +358,15 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private openLevel(levelId: string) {
+    this.goToScene('Game', { levelId });
+  }
+
+  // Centralizes every scene.start(...) call — see `navigating` field comment.
+  private goToScene(key: string, data?: Record<string, unknown>) {
+    if (this.navigating) return;
+    this.navigating = true;
     this.cameras.main.fadeOut(250, 26, 10, 46);
-    this.time.delayedCall(260, () => this.scene.start('Game', { levelId }));
+    this.time.delayedCall(260, () => this.scene.start(key, data));
   }
 
   private isLevelLocked(level: LevelData): boolean {
@@ -366,8 +384,11 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   shutdown() {
+    this.navigating = true;
     this.scale.off('resize', this.onResize, this);
     this.frameSolid?.destroy();
     this.frameHole?.destroy();
+    this.tweens.killAll();
+    this.time.removeAllEvents();
   }
 }

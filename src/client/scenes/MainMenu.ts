@@ -16,6 +16,11 @@ export class MainMenu extends Phaser.Scene {
   private mascot: SplotMascot | null = null;
   private sparksText: Phaser.GameObjects.Text | null = null;
   private userData: InitResponse | null = null;
+  // Guards every scene.start(...) call — prevents double-clicking a menu
+  // button (or clicking two) from queuing more than one scene transition —
+  // and gates loadUserData()'s async continuation from rebuilding the UI
+  // after the player has already navigated away.
+  private navigating = false;
 
   constructor() { super('MainMenu'); }
 
@@ -24,6 +29,7 @@ export class MainMenu extends Phaser.Scene {
     this.uiLayer   = null;
     this.mascot    = null;
     this.userData  = null;
+    this.navigating = false;
   }
 
   create() {
@@ -41,8 +47,10 @@ export class MainMenu extends Phaser.Scene {
   private async loadUserData() {
     try {
       const res = await fetch('/api/init');
+      if (this.navigating) return;
       if (res.ok) {
         this.userData = await res.json() as InitResponse;
+        if (this.navigating) return;
         this.buildUI();
       }
     } catch { /* offline / playtest fallback */ }
@@ -354,6 +362,8 @@ export class MainMenu extends Phaser.Scene {
   }
 
   private goToScene(scene: string, param?: string) {
+    if (this.navigating) return;
+    this.navigating = true;
     this.cameras.main.fadeOut(250, 10, 5, 14);
     this.time.delayedCall(260, () => {
       this.scene.start(scene, param ? { levelId: param } : undefined);
@@ -386,7 +396,10 @@ export class MainMenu extends Phaser.Scene {
   }
 
   shutdown() {
+    this.navigating = true;
     this.mascot?.stopIdleAnims();
     this.scale.off('resize', this.onResize, this);
+    this.tweens.killAll();
+    this.time.removeAllEvents();
   }
 }

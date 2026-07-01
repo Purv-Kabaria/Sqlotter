@@ -77,6 +77,11 @@ export class Game extends Phaser.Scene {
   private isPreview = false;
   private winHandled = false;
   private loadToken = 0;
+  // Guards every scene.start(...) call site — without it, a button clicked while
+  // handleWin()'s /api/complete fetch is still in flight can force-navigate to
+  // LevelComplete after the player already backed out to a different scene.
+  private navigating = false;
+  private hudLayer: Phaser.GameObjects.Container | null = null;
 
   private goalRenderer:    SlimeRenderer | null = null;
   private currentRenderer: SlimeRenderer | null = null;
@@ -113,6 +118,8 @@ export class Game extends Phaser.Scene {
     this.levelId       = data?.levelId ?? 'L01';
     this.isPreview     = !!data?.previewData;
     this.winHandled    = false;
+    this.navigating    = false;
+    this.hudLayer      = null;
     this.loadToken    += 1;
     this.paletteScrollY = 0;
     this.paletteMaxScroll = 0;
@@ -262,34 +269,43 @@ export class Game extends Phaser.Scene {
   // ── HUD strip ────────────────────────────────────────────────────────────
   private buildHUD() {
     if (!this.level) return;
+    // Called on every resize (see onResize) — destroy the previous HUD first,
+    // otherwise every resize leaks another back/hint/reset button stacked on
+    // top of the last, each still wired to its own pointerup handler.
+    this.hudLayer?.destroy(true);
     const { width } = this.scale;
+    const elements: Phaser.GameObjects.GameObject[] = [];
 
-    this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(15);
+    elements.push(this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(15));
 
     // Back button
     const back = addDepthIcon(this, 28, HEADER_H / 2, 'icon-arrow', 22, 22);
     back.setDepth(16).setInteractive({ useHandCursor: true });
     back.on('pointerup', () => {
       this.closeActivePopup();
-      this.cameras.main.fadeOut(250, 10, 5, 14);
-      this.time.delayedCall(260, () => this.scene.start(this.isPreview ? 'Editor' : 'LevelSelect'));
+      this.goToScene(this.isPreview ? 'Editor' : 'LevelSelect');
     });
+    elements.push(back);
 
     // SQLOTTER logo centered
     if (this.textures.exists('title')) {
       const maxW = Math.min(width * 0.42, 180);
-      this.add.image(width / 2, HEADER_H / 2, 'title')
-        .setDisplaySize(maxW, maxW * 0.22).setDepth(16);
+      elements.push(this.add.image(width / 2, HEADER_H / 2, 'title')
+        .setDisplaySize(maxW, maxW * 0.22).setDepth(16));
     }
 
     // Hint + Reset in header right
     const hint = addDepthIcon(this, width - 54, HEADER_H / 2, 'icon-help', 20, 20);
     hint.setDepth(16).setInteractive({ useHandCursor: true });
     hint.on('pointerup', () => this.showHint());
+    elements.push(hint);
 
     const reset = addDepthIcon(this, width - 26, HEADER_H / 2, 'icon-reset', 22, 22);
     reset.setDepth(16).setInteractive({ useHandCursor: true });
     reset.on('pointerup', () => this.handleReset());
+    elements.push(reset);
+
+    this.hudLayer = this.add.container(0, 0, elements);
   }
 
   // ── Game area (slime panels + stat pills) ────────────────────────────────
@@ -854,10 +870,7 @@ export class Game extends Phaser.Scene {
     this.splot?.playWin();
 
     if (this.isPreview) {
-      this.time.delayedCall(900, () => {
-        this.cameras.main.fadeOut(300, 10, 5, 14);
-        this.time.delayedCall(320, () => this.scene.start('Editor'));
-      });
+      this.time.delayedCall(900, () => this.goToScene('Editor', undefined, 300, 320));
       return;
     }
 
@@ -877,14 +890,21 @@ export class Game extends Phaser.Scene {
     } catch { /* best-effort */ }
 
     this.time.delayedCall(Math.max(0, 900 - (Date.now() - t0)), () => {
-      this.cameras.main.fadeOut(300, 10, 5, 14);
-      this.time.delayedCall(320, () => {
-        this.scene.start('LevelComplete', {
-          levelId: this.levelId, steps, timeMs: elapsed, stars, sparks, streakDays,
-          nextLevelId: this.getNextLevelId(),
-        });
-      });
+      this.goToScene('LevelComplete', {
+        levelId: this.levelId, steps, timeMs: elapsed, stars, sparks, streakDays,
+        nextLevelId: this.getNextLevelId(),
+      }, 300, 320);
     });
+  }
+
+  // Centralizes every scene.start(...) call so only the first invocation ever
+  // fires — guards against double-clicking a nav control, and against
+  // handleWin()'s async completion racing with a manual back-button press.
+  private goToScene(key: string, data?: Record<string, unknown>, fadeOutMs = 250, delayMs = 260) {
+    if (this.navigating) return;
+    this.navigating = true;
+    this.cameras.main.fadeOut(fadeOutMs, 10, 5, 14);
+    this.time.delayedCall(delayMs, () => this.scene.start(key, data));
   }
 
   private getNextLevelId(): string | null {
@@ -936,8 +956,11 @@ export class Game extends Phaser.Scene {
   }
 
   shutdown() {
+    this.navigating = true; // belt-and-suspenders: block any late goToScene() call
     this.timerEvent?.destroy();
     this.scale.off('resize', this.onResize, this);
     this.closeActivePopup();
+    this.tweens.killAll();
+    this.time.removeAllEvents();
   }
 }

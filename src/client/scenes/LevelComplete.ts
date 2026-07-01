@@ -14,10 +14,21 @@ const C = {
 
 export class LevelComplete extends Phaser.Scene {
   private splot: SplotMascot | null = null;
+  private sparkleEvent: Phaser.Time.TimerEvent | null = null;
+  // Guards the three nav buttons — without it, clicking Next then Ranks before
+  // the first fadeOut completes queues two scene.start() calls.
+  private navigating = false;
 
   constructor() { super('LevelComplete'); }
 
+  init() {
+    this.splot = null;
+    this.sparkleEvent = null;
+    this.navigating = false;
+  }
+
   create(data: { levelId: string; title?: string; steps: number; timeMs: number; stars: number; sparks: number; streakDays?: number }) {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     const { width, height } = this.scale;
     const cx = width / 2;
     const { levelId, steps, timeMs, stars, sparks, streakDays } = data ?? { levelId: '?', steps: 0, timeMs: 0, stars: 1, sparks: 10 };
@@ -139,26 +150,17 @@ export class LevelComplete extends Phaser.Scene {
     const hasNext = nextId !== null;
 
     this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', () => {
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => {
-        if (hasNext) {
-          this.scene.start('Game', { levelId: nextId });
-        } else {
-          this.scene.start('LevelSelect');
-        }
-      });
+      this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
     });
     this.buildBtn(cx, btnY, btnW, 44, 'Ranks', () => {
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('Leaderboard', { levelId }));
+      this.goToScene('Leaderboard', { levelId });
     });
     this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', () => {
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('LevelSelect'));
+      this.goToScene('LevelSelect');
     });
 
     // Floating sparks
-    this.time.addEvent({
+    this.sparkleEvent = this.time.addEvent({
       delay: 300,
       repeat: 12,
       callback: () => {
@@ -169,6 +171,23 @@ export class LevelComplete extends Phaser.Scene {
         this.tweens.add({ targets: s, alpha: 1, y: py - 50, scale: 1.4, duration: 600, yoyo: true, onComplete: () => s.destroy() });
       },
     });
+  }
+
+  // Centralizes every scene.start(...) call — guards against double-clicking
+  // one of the three nav buttons, or clicking two of them in quick succession.
+  private goToScene(key: string, data?: Record<string, unknown>) {
+    if (this.navigating) return;
+    this.navigating = true;
+    this.cameras.main.fadeOut(250, 26, 10, 46);
+    this.time.delayedCall(260, () => this.scene.start(key, data));
+  }
+
+  shutdown() {
+    this.navigating = true;
+    this.splot?.stopIdleAnims();
+    this.sparkleEvent?.destroy();
+    this.tweens.killAll();
+    this.time.removeAllEvents();
   }
 
   private buildBtn(x: number, y: number, w: number, h: number, label: string, cb: () => void) {

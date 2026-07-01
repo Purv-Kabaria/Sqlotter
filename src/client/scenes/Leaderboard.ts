@@ -22,6 +22,13 @@ export class Leaderboard extends Phaser.Scene {
   private listContainer: Phaser.GameObjects.Container | null = null;
   private tabBtns: Phaser.GameObjects.Container[] = [];
   private bgLayers: Phaser.GameObjects.Image[] = [];
+  // Discards a fetch response if a newer tab switch has started since it was
+  // requested — without this, rapidly switching tabs can let a slow, stale
+  // response render on top of (or instead of) the tab the player is now on.
+  private loadToken = 0;
+  // Set once the back button is pressed — guards the same in-flight fetch from
+  // touching listContainer/loading text after the scene has shut down.
+  private navigating = false;
 
   constructor() { super('Leaderboard'); }
 
@@ -32,6 +39,8 @@ export class Leaderboard extends Phaser.Scene {
     this.listContainer = null;
     this.tabBtns = [];
     this.bgLayers = [];
+    this.loadToken = 0;
+    this.navigating = false;
   }
 
   create() {
@@ -69,6 +78,8 @@ export class Leaderboard extends Phaser.Scene {
       x: 30, y: 30, size: 40,
       iconKey: 'icon-arrow', iconAngle: 180,
       onClick: () => {
+        if (this.navigating) return;
+        this.navigating = true;
         this.cameras.main.fadeOut(250, 26, 10, 46);
         this.time.delayedCall(260, () => this.scene.start('MainMenu'));
       },
@@ -151,6 +162,7 @@ export class Leaderboard extends Phaser.Scene {
   }
 
   private async loadAndRender() {
+    const token = ++this.loadToken;
     const { width } = this.scale;
 
     this.listContainer?.destroy();
@@ -171,9 +183,14 @@ export class Leaderboard extends Phaser.Scene {
       const res = await fetch(url);
       const data = res.ok ? await res.json() : { entries: [] };
       const entries: LeaderboardEntry[] = data.entries ?? [];
+      // A newer tab switch may have superseded this request, or the player may
+      // have already backed out — either way the container this response was
+      // meant for no longer exists (or isn't the current one), so bail.
+      if (token !== this.loadToken || this.navigating) return;
       loading.destroy();
       this.renderEntries(entries);
     } catch {
+      if (token !== this.loadToken || this.navigating) return;
       loading.setText('Unable to load leaderboard.');
     }
   }
@@ -257,6 +274,9 @@ export class Leaderboard extends Phaser.Scene {
   }
 
   shutdown() {
+    this.navigating = true;
     this.scale.off('resize', this.onResize, this);
+    this.tweens.killAll();
+    this.time.removeAllEvents();
   }
 }

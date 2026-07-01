@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
 import {
-  addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9,
+  addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeCard, addDepthIcon, addPanel9,
 } from '../components/PixelUI';
 import { SHOP_ITEMS } from '../../shared/shop';
 import type { ShopCategory, ShopItem } from '../../shared/shop';
@@ -16,6 +16,9 @@ const C = {
   GOLD:      '#FFD700',
   RED:       '#ff5555',
   GREEN:     '#6DD400',
+  CARD_TAN:  0xD9A66C,
+  CARD_EQUIP: 0xBFE08A,
+  CARD_SELECTED: 0xFFD966,
 } as const;
 
 // Order drives both tab render order and default active category (first = default).
@@ -59,6 +62,11 @@ export class Shop extends Phaser.Scene {
   private selectedItemId: string | null = null;
   private activePopup: Phaser.GameObjects.Container | null = null;
 
+  // Guards every scene.start(...) call — prevents double-tapping the home
+  // button, and gates buyItem/equipItem's async continuations from rebuilding
+  // the UI after the player has already navigated away mid-request.
+  private navigating = false;
+
   // Geometry-mask source for the scroll viewport — not part of the display list,
   // so it must be destroyed manually on every rebuild.
   private scrollMaskGfx: Phaser.GameObjects.Graphics | null = null;
@@ -90,6 +98,7 @@ export class Shop extends Phaser.Scene {
     this.pendingItemIds = new Set();
     this.selectedItemId = null;
     this.activePopup = null;
+    this.navigating = false;
     this.scrollMaskGfx = null;
     this.scrollContainer = null;
     this.scrollThumb = null;
@@ -214,9 +223,9 @@ export class Shop extends Phaser.Scene {
     els.push(this.add.rectangle(splitX + rightW / 2, h / 2, rightW, h, C.BG).setDepth(2));
 
     // Header row: home (left) + sparks pill (right), vertically aligned
-    const homeSize = Math.max(66, Math.min(80, Math.round(rightW * 0.16)));
-    const pillH = Math.max(34, Math.min(56, Math.round(h * 0.08)));
-    const pillW = Math.max(90, Math.min(120, Math.round(rightW * 0.28)));
+    const homeSize = Math.max(66, Math.min(120, Math.round(rightW * 0.16)));
+    const pillH = Math.max(34, Math.min(70, Math.round(h * 0.08)));
+    const pillW = Math.max(90, Math.min(170, Math.round(rightW * 0.28)));
     const headerH = Math.max(homeSize, pillH);
     const headerY = pad + headerH / 2;
     els.push(this.buildIconButton(splitX + pad + homeSize / 2, headerY, homeSize, 'icon-home', () => this.goToMenu()).setDepth(15));
@@ -225,7 +234,7 @@ export class Shop extends Phaser.Scene {
     // SQLOTTER logo, centered under the header row
     let contentBottom = headerY + headerH / 2 + 10;
     if (this.textures.exists('title')) {
-      const logoW = Math.max(0, Math.min(rightW * 0.75, 380, rightW - pad * 2));
+      const logoW = Math.max(0, Math.min(rightW * 0.75, 480, rightW - pad * 2));
       const logoH = Math.round(logoW * 112 / 512);
       const logoY = contentBottom + logoH / 2;
       const logo = this.add.image(splitX + rightW / 2, logoY, 'title').setDisplaySize(logoW, logoH).setDepth(11);
@@ -237,7 +246,7 @@ export class Shop extends Phaser.Scene {
     // Category tabs — single row spanning the full right column width
     const tabGap = 10;
     const tabW = (rightW - pad * 2 - tabGap * (CATEGORIES.length - 1)) / CATEGORIES.length;
-    const tabH = Math.max(66, Math.min(80, Math.round(h * 0.09)));
+    const tabH = Math.max(66, Math.min(110, Math.round(h * 0.10)));
     const tabRects: Rect[] = CATEGORIES.map((_, i) => ({
       x: splitX + pad + tabW / 2 + i * (tabW + tabGap), y: contentBottom + tabH / 2, w: tabW, h: tabH,
     }));
@@ -248,7 +257,7 @@ export class Shop extends Phaser.Scene {
     const gridX = splitX + pad;
     const gridW = rightW - pad * 2;
     const gridH = Math.max(80, h - contentBottom - pad);
-    const cols = this.computeCols(gridW, 160, 16, 4);
+    const cols = this.computeCols(gridW, 200, 20, 4);
     this.buildScrollGrid(gridX, contentBottom, gridW, gridH, cols, els);
   }
 
@@ -266,20 +275,20 @@ export class Shop extends Phaser.Scene {
     const splotSz = Math.min(panelW * 0.72, panelH * 0.72, 320);
     this.spawnSplot(panelX, panelY - panelH * 0.02, splotSz, els);
 
-    const homeSize = Math.max(66, Math.min(72, Math.round(w * 0.20)));
+    const homeSize = Math.max(66, Math.min(100, Math.round(w * 0.22)));
     els.push(this.buildIconButton(
       pad + homeSize / 2 + 4, pad + homeSize / 2 + 4, homeSize, 'icon-home', () => this.goToMenu(),
     ).setDepth(15));
 
-    const pillW = Math.max(76, Math.min(100, w * 0.28));
-    const pillH = Math.max(30, Math.min(40, homeSize * 0.7));
+    const pillW = Math.max(90, Math.min(140, w * 0.32));
+    const pillH = Math.max(34, Math.min(56, homeSize * 0.7));
     this.buildSparksPill(w - pad - pillW / 2 - 4, pad + pillH / 2 + 4, pillW, pillH, els);
 
     // Category tabs — 2×2 grid below the panel (compact labels don't fit a single row)
     const tabsTop = panelY + panelH / 2 + 14;
     const tabGap = 10;
     const tabW = (panelW - tabGap) / 2;
-    const tabH = Math.max(66, Math.min(80, h * 0.09));
+    const tabH = Math.max(66, Math.min(100, h * 0.10));
     const tabRects: Rect[] = CATEGORIES.map((_, i) => {
       const col = i % 2, row = Math.floor(i / 2);
       return {
@@ -293,7 +302,7 @@ export class Shop extends Phaser.Scene {
     const gridTop = tabsTop + tabH * 2 + tabGap + 14;
     const gridW = w - pad * 2;
     const gridH = Math.max(120, h - gridTop - pad);
-    const cols = this.computeCols(gridW, 160, 16, 2);
+    const cols = this.computeCols(gridW, 150, 16, 2);
     this.buildScrollGrid(pad, gridTop, gridW, gridH, cols, els);
   }
 
@@ -368,7 +377,7 @@ export class Shop extends Phaser.Scene {
   // avoids drag/tap conflicts — see hitTestCard) ───────────────────────────
   private buildScrollGrid(vx: number, vy: number, vw: number, vh: number, cols: number, els: Phaser.GameObjects.GameObject[]) {
     const gap = Math.max(10, Math.round(vw * 0.04));
-    const cardSize = Math.min(220, Math.floor((vw - gap * (cols - 1)) / cols));
+    const cardSize = Math.min(280, Math.floor((vw - gap * (cols - 1)) / cols));
     const contentW = cardSize * cols + gap * (cols - 1);
     const offsetX = Math.max(0, (vw - contentW) / 2);
 
@@ -434,19 +443,21 @@ export class Shop extends Phaser.Scene {
     }
   }
 
-  // Cards use the same beige *button* asset as category tabs / level-select
-  // cards (addBeigeButtonShell) — not addBeigeCard, whose source texture is a
-  // plain pale-gray slot, not a warm panel. Art is shown full-color/size
-  // regardless of ownership so players can see exactly what they'd get.
+  // Cards live inside the scroll grid's masked container. addBeigeButtonShell's
+  // background is built from TileSprite pieces, which don't render reliably when
+  // nested under an ancestor geometry mask (this is why the category tabs, which
+  // sit outside the mask, look fine while masked TileSprite content doesn't —
+  // same class of masking limitation as the earlier per-Image mask bug). Game.ts's
+  // proven masked/scrollable modifier palette sidesteps this by using addBeigeCard
+  // (Phaser's built-in NineSlice, a single GameObject) instead — tinted warm tan
+  // here so it still reads as a beige panel rather than the flat pale-gray slot.
+  // Art is shown full-color/size regardless of ownership so players can see
+  // exactly what they'd get.
   private buildItemCard(size: number, item: ShopItem, owned: boolean, equipped: boolean, selected: boolean): Phaser.GameObjects.Container {
-    const shell = addBeigeButtonShell(this, 0, 0, size, size, false);
-    if (equipped) {
-      this.tintShellBg(shell, 0xBFE08A);
-    } else if (selected) {
-      this.tintShellBg(shell, 0xFFD966);
-    }
+    const bg = addBeigeCard(this, 0, 0, size, size);
+    bg.setTint(equipped ? C.CARD_EQUIP : selected ? C.CARD_SELECTED : C.CARD_TAN);
 
-    const content: Phaser.GameObjects.GameObject[] = [];
+    const content: Phaser.GameObjects.GameObject[] = [bg];
 
     const iconSize = size * 0.58;
     content.push(this.add.image(0, -size * 0.08, item.iconKey).setDisplaySize(iconSize, iconSize));
@@ -473,17 +484,7 @@ export class Shop extends Phaser.Scene {
       content.push(priceTxt);
     }
 
-    shell.addContent(content);
-    return shell.container;
-  }
-
-  // Tints just the beige background pieces (not the icon/label/badges added
-  // afterward via addContent) — see docs/9-slicing.md's addBeigeButtonShell notes.
-  private tintShellBg(shell: { visual: Phaser.GameObjects.Container }, color: number) {
-    shell.visual.list
-      .filter((o): o is Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite =>
-        o instanceof Phaser.GameObjects.Image || o instanceof Phaser.GameObjects.TileSprite)
-      .forEach(p => p.setTint(color));
+    return this.add.container(0, 0, content).setSize(size, size);
   }
 
   private hitTestCard(px: number, py: number): CardRecord | null {
@@ -569,6 +570,9 @@ export class Shop extends Phaser.Scene {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slot: item.slot, itemId: item.id }),
       });
+      // The player may have tapped Home while this request was in flight —
+      // don't rebuild UI/touch the scene after it's already shut down.
+      if (this.navigating) return;
       if (!res.ok) {
         this.showToast('Could not equip that item.', C.RED);
         this.splot?.setExpression('sad', 1200);
@@ -603,6 +607,9 @@ export class Shop extends Phaser.Scene {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId: item.id }),
       });
+      // The player may have tapped Home while this request was in flight —
+      // don't rebuild UI/touch the scene after it's already shut down.
+      if (this.navigating) return;
       if (!res.ok) { this.showToast('Purchase failed.', C.RED); return; }
       const data: BuyResponse = await res.json();
       this.sparks = data.sparks;
@@ -701,6 +708,8 @@ export class Shop extends Phaser.Scene {
   }
 
   private goToMenu() {
+    if (this.navigating) return;
+    this.navigating = true;
     this.splot?.stopIdleAnims();
     this.cameras.main.fadeOut(250, 10, 5, 14);
     this.time.delayedCall(260, () => this.scene.start('MainMenu'));
@@ -713,11 +722,14 @@ export class Shop extends Phaser.Scene {
   }
 
   shutdown() {
+    this.navigating = true;
     this.splot?.stopIdleAnims();
     this.scale.off('resize', this.onResize, this);
     this.input.off('pointermove', this.onPointerMoveBound);
     this.input.off('pointerup', this.onPointerUpBound);
     this.input.off('wheel', this.onWheelBound);
+    this.tweens.killAll();
+    this.time.removeAllEvents();
     this.scrollMaskGfx?.destroy();
     this.scrollMaskGfx = null;
   }

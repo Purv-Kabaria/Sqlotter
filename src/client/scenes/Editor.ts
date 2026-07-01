@@ -122,6 +122,10 @@ export class Editor extends Phaser.Scene {
   private feedbackText: Phaser.GameObjects.Text | null = null;
   private titleInput: HTMLInputElement | null = null;
   private titleInputY = 62;
+  // Guards every scene.start(...) call — prevents double-clicking back/Test
+  // Play/Publish (or clicking one while another's transition is in flight)
+  // from queuing more than one scene transition.
+  private navigating = false;
 
   constructor() { super('Editor'); }
 
@@ -130,6 +134,7 @@ export class Editor extends Phaser.Scene {
     this.solutionSeq = [];
     this.gogglesUsed = false;
     this.titleValue  = 'My Custom Level';
+    this.navigating  = false;
   }
 
   create() {
@@ -192,11 +197,7 @@ export class Editor extends Phaser.Scene {
     const backTxt = this.add.text(0, 0, '‹', { fontSize: '22px', color: '#fff' }).setOrigin(0.5, 0.45);
     const backC = this.add.container(28, 26, [backBg, backTxt])
       .setDepth(10).setSize(44, 44).setInteractive({ useHandCursor: true });
-    backC.on('pointerup', () => {
-      this.titleInput?.remove();
-      this.cameras.main.fadeOut(250, 26, 10, 46);
-      this.time.delayedCall(260, () => this.scene.start('MainMenu'));
-    });
+    backC.on('pointerup', () => this.goToScene('MainMenu'));
 
     this.add.text(cx, 26, 'LEVEL EDITOR', {
       fontFamily: PIXEL_FONT,
@@ -422,11 +423,16 @@ export class Editor extends Phaser.Scene {
       return;
     }
     const level = this.buildLevelData('__preview__');
+    this.goToScene('Game', { levelId: '__preview__', previewData: level });
+  }
+
+  // Centralizes every scene.start(...) call — see `navigating` field comment.
+  private goToScene(key: string, data?: Record<string, unknown>) {
+    if (this.navigating) return;
+    this.navigating = true;
     this.titleInput?.remove();
     this.cameras.main.fadeOut(250, 26, 10, 46);
-    this.time.delayedCall(260, () => {
-      this.scene.start('Game', { levelId: '__preview__', previewData: level });
-    });
+    this.time.delayedCall(260, () => this.scene.start(key, data));
   }
 
   private async publish() {
@@ -451,6 +457,10 @@ export class Editor extends Phaser.Scene {
         }),
       });
 
+      // The player may have already navigated away (e.g. tapped back) while
+      // this request was in flight — don't touch UI/scene state that's gone.
+      if (this.navigating) return;
+
       if (res.status === 401) {
         this.showFeedback('Log in to publish levels!', true);
         return;
@@ -464,14 +474,10 @@ export class Editor extends Phaser.Scene {
       const data = await res.json() as LevelCreateResponse;
       this.showFeedback('Published! Sharing your level…', false);
       this.time.delayedCall(1800, () => {
-        this.titleInput?.remove();
-        this.cameras.main.fadeOut(250, 26, 10, 46);
-        this.time.delayedCall(260, () => {
-          this.scene.start('Game', { levelId: data.levelId });
-        });
+        this.goToScene('Game', { levelId: data.levelId });
       });
     } catch {
-      this.showFeedback('Network error — try again', true);
+      if (!this.navigating) this.showFeedback('Network error — try again', true);
     }
   }
 
@@ -559,8 +565,11 @@ export class Editor extends Phaser.Scene {
   }
 
   shutdown() {
+    this.navigating = true;
     this.scale.off('resize', this.onResize, this);
     this.titleInput?.remove();
     this.titleInput = null;
+    this.tweens.killAll();
+    this.time.removeAllEvents();
   }
 }
