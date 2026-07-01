@@ -89,26 +89,28 @@ All 256×256. Rendered using `SlimeRenderer` (see `docs/slime-rendering.md`).
 
 | File | Key | Purpose |
 |------|-----|---------|
-| `slime/color.png` | `slime-color` | Base body shape, tinted to set color |
+| `slime/color.png` | `slime-color` | Base body shape, baked into a genuine overlay-blended texture per tint (see below) |
 | `slime/border.png` | `slime-border` | Black outline, always on top |
-| `slime/overlay-normal.png` | `slime-shine` | Gloss highlight, idle (alpha 0.80) |
-| `slime/overlay-applied.png` | `slime-applied` | Gloss highlight, post-modifier flash |
+| `slime/overlay-normal.png` | `slime-shine` | Gloss highlight — genuine OVERLAY blend baked via `color-blend`, amount 0.5 |
+| `slime/overlay-applied.png` | `slime-applied` | Gloss highlight, post-modifier flash (ADD blend) |
 
-`slime-color` is the only asset that changes appearance — it is tinted with `setTint(hexColor)` or used as two separate cropped images for two-color mode. All other layers sit on top unchanged.
+`slime-color` is tinted + overlay-blended with `slime-shine` at runtime via
+`paintOverlayShine()` (`src/client/components/overlayShine.ts`) rather than a plain
+`setTint(hexColor)` — see `docs/slime-rendering.md` for why. It's also used as two separate cropped
+images for two-color mode. All other layers sit on top unchanged.
 
 **Layer depth order inside `SlimeRenderer`:**
 
 ```
-depth -1  bottomImg    (slime-color, tinted, cropped to bottom zone — two-color mode only)
-depth  0  topImg       (slime-color, tinted, full or cropped to top zone)
+depth -1  bottomImg    (baked slime-color+shine texture, tinted, cropped to bottom zone — two-color mode only)
+depth  0  topImg       (baked slime-color+shine texture, tinted, full or cropped to top zone)
 depth  1  pumpkinImg   (modifier overlay)
 depth  2  underwearImg (modifier overlay)
 depth  3  beltImg      (modifier overlay)
 depth  4  pendantImg   (modifier overlay)
 depth  5  eyeImg       (goggles or glasses overlay)
-depth  6  shineImg     (slime-shine, alpha 0.80, always visible)
 depth  7  borderImg    (slime-border, always visible)
-depth  8  appliedFlash (slime-applied, only during animation)
+depth  8  appliedFlash (slime-applied, ADD blend, only during animation)
 ```
 
 ---
@@ -208,8 +210,8 @@ Splot is a separate 11-layer system from the puzzle slime. See `docs/splot-masco
 | `character/outline.png` | `char-outline` | 128×128 | Black outline, always on top |
 | `character/shadow.png` | `char-shadow` | 128×128 | Sprite contact shadow, depth 5 — default everywhere except the home screen |
 | — (procedural, `Boot.ts`) | `splot-shadow` | 256×96 | Soft blurred contact-shadow ellipse, depth 0 — generated at boot from concentric `fillEllipse` calls; used only on the home screen (`MainMenu`) in place of `char-shadow`; see `docs/splot-mascot.md` |
-| `character/overlay-normal.png` | `char-shine` | 128×128 | Gloss highlight, alpha 0.5 |
-| `character/overlay-applied.png` | `char-applied` | 128×128 | Flash on interaction, tweened to alpha 0 |
+| `character/overlay-normal.png` | `char-shine` | 128×128 | Gloss highlight — genuine OVERLAY blend baked via `color-blend`, amount 0.5 |
+| `character/overlay-applied.png` | `char-applied` | 128×128 | Flash on interaction, ADD blend, tweened to alpha 0 |
 
 **Note:** `char-blob` is 512×512 while all other character layers are 128×128. All are rendered at the same `setDisplaySize(size, size)` regardless — Phaser scales them to match. The higher-resolution blob gives Splot a crisper appearance at large sizes (240–440px display).
 

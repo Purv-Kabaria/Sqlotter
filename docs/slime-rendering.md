@@ -45,20 +45,64 @@ const DEFAULT_SLIME_STATE: SlimeState = {
 
 ## Layer stack
 
-All layers sit inside a single `Phaser.GameObjects.Container`. Depths are relative to the container's own coordinate space.
+All layers sit inside a single `Phaser.GameObjects.Container`, in this order. Depths are relative
+to the container's own coordinate space.
 
 ```
-depth -1  bottomImg    — slime-color, tinted to colorBottom, bottom crop
-depth  0  topImg       — slime-color, tinted to color, full or top crop
+depth -1  bottomImg    — genuine overlay-blended texture, tinted to colorBottom, bottom crop
+depth  0  topImg       — genuine overlay-blended texture, tinted to color, full or top crop
 depth  1  pumpkinImg   — mod-pumpkin-{25|50|75}
 depth  2  underwearImg — mod-underwear
 depth  3  beltImg      — mod-belt-{variant}
 depth  4  pendantImg   — mod-pendant-{h|v}
 depth  5  eyeImg       — mod-goggles-{variant} OR mod-glasses-{variant}
-depth  6  shineImg     — slime-shine (alpha 0.80, always on)
 depth  7  borderImg    — slime-border (always on)
-depth  8  appliedFlash — slime-applied (animation only, alpha 0 when idle)
+depth  8  appliedFlash — slime-applied (ADD blend; animation only, alpha 0 when idle)
 ```
+
+### Shine: genuine overlay blend
+
+There's no independent `shineImg` layer. `Phaser.BlendModes.OVERLAY` is **Canvas-only** — setting it
+on a WebGL-rendered Image silently falls back to NORMAL, so it can't just be `.setBlendMode(OVERLAY)`
+on a `slime-shine` sprite. Phaser 4's own Filters system (`enableFilters()` + `addBlend()`) *can*
+bring OVERLAY to WebGL, but only by rendering a GameObject/Container to a texture and blending a
+second texture onto that render as a whole — it can't make a specific child layer overlay-blend
+against its own siblings the way a real "gloss on the body" effect needs, so it isn't used here.
+
+Instead, `src/client/components/overlayShine.ts#paintOverlayShine()` computes the actual overlay
+blend on the CPU using the [`color-blend`](https://www.npmjs.com/package/color-blend) npm package
+(pure JS, proper alpha-aware Porter-Duff compositing — not naive per-channel math, and not the
+Node-native `canvas` package, which doesn't work in a browser bundle) and bakes the result into a
+Phaser `CanvasTexture`:
+
+```typescript
+paintOverlayShine(scene, this.topShineKey, 'slime-color', 'slime-shine', topColor, 0.5);
+this.topImg.setTexture(this.topShineKey);
+```
+
+This tints `slime-color` to `topColor` (replicating Phaser's own multiplicative tint formula) and
+overlay-blends `slime-shine` onto it at `amount: 0.5` (0 = only the tint shows, 1 = the full overlay
+effect — this is the "shine opacity" knob), then uploads the finished pixels as a texture. The output
+is generated at `slime-color`'s native 256×256 resolution (not the on-screen display size), so
+`setDisplaySize()` and the two-color mode's `setCrop()` keep working exactly as before — both operate
+in texture-pixel space, which only stays correct if the generated texture matches the original's
+native dimensions. `pumpkinImg` through `eyeImg`, `borderImg`, and `appliedFlash` are unaffected —
+they're independent sprites layered on top, same as before.
+
+Since `topImg`/`bottomImg` can be tinted to a different color on every `setState()` call (every paint
+modifier application), the texture is regenerated then — each `SlimeRenderer` instance gets its own
+`slime-shine-tex-{id}-top` / `-bottom` texture keys so multiple slimes on screen at once (e.g. goal +
+current) don't overwrite each other's baked texture.
+
+The same `paintOverlayShine()` helper is used everywhere else a slime-shine highlight appears: the
+loading screen's decorative slime in `Preloader.ts` (baked once — its tint never changes) and the
+color-picker swatches in `Game.ts` (baked once per unique hex color, keyed by that color so reopening
+the picker reuses the same generated texture). Splot's `char-shine` uses the identical
+helper/technique — see `docs/splot-mascot.md`.
+
+`appliedFlash` is a separate, momentary interaction flash (not a steady-state highlight), and keeps
+the simpler `Phaser.BlendModes.ADD` — a brightening burst is the more typical choice for a flash effect,
+and ADD (unlike OVERLAY) is natively supported in WebGL via `setBlendMode()`, no filter needed.
 
 All images are set to the same `setDisplaySize(size, size)`. The slime-color source is 256×256; all modifier overlays are also 256×256 and were painted in the same coordinate space, so they align pixel-perfectly at any output size.
 

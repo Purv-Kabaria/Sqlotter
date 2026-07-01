@@ -1,4 +1,7 @@
 import * as Phaser from 'phaser';
+import { paintOverlayShine } from './overlayShine';
+
+let nextInstanceId = 0;
 
 export type SplotExpression = 'happy' | 'excited' | 'sad' | 'shocked' | 'doubt' | 'pain' | 'kiss' | 'squiggle';
 
@@ -28,7 +31,6 @@ export class SplotMascot {
   readonly container: Phaser.GameObjects.Container;
   private blob:    Phaser.GameObjects.Image;
   private outline: Phaser.GameObjects.Image;
-  private shine:   Phaser.GameObjects.Image;
   private applied: Phaser.GameObjects.Image;
   private shadow:  Phaser.GameObjects.Image;
   private eye:     Phaser.GameObjects.Image;
@@ -67,21 +69,25 @@ export class SplotMascot {
     } else {
       this.shadow = mk('char-shadow', 5);
     }
-    this.blob      = mk('char-blob',         10);
-    this.blob.setTint(blobColor ?? DEFAULT_BLOB_COLOR);
+    // Body is baked (tint + genuine overlay-blended shine) into a texture rather than
+    // tinted live — see overlayShine.ts for why a plain Phaser tint + BlendModes.OVERLAY
+    // can't do this under WebGL. blobColor never changes after construction, so this
+    // only needs to run once.
+    const blobShineKey = `char-shine-tex-${nextInstanceId++}`;
+    paintOverlayShine(scene, blobShineKey, 'char-blob', 'char-shine', blobColor ?? DEFAULT_BLOB_COLOR, 0.5);
+    this.blob      = mk(blobShineKey,        10);
     this.mouth     = mk('char-mouth-smile',  20);
     this.blush     = mk('char-blush',        22, false);
     this.cry       = mk('char-cry',          22, false);
     this.eye       = mk('char-eye-normal',   30);
     this.eyebrow   = mk('char-brow-normal',  40);
     this.accessory = mk('char-acc-horns',    50, false);
-    this.applied   = mk('char-applied',      58, false).setAlpha(0);
-    this.shine     = mk('char-shine',        60).setAlpha(0.5);
+    this.applied   = mk('char-applied',      58, false).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
     this.outline   = mk('char-outline',      65);
 
     this.container = scene.add.container(x, y, [
       this.shadow, this.blob, this.mouth, this.blush, this.cry,
-      this.eye, this.eyebrow, this.accessory, this.applied, this.shine, this.outline,
+      this.eye, this.eyebrow, this.accessory, this.applied, this.outline,
     ]);
 
     this.applyEquipped(equipped);
@@ -227,7 +233,7 @@ export class SplotMascot {
 
   setSize(s: number) {
     [this.blob, this.mouth, this.blush, this.cry,
-     this.eye, this.eyebrow, this.accessory, this.applied, this.shine, this.outline]
+     this.eye, this.eyebrow, this.accessory, this.applied, this.outline]
       .forEach(img => img.setDisplaySize(s, s));
     if (this.useCssShadow) {
       this.shadow.setDisplaySize(s * 0.85, s * 0.30).setY(s * 0.40);

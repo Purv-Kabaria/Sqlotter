@@ -1,10 +1,16 @@
 import * as Phaser from 'phaser';
-import { addBeigeButton, addBeigeButtonShell, addBeigeIconButton, addDepthIcon } from '../components/PixelUI';
+import { addBeigeButton, addBeigeButtonShell, addDepthIcon } from '../components/PixelUI';
 import { CURATED_LEVELS } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
+
+// The grid always reserves layout space for a full world (see buildPage's grid geometry),
+// so any world can be authored up to this many levels without the page needing to change
+// shape. Curated levels are currently authored in difficulty-tiered batches of 4 — that
+// grouping is unrelated to this cap and isn't changed by it.
+const WORLD_CAPACITY = 16;
 
 // Groups of 4 per world (matches the difficulty tiers curated levels are authored in)
 function getWorldForLevel(level: LevelData): number {
@@ -25,6 +31,13 @@ export class LevelSelect extends Phaser.Scene {
   private completedLevels: Record<string, { stars: number }> = {};
   private communityLevels: CommunityLevelSummary[] = [];
 
+  // Scratch shapes reused by buildFrame() every call — RenderTexture.draw()/erase()
+  // only *queue* the draw for the next render pass rather than rendering synchronously,
+  // so the source Graphics objects must stay alive past the call, not be destroyed
+  // immediately after (that was the earlier bug: the frame silently never rendered).
+  private frameSolid: Phaser.GameObjects.Graphics | null = null;
+  private frameHole: Phaser.GameObjects.Graphics | null = null;
+
   constructor() { super('LevelSelect'); }
 
   init() {
@@ -34,6 +47,8 @@ export class LevelSelect extends Phaser.Scene {
     this.pageIndex = 0;
     this.completedLevels = {};
     this.communityLevels = [];
+    this.frameSolid = null;
+    this.frameHole = null;
   }
 
   async create() {
@@ -125,31 +140,31 @@ export class LevelSelect extends Phaser.Scene {
     });
   }
 
-  // ── Page content (title + grid + nav arrows + back button) ──────────────
+  // ── Page content (frame + title + grid + nav arrows + back button) ──────
   private buildPage() {
     this.contentLayer?.destroy(true);
     const { width, height } = this.scale;
     const isPortrait = height >= width;
     const els: Phaser.GameObjects.GameObject[] = [];
 
-    // Back-to-menu (small, top-left corner — not part of the reference mock, but
-    // needed since the world pager has no other way out of this screen)
-    const backSize = 40;
-    els.push(addBeigeIconButton(this, {
-      x: 16 + backSize / 2, y: 16 + backSize / 2,
-      size: backSize, iconKey: 'icon-arrow', iconAngle: 180,
-      onClick: () => {
-        this.cameras.main.fadeOut(250, 26, 10, 46);
-        this.time.delayedCall(260, () => this.scene.start('MainMenu'));
-      },
-    }));
+    // TV-bezel style border — desktop/landscape only, per reference.
+    if (!isPortrait) els.push(this.buildFrame(width, height));
+
+    // Arrow/back buttons all share one square icon-button size, floored at 66px —
+    // the beige button asset's 32px corners corrupt below 65px (see docs/9-slicing.md),
+    // and every element on this screen reuses that asset.
+    const arrowSize = isPortrait
+      ? Math.max(66, Math.min(78, width * 0.19))
+      : Math.max(66, Math.min(76, height * 0.10));
+    const leftPad = isPortrait ? 14 : Math.max(20, width * 0.02);
 
     const page = this.pages[this.pageIndex];
     if (!page) return;
 
-    // Title panel — 66px floor: the beige button asset's 32px corners corrupt below 65px
-    // (see docs/9-slicing.md), and every element on this screen reuses that asset.
-    const titleW  = Math.min(width * 0.8, isPortrait ? 300 : 360);
+    // Title panel — width leaves clearance for the back button on the left, kept
+    // symmetric on both sides so the panel still reads as centered on screen.
+    const titleClearance = leftPad + arrowSize + 12;
+    const titleW  = Math.min(width - titleClearance * 2, isPortrait ? 300 : 360);
     const titleH  = Math.max(66, Math.min(96, Math.round(height * (isPortrait ? 0.11 : 0.135))));
     const titleY  = Math.max(titleH / 2 + 16, height * (isPortrait ? 0.09 : 0.11));
     const titleFs = Math.max(20, Math.min(34, Math.round(titleH * 0.36)));
@@ -163,32 +178,47 @@ export class LevelSelect extends Phaser.Scene {
     this.tweens.add({ targets: titleBtn, alpha: 1, duration: 220, ease: 'Quad.easeOut' });
     els.push(titleBtn);
 
-    // Grid geometry — btnH/arrowSize both floor at 66px for the same corner-asset reason.
-    const arrowSize  = isPortrait
-      ? Math.max(66, Math.min(78, width * 0.19))
-      : Math.max(66, Math.min(76, height * 0.10));
+    // Back-to-menu — top-left, vertically aligned with the title row. Not part of the
+    // reference mock, but needed since the world pager has no other way out of this
+    // screen. Uses the same full-corner button as the pagination arrows below (not the
+    // compact "sm" variant) so it matches their size and gets proper hover/press states.
+    els.push(this.buildArrow(leftPad + arrowSize / 2, titleY, arrowSize, 180, false, () => {
+      this.cameras.main.fadeOut(250, 26, 10, 46);
+      this.time.delayedCall(260, () => this.scene.start('MainMenu'));
+    }));
+
+    // Grid geometry — every page reserves space for up to WORLD_CAPACITY levels
+    // (8 rows × 2 cols portrait, 4 rows × 4 cols desktop) so any world can be
+    // authored up to that size later without the grid needing to change shape.
     const cols       = isPortrait ? 2 : 4;
+    const designRows = Math.ceil(WORLD_CAPACITY / cols);
     const outerPad   = isPortrait ? Math.max(14, width * 0.05) : Math.max(96, width * 0.10);
     const gridW      = width - outerPad * 2;
     const colGap     = isPortrait ? 12 : 24;
-    const rowGap     = isPortrait ? 12 : 20;
-    const btnW       = (gridW - colGap * (cols - 1)) / cols;
-    const btnH       = isPortrait
-      ? Math.max(66, Math.min(74, height * 0.09))
-      : Math.max(66, Math.min(80, height * 0.11));
-    const fs         = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
     const gridTop    = titleY + titleH / 2 + (isPortrait ? 26 : 34);
 
     // Portrait reserves a bottom row for the pagination arrows; landscape has them
     // in the margins beside the grid, so the grid can use the full remaining height.
     const gridBottom = isPortrait ? height - 20 - arrowSize - 16 : height - 24;
-    const maxRows    = Math.max(1, Math.floor((gridBottom - gridTop + rowGap) / (btnH + rowGap)));
+    const availH     = Math.max(0, gridBottom - gridTop);
+
+    // Fit designRows rows (+ gaps) into availH, preferring a comfortable gap but
+    // shrinking it before letting button height drop below the 66px asset floor.
+    let rowGap = isPortrait ? 12 : 20;
+    let btnH   = (availH - rowGap * (designRows - 1)) / designRows;
+    if (btnH < 66) {
+      rowGap = isPortrait ? 6 : 10;
+      btnH   = (availH - rowGap * (designRows - 1)) / designRows;
+    }
+    btnH = Math.max(66, Math.min(isPortrait ? 74 : 80, btnH));
+
+    const btnW = (gridW - colGap * (cols - 1)) / cols;
+    const fs   = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
 
     // Community levels aren't capped by the API to a page-sized batch (up to 20), and
-    // this screen has no scrolling — cap to whatever grid capacity actually fits so
-    // buttons never overflow past the arrows/screen edge. World pages never need this;
-    // curated levels are authored in small batches (4 per world) that always fit.
-    const items = this.buildGridItems(page, cols * maxRows);
+    // this screen has no scrolling — cap to the same WORLD_CAPACITY every world page
+    // reserves space for, so buttons never overflow past the arrows/screen edge.
+    const items = this.buildGridItems(page, cols * designRows);
 
     if (page.kind === 'community' && items.length === 1 && items[0]!.disabled) {
       // "Coming soon" placeholder — spans the full grid width instead of one cell.
@@ -232,8 +262,11 @@ export class LevelSelect extends Phaser.Scene {
       nextX = width - outerPad - arrowSize / 2;
       prevY = nextY = height - 20 - arrowSize / 2;
     } else {
-      prevX = Math.max(24, outerPad * 0.35);
-      nextX = width - Math.max(24, outerPad * 0.35);
+      // Fixed edge margin (not outerPad-relative) so the arrows always clear the
+      // border frame regardless of how wide the grid's own side padding is.
+      const edgeMargin = 20;
+      prevX = edgeMargin + arrowSize / 2;
+      nextX = width - edgeMargin - arrowSize / 2;
       prevY = nextY = height / 2;
     }
 
@@ -274,6 +307,38 @@ export class LevelSelect extends Phaser.Scene {
     return shell.container;
   }
 
+  // TV-bezel border for desktop/landscape. Rendered via a RenderTexture: fill it
+  // solid in the border color, then punch a rounded-rect window out of it using
+  // ERASE blend mode. This relies only on Phaser's own built-in fillRoundedRect
+  // for the rounded corners (rather than hand-rolled arc/ring geometry, which
+  // didn't render its corners as solid fill), so the corners are guaranteed to
+  // match Phaser's own well-tested rounded-rect shape.
+  private buildFrame(width: number, height: number) {
+    const B = 10; // border thickness
+    const R = 28; // inner window corner radius
+
+    const rt = this.add.renderTexture(0, 0, width, height).setOrigin(0, 0);
+
+    // RenderTexture.draw()/erase() only *queue* the draw for the next render pass —
+    // they don't render synchronously — so these scratch shapes must stay alive past
+    // this call. Reused across every buildFrame() call instead of destroy()'d
+    // immediately (that was the earlier bug: destroying them right away meant the
+    // queued draw ran against already-destroyed objects and silently rendered nothing).
+    this.frameSolid ??= this.make.graphics({});
+    this.frameSolid.clear();
+    this.frameSolid.fillStyle(0x66483D, 1);
+    this.frameSolid.fillRect(0, 0, width, height);
+    rt.draw(this.frameSolid);
+
+    this.frameHole ??= this.make.graphics({});
+    this.frameHole.clear();
+    this.frameHole.fillStyle(0xffffff, 1);
+    this.frameHole.fillRoundedRect(B, B, width - 2 * B, height - 2 * B, R);
+    rt.erase(this.frameHole);
+
+    return rt;
+  }
+
   private changePage(delta: number) {
     const next = Phaser.Math.Clamp(this.pageIndex + delta, 0, this.pages.length - 1);
     if (next === this.pageIndex) return;
@@ -302,5 +367,7 @@ export class LevelSelect extends Phaser.Scene {
 
   shutdown() {
     this.scale.off('resize', this.onResize, this);
+    this.frameSolid?.destroy();
+    this.frameHole?.destroy();
   }
 }

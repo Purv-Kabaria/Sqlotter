@@ -1,5 +1,6 @@
 import { GameObjects, Scene, Structs, Tweens } from 'phaser';
 import { getLaunchLevelId } from '../launch';
+import { paintOverlayShine } from '../components/overlayShine';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -162,7 +163,6 @@ export class Preloader extends Scene {
   private logoFallback: GameObjects.Text | null = null;
   private slimeShadow: GameObjects.Image | null = null;
   private slime: GameObjects.Image | null = null;
-  private slimeShine: GameObjects.Image | null = null;
   private slimeBorder: GameObjects.Image | null = null;
   private filler: GameObjects.Image | null = null;
   private fillerBorder: GameObjects.Image | null = null;
@@ -221,8 +221,14 @@ export class Preloader extends Scene {
       this.slimeShadow.setTint(0x000000);
       this.slimeShadow.setTintFill();
       this.slimeShadow.setAlpha(0.30);
-      this.slime       = this.add.image(cx, 0, 'slime-color').setTint(0x6DD400);
-      this.slimeShine  = this.add.image(cx, 0, 'slime-shine').setAlpha(0.80);
+
+      // Body is baked (tint + genuine overlay-blended shine) into a texture rather
+      // than tinted live — see overlayShine.ts for why a plain Phaser tint +
+      // BlendModes.OVERLAY can't do this under WebGL. The tint here never changes,
+      // so this only needs to run once.
+      const slimeShineKey = paintOverlayShine(this, 'preloader-slime-shine-tex', 'slime-color', 'slime-shine', 0x6DD400, 0.5);
+      this.slime = this.add.image(cx, 0, slimeShineKey);
+
       this.slimeBorder = this.add.image(cx, 0, 'slime-border');
     }
 
@@ -275,26 +281,25 @@ export class Preloader extends Scene {
       });
     }
 
-    if (this.slime && this.slimeShine && this.slimeBorder && this.slimeShadow) {
+    if (this.slime && this.slimeBorder && this.slimeShadow) {
       // Stop running tweens before snapping positions (prevents mid-tween offsets)
       this.bobTween?.stop();
       this.squishTween?.stop();
 
       this.slimeShadow.setPosition(cx + 3, slimeY + 3).setDisplaySize(slimeSz, slimeSz);
       this.slime      .setPosition(cx,     slimeY    ).setDisplaySize(slimeSz, slimeSz);
-      this.slimeShine .setPosition(cx,     slimeY    ).setDisplaySize(slimeSz, slimeSz);
       this.slimeBorder.setPosition(cx,     slimeY    ).setDisplaySize(slimeSz, slimeSz);
 
       // Capture base scale AFTER setDisplaySize — tween values are absolute in Phaser
       const bs = this.slime.scaleX;
 
       this.bobTween = this.tweens.add({
-        targets: [this.slime, this.slimeShine, this.slimeBorder, this.slimeShadow],
+        targets: [this.slime, this.slimeBorder, this.slimeShadow],
         y: `+=${slimeSz * 0.08}`,
         duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       });
       this.squishTween = this.tweens.chain({
-        targets: [this.slime, this.slimeShine, this.slimeBorder],
+        targets: [this.slime, this.slimeBorder],
         tweens: [
           { scaleX: bs * 1.06, scaleY: bs * 0.94, duration: 300, ease: 'Sine.easeInOut' },
           { scaleX: bs * 0.97, scaleY: bs * 1.05, duration: 300, ease: 'Sine.easeInOut' },

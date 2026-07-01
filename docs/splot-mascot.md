@@ -8,25 +8,58 @@ He is rendered by `SplotMascot` (`src/client/components/SplotMascot.ts`).
 
 ## Layer stack
 
-Splot is 11 images inside a `Phaser.GameObjects.Container`. Depths are internal to the container.
+Splot is 10 images inside a single `Phaser.GameObjects.Container`. Depths are internal to the
+container.
 
 ```
 depth  0/5  shadow   — splot-shadow (home screen) or char-shadow sprite (everywhere else) — see below
-depth 10  blob       — char-blob         (body; splash-screen green by default, tint overridable)
+depth 10  blob       — genuine overlay-blended texture (body; splash-screen green by default, tint overridable)
 depth 20  mouth      — char-mouth-*      (switches per expression; default char-mouth-smile)
 depth 22  blush      — char-blush        (fades in/out — visible only on excited/kiss)
 depth 22  cry        — char-cry          (fades in/out — visible only on sad)
 depth 30  eye        — char-eye-*        (switches per expression; blinks in idle; default char-eye-normal)
 depth 40  eyebrow    — char-brow-*       (switches per expression/equip; default char-brow-normal, always visible)
 depth 50  accessory  — char-acc-*        (hidden when none equipped)
-depth 58  applied    — char-applied      (flash overlay; tweened alpha only during playAppliedFlash)
-depth 60  shine      — char-shine        (alpha 0.5, always visible)
+depth 58  applied    — char-applied      (flash overlay, ADD blend; tweened alpha only during playAppliedFlash)
 depth 65  outline    — char-outline      (always visible)
 ```
 
 All images are set to `setDisplaySize(size, size)` where `size` is passed to the constructor,
 **except the shadow when the CSS-style variant is active** (see below), which is a flattened
 ellipse sized off `size` separately.
+
+### Shine: genuine overlay blend
+
+There's no independent `shine` image layer. `Phaser.BlendModes.OVERLAY` is **Canvas-only** — setting
+it on a WebGL-rendered Image silently falls back to NORMAL, so it can't just be
+`.setBlendMode(OVERLAY)` on a `char-shine` sprite. Phaser 4's own Filters system
+(`enableFilters()`+`addBlend()`) *can* bring OVERLAY to WebGL, but only by rendering a whole
+GameObject/Container to a texture and blending a second texture onto that render — it can't make one
+specific child layer (just the body) overlay-blend against its own siblings, so it isn't used here.
+
+Instead, `src/client/components/overlayShine.ts#paintOverlayShine()` computes the actual overlay
+blend on the CPU using the [`color-blend`](https://www.npmjs.com/package/color-blend) npm package
+(pure JS, proper alpha-aware Porter-Duff compositing, no native dependencies) and bakes the result
+into a Phaser `CanvasTexture`, once at construction (the blob's tint never changes afterward):
+
+```typescript
+const blobShineKey = `char-shine-tex-${nextInstanceId++}`;
+paintOverlayShine(scene, blobShineKey, 'char-blob', 'char-shine', blobColor ?? DEFAULT_BLOB_COLOR, 0.5);
+this.blob = mk(blobShineKey, 10);
+```
+
+This tints `char-blob` to the target color (replicating Phaser's own multiplicative tint formula) and
+overlay-blends `char-shine` onto it at `amount: 0.5` (0 = only the tint shows, 1 = the full overlay
+effect — this is the "shine opacity" knob), then uploads the finished pixels as a texture. Every
+other layer — mouth, eyes, eyebrow, accessory, applied, outline — is unaffected; they're independent
+sprites layered on top, same as before.
+
+The identical helper/technique is used for the puzzle slime's shine — see `docs/slime-rendering.md`.
+
+`applied` (the interaction flash) is a separate, momentary effect rather than a steady-state
+highlight, and keeps the simpler `Phaser.BlendModes.ADD` — a brightening burst is the more typical
+choice for a flash, and ADD (unlike OVERLAY) is natively supported in WebGL via `setBlendMode()`, no
+baking needed.
 
 ### Asset dimensions
 
@@ -351,7 +384,7 @@ shutdown() {
 
 ## Resize
 
-`setSize(newSize)` resizes all 11 image layers:
+`setSize(newSize)` resizes all 10 image layers:
 
 ```typescript
 mascot.setSize(300);

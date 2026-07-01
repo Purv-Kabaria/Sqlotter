@@ -195,36 +195,6 @@ shell.addContent([titleText, starIcon1, starIcon2, starIcon3]); // added into sh
 
 ---
 
-### `addBeigeIconButton(scene, options)`
-
-Small icon-only beige button — for a header back button or similar compact controls that don't
-need a label. Uses the half-scale `btn-open-sm-*` corner set (16px, from `addBeigeBadge`), so it
-can go as small as 33px, well below the 65px floor a full label button needs.
-
-```typescript
-import { addBeigeIconButton } from '../components/PixelUI';
-
-const back = addBeigeIconButton(scene, {
-  x: 38, y: headerH / 2,
-  size: 44,
-  iconKey: 'icon-arrow',
-  iconAngle: 180,        // optional — rotates the icon (and its drop shadow) together
-  onClick: () => scene.scene.start('MainMenu'),
-});
-```
-
-**Tradeoff vs. `addBeigeButton`:** the `sm` corner set only has one state (`btn-open-sm-*`) — there
-is no `btn-hover-sm`/`btn-press-sm`/`btn-dis-sm`. So this component has **no texture swap**, only
-scale/position tweens on hover/press/up. If you need the full three-state swap, the button must be
-≥65px and should use `addBeigeButton` or `addBeigeButtonShell` instead.
-
-The tap target is floored to 44×44 regardless of `size` — the hitbox `Rectangle` is expanded and
-re-centered around the (possibly smaller) visual button, the same principle as `setSize` in
-`addBeigeButton` but applied to the actual hitbox since there's no `onClick`-driven `addBeigeButton`
-sizing floor to rely on here.
-
----
-
 ### `addBeigeCard(scene, x, y, width, height)`
 
 Non-interactive beige slot via Phaser's built-in NineSlice. Use for HUD badges, sparks pills,
@@ -260,8 +230,7 @@ const bg = addDarkPanel(scene, cx, cy, paletteW, paletteH);
 | Use case | Component | Reason |
 |----------|-----------|--------|
 | Main menu / game buttons | `addBeigeButton` | Multi-state texture swap + animation |
-| Buttons with custom content (level cards, etc.) | `addBeigeButtonShell` | Same shell/interaction, caller supplies content |
-| Compact icon-only header button (back, etc.) | `addBeigeIconButton` | Fits below the 65px floor; no label needed |
+| Buttons with custom content (level cards, icon-only nav, etc.) | `addBeigeButtonShell` | Same shell/interaction, caller supplies content |
 | Left sidebar / card frames | `addPanel9` | Large panel, beige border |
 | Stat boxes, HUD slots, pills | `addBeigeCard` | Small, single-state, cheap |
 | Modifier palette background | `addDarkPanel` | Dark, procedural, cheap |

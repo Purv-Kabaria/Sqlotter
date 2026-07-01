@@ -6,6 +6,7 @@ import {
 } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
+import { paintOverlayShine } from '../components/overlayShine';
 import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { CURATED_LEVELS } from '../../shared/levelData';
@@ -657,13 +658,19 @@ export class Game extends Phaser.Scene {
       if (isSelected) slotBg.setTint(0xE8C060);
       items.push(slotBg);
 
-      // Slime: shadow + color + shine + border
+      // Slime: shadow + color (with genuine overlay-blended shine) + border.
+      // Body is baked (tint + genuine overlay-blended shine) into a texture rather
+      // than tinted live — see overlayShine.ts for why a plain Phaser tint +
+      // BlendModes.OVERLAY can't do this under WebGL. Keyed by hex so re-opening the
+      // popup reuses the same generated texture instead of rebuilding it every time.
       const shadow = this.add.image(sx + 2, sy + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
       shadow.setTint(0x000000); shadow.setTintFill(); shadow.setAlpha(0.28);
-      const slimeImg = this.add.image(sx, sy, 'slime-color').setDisplaySize(slimeSz, slimeSz).setTint(numCol);
-      const shine    = this.add.image(sx, sy, 'slime-shine').setDisplaySize(slimeSz, slimeSz).setAlpha(0.82);
+      const swatchShineKey = paintOverlayShine(
+        this, `slime-shine-swatch-${numCol.toString(16)}`, 'slime-color', 'slime-shine', numCol, 0.5,
+      );
+      const slimeImg = this.add.image(sx, sy, swatchShineKey).setDisplaySize(slimeSz, slimeSz);
       const border   = this.add.image(sx, sy, 'slime-border').setDisplaySize(slimeSz, slimeSz);
-      items.push(shadow, slimeImg, shine, border);
+      items.push(shadow, slimeImg, border);
 
       // Checkmark badge on currently selected color
       if (isSelected) {
@@ -681,9 +688,9 @@ export class Game extends Phaser.Scene {
         else if (paintMods[0]) this.applyModifier({ ...paintMods[0], color: hex });
       });
       zone.on('pointerover', () =>
-        this.tweens.add({ targets: [slimeImg, shine, border, shadow], scaleX: 1.12, scaleY: 1.12, duration: 80 }));
+        this.tweens.add({ targets: [slimeImg, border, shadow], scaleX: 1.12, scaleY: 1.12, duration: 80 }));
       zone.on('pointerout', () =>
-        this.tweens.add({ targets: [slimeImg, shine, border, shadow], scaleX: 1, scaleY: 1, duration: 80 }));
+        this.tweens.add({ targets: [slimeImg, border, shadow], scaleX: 1, scaleY: 1, duration: 80 }));
       items.push(zone);
     });
 

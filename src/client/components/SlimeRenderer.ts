@@ -1,5 +1,8 @@
 import * as Phaser from 'phaser';
 import type { SlimeState } from '../../shared/types';
+import { paintOverlayShine } from './overlayShine';
+
+let nextInstanceId = 0;
 
 export class SlimeRenderer {
   readonly container: Phaser.GameObjects.Container;
@@ -10,18 +13,28 @@ export class SlimeRenderer {
   private beltImg: Phaser.GameObjects.Image;
   private pendantImg: Phaser.GameObjects.Image;
   private eyeImg: Phaser.GameObjects.Image;
-  private shineImg: Phaser.GameObjects.Image;
   private borderImg: Phaser.GameObjects.Image;
   private appliedFlash: Phaser.GameObjects.Image;
 
+  private scene: Phaser.Scene;
   private size: number;
   private texW = 256;
   private texH = 256;
   private currentState: SlimeState | null = null;
 
+  // Unique per-instance texture keys — the top/bottom color zones are genuine
+  // overlay-blended (color + slime-shine) textures baked at runtime, see setState().
+  private readonly topShineKey: string;
+  private readonly bottomShineKey: string;
+
   constructor(scene: Phaser.Scene, x: number, y: number, size: number) {
+    this.scene = scene;
     this.size = size;
     this.container = scene.add.container(x, y);
+
+    const id = nextInstanceId++;
+    this.topShineKey = `slime-shine-tex-${id}-top`;
+    this.bottomShineKey = `slime-shine-tex-${id}-bottom`;
 
     // Cache texture dimensions (standalone PNG so frame = full texture)
     const src = scene.textures.get('slime-color')?.source[0];
@@ -30,12 +43,10 @@ export class SlimeRenderer {
     // Layer -1: two-colour bottom zone (hidden when single-colour)
     this.bottomImg = scene.add.image(0, 0, 'slime-color')
       .setDisplaySize(size, size).setDepth(-1).setVisible(false);
-    this.container.add(this.bottomImg);
 
     // Layer 0: top colour (or full single colour)
     this.topImg = scene.add.image(0, 0, 'slime-color')
       .setDisplaySize(size, size).setDepth(0);
-    this.container.add(this.topImg);
 
     // Modifier overlay layers
     this.pumpkinImg = scene.add.image(0, 0, 'slime-color')
@@ -49,30 +60,27 @@ export class SlimeRenderer {
     this.eyeImg = scene.add.image(0, 0, 'slime-color')
       .setDisplaySize(size, size).setDepth(5).setVisible(false);
 
-    this.container.add(this.pumpkinImg);
-    this.container.add(this.underwearImg);
-    this.container.add(this.beltImg);
-    this.container.add(this.pendantImg);
-    this.container.add(this.eyeImg);
-
-    // Always-on layers
-    this.shineImg = scene.add.image(0, 0, 'slime-shine')
-      .setDisplaySize(size, size).setDepth(6).setAlpha(0.80);
     this.borderImg = scene.add.image(0, 0, 'slime-border')
       .setDisplaySize(size, size).setDepth(7);
     this.appliedFlash = scene.add.image(0, 0, 'slime-applied')
-      .setDisplaySize(size, size).setDepth(8).setAlpha(0).setVisible(false);
+      .setDisplaySize(size, size).setDepth(8).setAlpha(0).setVisible(false)
+      .setBlendMode(Phaser.BlendModes.ADD);
 
-    this.container.add(this.shineImg);
-    this.container.add(this.borderImg);
-    this.container.add(this.appliedFlash);
+    this.container.add([
+      this.bottomImg, this.topImg, this.pumpkinImg, this.underwearImg,
+      this.beltImg, this.pendantImg, this.eyeImg, this.borderImg, this.appliedFlash,
+    ]);
   }
 
   setState(state: SlimeState) {
     this.currentState = { ...state };
 
+    // Top/bottom color zones are baked (tint + genuine overlay-blended shine) into a
+    // texture rather than tinted live — see overlayShine.ts for why a plain
+    // Phaser tint + BlendModes.OVERLAY can't do this under WebGL.
     const topColor = Phaser.Display.Color.HexStringToColor(state.color).color;
-    this.topImg.setTint(topColor);
+    paintOverlayShine(this.scene, this.topShineKey, 'slime-color', 'slime-shine', topColor, 0.5);
+    this.topImg.setTexture(this.topShineKey);
 
     if (state.colorBottom !== undefined && state.pumpkin !== null) {
       // Two-colour rendering: split into top zone (exposed) and bottom zone (pumpkin-protected)
@@ -81,8 +89,9 @@ export class SlimeRenderer {
 
       // Bottom zone image: bottomColor, bottom fraction only
       const bottomColor = Phaser.Display.Color.HexStringToColor(state.colorBottom).color;
+      paintOverlayShine(this.scene, this.bottomShineKey, 'slime-color', 'slime-shine', bottomColor, 0.5);
       this.bottomImg
-        .setTint(bottomColor)
+        .setTexture(this.bottomShineKey)
         .setDisplaySize(this.size, this.size)
         .setOrigin(0.5, 0)
         .setPosition(0, this.size * (topFraction - 0.5))
@@ -175,7 +184,6 @@ export class SlimeRenderer {
     if (this.currentState) {
       this.setState(this.currentState);
     }
-    this.shineImg.setDisplaySize(size, size);
     this.borderImg.setDisplaySize(size, size);
     this.appliedFlash.setDisplaySize(size, size);
   }

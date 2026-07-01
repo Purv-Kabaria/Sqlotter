@@ -243,52 +243,6 @@ export function addBeigeButton(
   return shell.container;
 }
 
-// Small beige icon-only button (uses the half-scale 16px-corner variant so it can sit
-// comfortably in a compact header, e.g. a back button). No hover/press texture swap
-// (the "sm" corner set only has the open state) — feedback is scale/position tweens only.
-export type BeigeIconButtonOptions = {
-  x: number;
-  y: number;
-  size: number;
-  iconKey: string;
-  iconAngle?: number;
-  onClick?: () => void;
-};
-
-export function addBeigeIconButton(
-  scene: Phaser.Scene,
-  options: BeigeIconButtonOptions,
-): Phaser.GameObjects.Container {
-  const { x, y, size, iconKey, iconAngle = 0, onClick } = options;
-  const W = Math.round(size / 2) * 2;
-
-  const pieces = build9Pieces(scene, W, W, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm');
-  const iconSize = Math.min(W * 0.55, 22);
-  const icon = addDepthIcon(scene, 0, -1, iconKey, iconSize, iconSize).setAngle(iconAngle);
-
-  const visual = scene.add.container(0, 0, [...(pieces as Phaser.GameObjects.GameObject[]), icon]);
-  const container = scene.add.container(Math.round(x), Math.round(y), [visual])
-    .setSize(Math.max(W, 44), Math.max(W, 44));
-
-  if (onClick) {
-    // Tap target floor is 44×44 regardless of the visual button size (see CLAUDE.md).
-    const hitSize = Math.max(W, 44);
-    const hitOff  = (W - hitSize) / 2;
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(hitOff, hitOff, hitSize, hitSize),
-      Phaser.Geom.Rectangle.Contains,
-    );
-    container.input!.cursor = 'pointer';
-    container
-      .on('pointerover', () => scene.tweens.add({ targets: visual, y: -2, duration: 80, ease: 'Quad.easeOut' }))
-      .on('pointerout', () => scene.tweens.add({ targets: visual, y: 0, scaleX: 1, scaleY: 1, duration: 90, ease: 'Quad.easeOut' }))
-      .on('pointerdown', () => scene.tweens.add({ targets: visual, y: 1, scaleX: 0.90, scaleY: 0.90, duration: 60 }))
-      .on('pointerup', () => scene.tweens.add({ targets: visual, y: -2, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick }));
-  }
-
-  return container;
-}
-
 // ── Legacy components (kept for Editor, LevelComplete, etc.) ──────────────
 
 export type PixelButtonOptions = {
