@@ -21,14 +21,13 @@ const C = {
   RED:       '#ff5555',     // toasts on dark backgrounds
   RED_DEEP:  '#C62828',     // "can't afford" prices on beige — #ff5555 washed out
   GREEN:     '#6DD400',
-  GREEN_NUM: 0x6DD400,
   GREEN_DARK:'#2E5C0A',
   PLATE_EQUIP: 0x9FD060,    // green slot plate marks the equipped card
-  // State rings drawn as stroke-only rectangles, not tints — Phaser tint is
-  // multiplicative, so tinting the warm beige button/card texture can only
-  // darken it, which read as a muddy orange instead of an actual highlight.
+  // Selected-but-unowned card ring, drawn as a stroke-only rectangle rather
+  // than a tint — Phaser tint is multiplicative, so tinting the warm beige
+  // card texture can only darken it, which read as a muddy orange instead
+  // of an actual highlight.
   BORDER_SELECTED: 0xFFD700,
-  BORDER_EQUIPPED: 0x4C9A0A,
 } as const;
 
 // Order drives both tab render order and default active category (first = default).
@@ -39,15 +38,6 @@ const CAT_LABELS: Record<ShopCategory, string> = {
   brows: 'Brows',
   accessories: 'Extras',
 };
-// Tabs show the actual character-part textures as icons, so the label can stay
-// short enough for a single 4-across tab row even in portrait.
-const CAT_ICONS: Record<ShopCategory, string> = {
-  eyes: 'char-eye-normal',
-  mouth: 'char-mouth-happy',
-  brows: 'char-brow-normal',
-  accessories: 'char-acc-crown',
-};
-
 type Rect = { x: number; y: number; w: number; h: number };
 
 type CardRecord = {
@@ -458,18 +448,15 @@ export class Shop extends Phaser.Scene {
     els.push(cta);
   }
 
-  // ── Category tabs: icon + label, active tab marked with a solid green
-  // underline bar and bold green label. Inactive tabs stay fully opaque — a
-  // whole-shell tint used to mark the active state, but Phaser tint only
-  // darkens (multiplicative), so a gold tint over the warm beige button
-  // texture read as a muddy orange instead of an actual highlight. ──────────
+  // ── Category tabs: text-only label, active tab in bold green. Font scales
+  // with tab height (itself already proportional to screen size) — with no
+  // icon competing for space, the label can run larger than before. ────────
   private buildCategoryTabs(rects: Rect[], els: Phaser.GameObjects.GameObject[]) {
     CATEGORIES.forEach((cat, i) => {
       const r = rects[i];
       if (!r) return;
       const active = cat === this.activeCategory;
-      const fs = Math.max(12, Math.min(18, Math.round(r.h * 0.22)));
-      const iconSz = Math.round(r.h * 0.38);
+      const fs = Math.max(14, Math.min(22, Math.round(r.h * 0.30)));
 
       const shell = addBeigeButtonShell(this, r.x, r.y, r.w, r.h, false, () => {
         if (this.activeCategory === cat) return;
@@ -479,26 +466,14 @@ export class Shop extends Phaser.Scene {
       });
       shell.container.setDepth(6);
 
-      // Icon + label side by side, vertically centered — stacked layouts push
-      // content into the button's thick corner-border zone and look clipped.
       const label = this.add.text(0, 0, CAT_LABELS[cat], {
         fontFamily: PIXELIFY,
         fontSize: `${fs}px`,
         color: active ? C.GREEN_DARK : C.TEXT_DARK,
         fontStyle: active ? 'bold' : 'normal',
         shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-      }).setOrigin(0, 0.5);
-      const totalW = iconSz + 7 + label.width;
-      const icon = addDepthIcon(this, -totalW / 2 + iconSz / 2, 0, CAT_ICONS[cat], iconSz, iconSz);
-      label.setX(-totalW / 2 + iconSz + 7);
-      const content: Phaser.GameObjects.GameObject[] = [icon, label];
-
-      if (active) {
-        const barW = Math.min(r.w * 0.62, totalW + 12);
-        const barH = Math.max(3, Math.round(r.h * 0.07));
-        content.push(this.add.rectangle(0, r.h / 2 - barH * 1.8, barW, barH, C.GREEN_NUM).setOrigin(0.5));
-      }
-      shell.addContent(content);
+      }).setOrigin(0.5);
+      shell.addContent([label]);
 
       els.push(shell.container);
     });
@@ -671,14 +646,12 @@ export class Shop extends Phaser.Scene {
       content.push(spark, priceTxt);
     }
 
-    // State ring — a stroke-only rectangle instead of a whole-card tint (see
-    // the C constants comment: multiply-tinting the beige base can only
-    // darken it toward orange, never brighten toward an actual highlight).
-    // Equipped takes precedence over selected since a card can be both (a
-    // second tap on an already-equipped card still arms/selects it).
-    if (equipped) {
-      content.push(this.add.rectangle(0, 0, size + 2, size + 2).setStrokeStyle(3, C.BORDER_EQUIPPED, 1));
-    } else if (selected) {
+    // Selected (armed-but-unowned) ring — a stroke-only rectangle instead of a
+    // whole-card tint (see the C constants comment: multiply-tinting the
+    // beige base can only darken it toward orange, never brighten toward an
+    // actual highlight). Equipped is already signalled by the plate tint,
+    // check badge, and bold green label above, so it gets no ring of its own.
+    if (!equipped && selected) {
       content.push(this.add.rectangle(0, 0, size + 4, size + 4).setStrokeStyle(4, C.BORDER_SELECTED, 1));
     }
 
@@ -943,10 +916,11 @@ export class Shop extends Phaser.Scene {
 
   private showToast(msg: string, color: string) {
     const { width, height } = this.scale;
+    const fs = Math.max(12, Math.min(17, Math.round(width * 0.036)));
     const txt = this.add.text(0, 0, msg, {
-      fontFamily: PIXELIFY, fontSize: '14px', color,
+      fontFamily: PIXELIFY, fontSize: `${fs}px`, color,
     }).setOrigin(0.5);
-    const bg = addDarkPanel(this, 0, 0, Math.ceil(txt.width) + 36, 42);
+    const bg = addDarkPanel(this, 0, 0, Math.ceil(txt.width) + Math.round(fs * 2.6), Math.round(fs * 3));
     const toast = this.add.container(width / 2, height * 0.92, [bg, txt])
       .setDepth(30).setAlpha(0);
     this.activeToasts.push(toast);
