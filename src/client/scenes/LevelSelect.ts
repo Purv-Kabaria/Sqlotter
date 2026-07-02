@@ -1,21 +1,19 @@
 import * as Phaser from 'phaser';
 import { addBeigeButton, addBeigeButtonShell, addDepthIcon } from '../components/PixelUI';
-import { CURATED_LEVELS } from '../../shared/levelData';
+import { CURATED_LEVELS, LEVELS_PER_WORLD, WORLD_NAMES } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
 
-// The grid always reserves layout space for a full world (see buildPage's grid geometry),
-// so any world can be authored up to this many levels without the page needing to change
-// shape. Curated levels are currently authored in difficulty-tiered batches of 4 — that
-// grouping is unrelated to this cap and isn't changed by it.
-const WORLD_CAPACITY = 16;
+// The grid reserves layout space for a full world (see buildPage's grid geometry):
+// 8 rows × 2 cols portrait, 4 rows × 4 cols desktop.
+const WORLD_CAPACITY = LEVELS_PER_WORLD;
 
-// Groups of 4 per world (matches the difficulty tiers curated levels are authored in)
+// The generated curated set is authored in contiguous blocks of LEVELS_PER_WORLD.
 function getWorldForLevel(level: LevelData): number {
   const idx = CURATED_LEVELS.findIndex(l => l.id === level.id);
-  return Math.floor(idx / 4) + 1;
+  return Math.floor(idx / LEVELS_PER_WORLD) + 1;
 }
 
 type GridItem = { label: string; disabled: boolean; onClick?: (() => void) | undefined };
@@ -173,10 +171,17 @@ export class LevelSelect extends Phaser.Scene {
     const titleH  = Math.max(66, Math.min(96, Math.round(height * (isPortrait ? 0.11 : 0.135))));
     const titleY  = Math.max(titleH / 2 + 16, height * (isPortrait ? 0.09 : 0.11));
     const titleFs = Math.max(20, Math.min(34, Math.round(titleH * 0.36)));
+    // World pages show "World N — Name"; the font shrinks to fit the longest
+    // names inside titleW rather than overflowing the button on narrow screens.
+    const worldName = page.kind === 'world' ? WORLD_NAMES[page.worldNum - 1] : undefined;
+    const titleLabel = page.kind === 'world'
+      ? (worldName ? `World ${page.worldNum} — ${worldName}` : `World ${page.worldNum}`)
+      : 'Community Levels';
+    const fittedFs = Math.max(12, Math.min(titleFs, Math.floor(titleW / (titleLabel.length * 0.62))));
     const titleBtn = addBeigeButton(this, {
       x: width / 2, y: titleY, width: titleW, height: titleH,
-      label: page.kind === 'world' ? `World ${page.worldNum}` : 'Community Levels',
-      fontSize: page.kind === 'world' ? titleFs : Math.round(titleFs * 0.6),
+      label: titleLabel,
+      fontSize: fittedFs,
       fontFamily: PIXELIFY,
     });
     titleBtn.setAlpha(0);
