@@ -39,6 +39,13 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/reset-level-stats"
+      },
+      {
+        "label": "Reset ALL User Data & Progress",
+        "description": "Full wipe: every user's sparks, shop items, completions, streaks, and all leaderboards",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/reset-all-users"
       }
     ]
   },

@@ -153,6 +153,11 @@ api.get('/init', async (c) => {
 
   try {
     const username = (await reddit.getCurrentUsername()) ?? '';
+    if (username) {
+      // Permanent player registry — lets mod tools (e.g. the full-reset menu
+      // action) enumerate every player, not just those on a leaderboard.
+      await redis.zAdd('users:all', { score: Date.now(), member: username });
+    }
     const sparks   = username
       ? parseInt((await redis.get(`sparks:${username}`)) ?? '0', 10)
       : 0;
