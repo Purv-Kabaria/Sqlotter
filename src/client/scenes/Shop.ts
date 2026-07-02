@@ -14,15 +14,18 @@ const C = {
   BG:        0x232323,
   TEXT_DARK: '#3A1A08',
   TEXT_DIM:  '#8a7a6a',
+  TEXT_WARM: '#75604C',     // muted brown that stays legible on the beige panels
   TEXT_BEIGE:'#DEC998',
   GOLD:      '#FFD700',
-  RED:       '#ff5555',
+  RED:       '#ff5555',     // toasts on dark backgrounds
+  RED_DEEP:  '#C62828',     // "can't afford" prices on beige — #ff5555 washed out
   GREEN:     '#6DD400',
   GREEN_DARK:'#2E5C0A',
   CARD_TAN:  0xD9A66C,
   CARD_PLATE: 0xB8874E,
-  CARD_EQUIP: 0xBFE08A,
+  PLATE_EQUIP: 0x9FD060,    // green slot plate marks the equipped card
   CARD_SELECTED: 0xFFD966,
+  TAB_ACTIVE: 0xFFDF9E,     // warm gold highlight on the active category tab
 } as const;
 
 // Order drives both tab render order and default active category (first = default).
@@ -359,16 +362,16 @@ export class Shop extends Phaser.Scene {
   // relying solely on the tap-twice-on-the-card gesture. ─────────────────────
   private buildDetailArea(cx: number, cy: number, w: number, h: number, els: Phaser.GameObjects.GameObject[]) {
     const item = this.selectedItem();
-    const nameFs = Math.max(14, Math.min(20, Math.round(w * 0.075)));
-    const subFs  = Math.max(11, Math.min(15, Math.round(w * 0.058)));
+    const nameFs = Math.max(16, Math.min(26, Math.round(w * 0.09)));
+    const subFs  = Math.max(12, Math.min(18, Math.round(w * 0.068)));
 
     if (!item) {
-      els.push(this.add.text(cx, cy - h * 0.14, 'Splot', {
-        fontFamily: PIXELIFY, fontSize: `${nameFs}px`, color: C.TEXT_DARK,
-        shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
+      els.push(this.add.text(cx, cy - h * 0.16, 'Splot', {
+        fontFamily: PIXELIFY, fontSize: `${nameFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
+        shadow: { offsetX: 2, offsetY: 2, color: '#C8A870', blur: 0, fill: true },
       }).setOrigin(0.5).setDepth(6));
-      els.push(this.add.text(cx, cy + h * 0.10, 'Tap an item to try it on!', {
-        fontFamily: PIXELIFY, fontSize: `${subFs}px`, color: C.TEXT_DIM,
+      els.push(this.add.text(cx, cy + h * 0.08, 'Tap an item to try it on!', {
+        fontFamily: PIXELIFY, fontSize: `${subFs}px`, color: C.TEXT_WARM,
         align: 'center', wordWrap: { width: w - 12 },
       }).setOrigin(0.5).setDepth(6));
       return;
@@ -376,51 +379,60 @@ export class Shop extends Phaser.Scene {
 
     const owned = this.unlockedItems.has(item.id);
     const equipped = this.equippedItems[item.slot] === item.id;
+    const canAfford = this.sparks >= item.price;
 
-    els.push(this.add.text(cx, cy - h * 0.32, item.label, {
-      fontFamily: PIXELIFY, fontSize: `${nameFs}px`, color: C.TEXT_DARK,
+    els.push(this.add.text(cx, cy - h * 0.30, item.label, {
+      fontFamily: PIXELIFY, fontSize: `${nameFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
       align: 'center', wordWrap: { width: w - 8 },
-      shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
+      shadow: { offsetX: 2, offsetY: 2, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5).setDepth(6));
 
-    // Status row: equipped / owned / price
-    const statusY = cy - h * 0.08;
+    // Status row, paired tight under the name so the two read as one block.
+    // Icon + text are measured and centered as a group.
+    const statusY = cy - h * 0.06;
     if (equipped) {
-      const check = addDepthIcon(this, -subFs * 2.6, 0, 'icon-check', subFs * 1.1, subFs * 1.1);
-      const txt = this.add.text(-subFs * 1.8, 0, 'Equipped', {
-        fontFamily: PIXELIFY, fontSize: `${subFs}px`, color: C.GREEN_DARK,
+      const iconSz = subFs * 1.2;
+      const txt = this.add.text(0, 0, 'Equipped', {
+        fontFamily: PIXELIFY, fontSize: `${subFs}px`, color: C.GREEN_DARK, fontStyle: 'bold',
       }).setOrigin(0, 0.5);
+      const rowW = iconSz + 8 + txt.width;
+      const check = addDepthIcon(this, -rowW / 2 + iconSz / 2, 0, 'icon-check', iconSz, iconSz);
+      txt.setX(-rowW / 2 + iconSz + 8);
       els.push(this.add.container(cx, statusY, [check, txt]).setDepth(6));
     } else if (owned) {
       els.push(this.add.text(cx, statusY, 'Owned', {
-        fontFamily: PIXELIFY, fontSize: `${subFs}px`, color: C.TEXT_DIM,
+        fontFamily: PIXELIFY, fontSize: `${subFs}px`, color: C.TEXT_WARM,
       }).setOrigin(0.5).setDepth(6));
     } else {
-      const spark = this.add.image(-subFs * 2.2, 0, 'icon-spark').setDisplaySize(subFs * 1.2, subFs * 1.2);
-      const txt = this.add.text(-subFs * 1.2, 0, `${item.price}`, {
-        fontFamily: PIXELIFY, fontSize: `${subFs + 2}px`,
-        color: this.sparks >= item.price ? C.GOLD : C.RED,
+      const priceFs = subFs + 4;
+      const iconSz = priceFs * 1.15;
+      const txt = this.add.text(0, 0, `${item.price}`, {
+        fontFamily: PIXELIFY, fontSize: `${priceFs}px`, fontStyle: 'bold',
+        color: canAfford ? C.GOLD : C.RED_DEEP,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
+      const rowW = iconSz + 8 + txt.width;
+      const spark = this.add.image(-rowW / 2 + iconSz / 2, 0, 'icon-spark').setDisplaySize(iconSz, iconSz);
+      txt.setX(-rowW / 2 + iconSz + 8);
       els.push(this.add.container(cx, statusY, [spark, txt]).setDepth(6));
     }
 
     // CTA scales with the detail area; the adaptive button shell handles
     // sub-65px heights with the small-corner pieces.
     const btnW = Math.min(w, Math.max(150, Math.round(w * 0.92)));
-    const btnH = Math.max(50, Math.min(64, Math.round(h * 0.34)));
-    const btnY = cy + h * 0.30;
-    const canAfford = this.sparks >= item.price;
+    const btnH = Math.max(52, Math.min(68, Math.round(h * 0.34)));
+    const btnY = cy + h * 0.32;
+    const ctaFs = Math.max(15, Math.round(btnH * 0.30));
     let cta: Phaser.GameObjects.Container;
     if (equipped) {
       cta = addBeigeButton(this, {
         x: cx, y: btnY, width: btnW, height: btnH,
-        label: 'Equipped', fontFamily: PIXELIFY, disabled: true,
+        label: 'Equipped', fontSize: ctaFs, fontFamily: PIXELIFY, disabled: true,
       });
     } else if (owned) {
       cta = addBeigeButton(this, {
         x: cx, y: btnY, width: btnW, height: btnH,
-        label: 'Equip', iconKey: 'icon-check', fontFamily: PIXELIFY,
+        label: 'Equip', iconKey: 'icon-check', fontSize: ctaFs, fontFamily: PIXELIFY,
         onClick: () => void this.equipItem(item),
       });
     } else {
@@ -428,7 +440,7 @@ export class Shop extends Phaser.Scene {
         x: cx, y: btnY, width: btnW, height: btnH,
         label: canAfford ? `Buy  ${item.price}` : 'Need more',
         iconKey: canAfford ? 'icon-spark' : 'icon-lock',
-        fontFamily: PIXELIFY, disabled: !canAfford,
+        fontSize: ctaFs, fontFamily: PIXELIFY, disabled: !canAfford,
         ...(canAfford ? { onClick: () => this.showBuyConfirm(item) } : {}),
       });
     }
@@ -437,15 +449,16 @@ export class Shop extends Phaser.Scene {
     els.push(cta);
   }
 
-  // ── Category tabs: icon above label, active tab full-strength with green
-  // label, inactive tabs dimmed ──────────────────────────────────────────────
+  // ── Category tabs: icon + label, active tab highlighted with a warm gold
+  // tint and bold green label. Inactive tabs stay fully opaque — the old alpha
+  // fade let the pink background bleed through and made the labels illegible ──
   private buildCategoryTabs(rects: Rect[], els: Phaser.GameObjects.GameObject[]) {
     CATEGORIES.forEach((cat, i) => {
       const r = rects[i];
       if (!r) return;
       const active = cat === this.activeCategory;
-      const fs = Math.max(10, Math.min(15, Math.round(r.h * 0.185)));
-      const iconSz = Math.round(r.h * 0.32);
+      const fs = Math.max(12, Math.min(18, Math.round(r.h * 0.22)));
+      const iconSz = Math.round(r.h * 0.38);
 
       const shell = addBeigeButtonShell(this, r.x, r.y, r.w, r.h, false, () => {
         if (this.activeCategory === cat) return;
@@ -454,7 +467,7 @@ export class Shop extends Phaser.Scene {
         this.buildUI();
       });
       shell.container.setDepth(6);
-      if (!active) shell.visual.setAlpha(0.55);
+      if (active) shell.setTint(C.TAB_ACTIVE);
 
       // Icon + label side by side, vertically centered — stacked layouts push
       // content into the button's thick corner-border zone and look clipped.
@@ -462,11 +475,12 @@ export class Shop extends Phaser.Scene {
         fontFamily: PIXELIFY,
         fontSize: `${fs}px`,
         color: active ? C.GREEN_DARK : C.TEXT_DARK,
+        fontStyle: active ? 'bold' : 'normal',
         shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
-      const totalW = iconSz + 6 + label.width;
+      const totalW = iconSz + 7 + label.width;
       const icon = addDepthIcon(this, -totalW / 2 + iconSz / 2, 0, CAT_ICONS[cat], iconSz, iconSz);
-      label.setX(-totalW / 2 + iconSz + 6);
+      label.setX(-totalW / 2 + iconSz + 7);
       shell.addContent([icon, label]);
 
       els.push(shell.container);
@@ -586,17 +600,20 @@ export class Shop extends Phaser.Scene {
   private buildItemCard(size: number, item: ShopItem, owned: boolean, equipped: boolean, selected: boolean): Phaser.GameObjects.Container {
     // Opaque beige slab (the flat-slot texture addBeigeCard uses is ~80%
     // transparent, which read as near-black over the dark grid panel). Natural
-    // button-face beige for the default state; tint only marks state.
+    // button-face beige for the default state; a warm gold tint marks the
+    // selected card. (Equipped used to green-tint the whole slab, but green
+    // multiplied over the beige face turned the card a muddy olive.)
     const bg = addBeigeSolidCard(this, 0, 0, size, size);
-    if (equipped) bg.setTint(C.CARD_EQUIP);
-    else if (selected) bg.setTint(C.CARD_SELECTED);
+    if (selected) bg.setTint(C.CARD_SELECTED);
 
     const content: Phaser.GameObjects.GameObject[] = [bg];
 
     // Translucent slot inset behind the art — over the beige slab it reads as
-    // a subtly darker plate that frames the customization art.
+    // a subtly darker plate that frames the customization art. Equipped tints
+    // the plate green (plus check badge + green label) instead of the slab.
     const plate = addBeigeCard(this, 0, -size * 0.11, size * 0.82, size * 0.58);
-    if (selected) plate.setTint(0xE0B550);
+    if (equipped) plate.setTint(C.PLATE_EQUIP);
+    else if (selected) plate.setTint(0xE0B550);
     content.push(plate);
 
     // The customization art is the card's hero — keep it as large as the
@@ -604,31 +621,38 @@ export class Shop extends Phaser.Scene {
     const iconSize = size * 0.56;
     content.push(this.add.image(0, -size * 0.11, item.iconKey).setDisplaySize(iconSize, iconSize));
 
-    const lbl = this.add.text(0, size * 0.225, item.label, {
+    const lbl = this.add.text(0, size * 0.20, item.label, {
       fontFamily: PIXELIFY,
-      fontSize: `${Math.max(11, Math.round(size * 0.085))}px`,
-      color: C.TEXT_DARK,
+      fontSize: `${Math.max(12, Math.round(size * 0.095))}px`,
+      color: equipped ? C.GREEN_DARK : C.TEXT_DARK,
+      fontStyle: 'bold',
       align: 'center',
       wordWrap: { width: size - 14 },
+      shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5, 0);
     content.push(lbl);
 
     const badgeX = size / 2 - size * 0.14;
     const badgeY = -size / 2 + size * 0.14;
     if (equipped) {
-      content.push(addDepthIcon(this, badgeX, badgeY, 'icon-check', size * 0.17, size * 0.17));
+      content.push(addDepthIcon(this, badgeX, badgeY, 'icon-check', size * 0.18, size * 0.18));
     } else if (!owned) {
       content.push(addDepthIcon(this, badgeX, badgeY, 'icon-lock', size * 0.20, size * 0.20));
-      // Price row — kept above the card's bottom corner bevel
-      const priceFs = Math.max(10, Math.round(size * 0.09));
-      const spark = this.add.image(-size * 0.10, size * 0.375, 'icon-spark')
-        .setDisplaySize(size * 0.13, size * 0.13);
-      const priceTxt = this.add.text(-size * 0.02, size * 0.375, `${item.price}`, {
+      // Price row — measured and centered as a group, kept above the card's
+      // bottom corner bevel
+      const priceFs = Math.max(11, Math.round(size * 0.10));
+      const sparkSz = size * 0.15;
+      const priceTxt = this.add.text(0, size * 0.385, `${item.price}`, {
         fontFamily: PIXELIFY,
         fontSize: `${priceFs}px`,
-        color: this.sparks >= item.price ? C.GOLD : C.RED,
+        fontStyle: 'bold',
+        color: this.sparks >= item.price ? C.GOLD : C.RED_DEEP,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
+      const rowW = sparkSz + 5 + priceTxt.width;
+      const spark = this.add.image(-rowW / 2 + sparkSz / 2, size * 0.385, 'icon-spark')
+        .setDisplaySize(sparkSz, sparkSz);
+      priceTxt.setX(-rowW / 2 + sparkSz + 5);
       content.push(spark, priceTxt);
     }
 

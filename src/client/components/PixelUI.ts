@@ -171,6 +171,9 @@ export type BeigeButtonShell = {
   container: Phaser.GameObjects.Container;
   visual: Phaser.GameObjects.Container;
   addContent: (items: Phaser.GameObjects.GameObject[]) => void;
+  // Persistent tint over the shell pieces (undefined clears it). Survives
+  // hover/press feedback — use it for state highlights like an active tab.
+  setTint: (color?: number) => void;
 };
 
 // Hover/press tints for the small-corner variant, which only ships an 'open'
@@ -206,10 +209,16 @@ export function addBeigeButtonShell(
   const visual = scene.add.container(0, 0, bgPieces as Phaser.GameObjects.GameObject[]);
   const container = scene.add.container(rx, ry, [visual]).setSize(Math.max(W, 44), Math.max(H, 44));
 
+  // Caller-set persistent tint (state highlight). The small variant's hover and
+  // press feedback also tints, so it must restore this instead of clearTint().
+  let baseTint: number | undefined;
+  const applyTint = (tint: number | undefined) =>
+    bgPieces.forEach(p => (tint === undefined ? p.clearTint() : p.setTint(tint)));
+
   const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') => {
     if (small) {
-      const tint = state === 'btn-hover' ? SM_TINT_HOVER : state === 'btn-press' ? SM_TINT_PRESS : undefined;
-      bgPieces.forEach(p => (tint === undefined ? p.clearTint() : p.setTint(tint)));
+      const tint = state === 'btn-hover' ? SM_TINT_HOVER : state === 'btn-press' ? SM_TINT_PRESS : baseTint;
+      applyTint(tint);
       return;
     }
     SLICE_POS.forEach((pos, i) =>
@@ -248,7 +257,12 @@ export function addBeigeButtonShell(
       });
   }
 
-  return { container, visual, addContent: (items) => visual.add(items) };
+  return {
+    container,
+    visual,
+    addContent: (items) => visual.add(items),
+    setTint: (color?: number) => { baseTint = color; applyTint(baseTint); },
+  };
 }
 
 // Beige rounded button with dark-brown text (new design language)
