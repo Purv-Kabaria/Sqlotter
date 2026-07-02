@@ -2,13 +2,17 @@ import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
 import {
   addBeigeButton, addBeigeButtonShell, addBeigeCard, addBeigeSolidCard, addDarkPanel, addDepthIcon, addPanel9,
-  applyRectClip,
+  applyRectClip, PIXEL_FONT,
 } from '../components/PixelUI';
 import { SHOP_ITEMS } from '../../shared/shop';
 import type { ShopCategory, ShopItem } from '../../shared/shop';
 import type { BuyResponse, EquipResponse, ProfileResponse } from '../../shared/api';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
+// Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
+// ambiguously) — used for every text run that's purely digits (prices, the
+// sparks counter). Labels/words stay in PIXELIFY.
+const NUM_FONT = PIXEL_FONT;
 
 const C = {
   BG:        0x232323,
@@ -101,7 +105,6 @@ export class Shop extends Phaser.Scene {
   // category so switching tabs still starts fresh, but rebuilding for the
   // SAME category (equip, buy, resize) restores where you were.
   private scrollOffsetByCategory: Partial<Record<ShopCategory, number>> = {};
-
   private dragState: DragState = { active: false, startPointerY: 0, startOffset: 0, moved: 0, downRecord: null };
 
   private onPointerMoveBound = (p: Phaser.Input.Pointer) => this.onGlobalPointerMove(p);
@@ -350,8 +353,7 @@ export class Shop extends Phaser.Scene {
     els.push(this.buildIconButton(x0 + homeSize / 2, y, homeSize, 'icon-home', () => this.goToMenu()).setDepth(15));
 
     const pillH = Math.max(34, Math.min(56, Math.round(headerH * 0.72)));
-    const pillW = Math.max(90, Math.min(150, Math.round((x1 - x0) * 0.26)));
-    this.buildSparksPill(x1 - pillW / 2, y, pillW, pillH, els);
+    this.buildSparksPill(x1, y, pillH, els);
 
     // SHOP wordmark, centered between the buttons
     const fs = Math.max(20, Math.min(30, Math.round(headerH * 0.40)));
@@ -427,7 +429,7 @@ export class Shop extends Phaser.Scene {
       const priceFs = subFs + 4;
       const iconSz = priceFs * 1.15;
       const txt = this.add.text(0, 0, `${item.price}`, {
-        fontFamily: PIXELIFY, fontSize: `${priceFs}px`, fontStyle: 'bold',
+        fontFamily: NUM_FONT, fontSize: `${priceFs}px`,
         color: canAfford ? C.GOLD : C.RED_DEEP,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
@@ -461,7 +463,7 @@ export class Shop extends Phaser.Scene {
         x: cx, y: btnY, width: btnW, height: btnH,
         label: canAfford ? `Buy  ${item.price}` : 'Need more',
         iconKey: canAfford ? 'icon-spark' : 'icon-lock',
-        fontSize: ctaFs, fontFamily: PIXELIFY, disabled: !canAfford, forceSmall: true,
+        fontSize: ctaFs, fontFamily: canAfford ? NUM_FONT : PIXELIFY, disabled: !canAfford, forceSmall: true,
         ...(canAfford ? { onClick: () => this.showBuyConfirm(item) } : {}),
       });
     }
@@ -510,18 +512,30 @@ export class Shop extends Phaser.Scene {
     });
   }
 
-  private buildSparksPill(x: number, y: number, w: number, h: number, els: Phaser.GameObjects.GameObject[]) {
+  // Sized around the measured sparks text rather than a fixed proportional
+  // width — Press Start 2P (NUM_FONT) runs much wider per character than
+  // Pixelify Sans, and a fixed-width pill clipped a digit once the balance
+  // hit 5 figures (easily reached now that shop items price into the tens
+  // of thousands). `rightX` anchors the pill's right edge in place since its
+  // width is now only known after the text is measured.
+  private buildSparksPill(rightX: number, y: number, h: number, els: Phaser.GameObjects.GameObject[]) {
     const fs = Math.max(10, Math.round(h * 0.32));
     const iconSz = Math.max(12, Math.round(h * 0.42));
+    const pad = Math.round(h * 0.32);
+
+    this.sparksText = this.add.text(0, -1, `${this.sparks}`, {
+      fontFamily: NUM_FONT, fontSize: `${fs}px`, color: C.TEXT_DARK,
+      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+    }).setOrigin(0, 0.5);
+
+    const w = Math.max(90, iconSz + 6 + this.sparksText.width + pad * 2);
+    const x = rightX - w / 2;
     // Non-interactive (no onClick) — the adaptive shell inside addBeigeButton
     // picks small-corner pieces automatically below the 65px asset floor.
     const button = addBeigeButton(this, { x, y, width: w, height: h, label: '', fontSize: fs, fontFamily: PIXELIFY })
       .setDepth(12);
-    const icon = addDepthIcon(this, -w * 0.24, -1, 'icon-spark', iconSz, iconSz);
-    this.sparksText = this.add.text(-w * 0.24 + iconSz * 0.6 + 5, -1, `${this.sparks}`, {
-      fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.TEXT_DARK,
-      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0, 0.5);
+    const icon = addDepthIcon(this, -w / 2 + pad + iconSz / 2, -1, 'icon-spark', iconSz, iconSz);
+    this.sparksText.setPosition(-w / 2 + pad + iconSz + 6, -1);
     button.add([icon, this.sparksText]);
     els.push(button);
   }
@@ -679,9 +693,8 @@ export class Shop extends Phaser.Scene {
       const priceFs = Math.max(11, Math.round(size * 0.10));
       const sparkSz = size * 0.15;
       const priceTxt = this.add.text(0, size * 0.40, `${item.price}`, {
-        fontFamily: PIXELIFY,
+        fontFamily: NUM_FONT,
         fontSize: `${priceFs}px`,
-        fontStyle: 'bold',
         color: this.sparks >= item.price ? C.GOLD : C.RED_DEEP,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
@@ -946,7 +959,7 @@ export class Shop extends Phaser.Scene {
     const priceFs = Math.max(13, Math.min(18, Math.round(popW * 0.055)));
     const priceIconSz = priceFs * 1.1;
     const priceTxt = this.add.text(0, popH * 0.25, `${item.price}`, {
-      fontFamily: PIXELIFY, fontSize: `${priceFs}px`, color: C.GOLD, fontStyle: 'bold',
+      fontFamily: NUM_FONT, fontSize: `${priceFs}px`, color: C.GOLD,
       shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
     }).setOrigin(0, 0.5);
     const priceRowW = priceIconSz + 6 + priceTxt.width;
