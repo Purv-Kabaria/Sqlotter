@@ -415,7 +415,9 @@ api.post('/user/equip', async (c) => {
     return c.json<Err>({ status: 'error', message: 'Invalid item or slot' }, 400);
   }
   const unlocked = parseStringArray(allFields['unlocked']);
-  const ownsItem = unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1';
+  // Free items (the default color) are owned by everyone without ever being
+  // purchased — never persisted to `unlocked`.
+  const ownsItem = item.price === 0 || unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1';
   if (!ownsItem) return c.json<Err>({ status: 'error', message: 'Item is not owned' }, 403);
   const equipped = parseStringRecord(allFields['equipped']);
   equipped[item.slot] = item.id;
@@ -440,7 +442,7 @@ api.post('/user/buy', async (c) => {
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
   const unlocked = parseStringArray(allFields['unlocked']);
   const sparks = parseInt((await redis.get(sparksKey)) ?? '0', 10);
-  if (unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1') {
+  if (item.price === 0 || unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1') {
     return c.json<BuyResponse>({ sparks, unlockedItems: unlocked });
   }
   if (sparks < item.price) return c.json<Err>({ status: 'error', message: 'Insufficient Sparks' }, 402);

@@ -1,5 +1,7 @@
 import * as Phaser from 'phaser';
-import { paintOverlayShine } from './overlayShine';
+import { paintOverlayShine, paintGradientShine } from './overlayShine';
+import { getShopItem } from '../../shared/shop';
+import type { ShopColor } from '../../shared/shop';
 
 export type SplotExpression = 'happy' | 'excited' | 'sad' | 'shocked' | 'doubt' | 'pain' | 'kiss' | 'squiggle';
 
@@ -55,6 +57,13 @@ export class SplotMascot {
   // this flag, which flips as soon as the container is destroyed.
   private destroyed = false;
 
+  // The tint this mascot was constructed with — the fallback whenever no
+  // shop color item is equipped (or the equipped one is somehow missing).
+  private defaultBlobColorNum: number;
+
+  private sparkleImgs: Phaser.GameObjects.Image[] = [];
+  private sparkleActive = false;
+
   constructor(
     scene: Phaser.Scene, x: number, y: number, size: number,
     equipped: Record<string, string> = {},
@@ -64,6 +73,7 @@ export class SplotMascot {
     this.scene = scene;
     this.useCssShadow = useCssShadow;
     this.size = size;
+    this.defaultBlobColorNum = blobColor ?? DEFAULT_BLOB_COLOR;
 
     const s = size;
     const mk = (key: string, depth: number, vis = true) =>
@@ -80,16 +90,10 @@ export class SplotMascot {
     }
     // Body is baked (tint + genuine overlay-blended shine) into a texture rather than
     // tinted live — see overlayShine.ts for why a plain Phaser tint + BlendModes.OVERLAY
-    // can't do this under WebGL. The bake depends only on the tint, so the texture is
-    // keyed by color and shared across instances — scenes rebuild their mascot on every
-    // resize/data refresh, and re-baking a 512×512 texture per rebuild leaked textures
-    // and janked the rebuild.
-    const tint = blobColor ?? DEFAULT_BLOB_COLOR;
-    const blobShineKey = `char-shine-tex-${tint.toString(16).padStart(6, '0')}`;
-    if (!scene.textures.exists(blobShineKey)) {
-      paintOverlayShine(scene, blobShineKey, 'char-blob', 'char-shine', tint, 0.5);
-    }
-    this.blob      = mk(blobShineKey,        10);
+    // can't do this under WebGL. Keyed by color (or gradient stops) and shared across
+    // instances — scenes rebuild their mascot on every resize/data refresh, and
+    // re-baking a 512×512 texture per rebuild leaked textures and janked the rebuild.
+    this.blob      = mk(this.bakeBlobTexture(undefined), 10);
     this.mouth     = mk('char-mouth-smile',  20);
     this.blush     = mk('char-blush',        22, false);
     this.cry       = mk('char-cry',          22, false);
@@ -107,6 +111,7 @@ export class SplotMascot {
     this.container.once(Phaser.GameObjects.Events.DESTROY, () => {
       this.destroyed = true;
       this.stopIdleAnims();
+      this.stopSparkle();
       this.revertTimer?.remove();
       this.revertTimer = null;
     });
@@ -122,6 +127,25 @@ export class SplotMascot {
     img.setTexture(this.scene.textures.exists(key) ? key : fallback);
   }
 
+  // Resolves — baking and caching if needed — the blob texture for a color
+  // slot value. `color` undefined (no color item equipped, or an unknown
+  // item id) falls back to the tint this mascot was constructed with.
+  private bakeBlobTexture(color: ShopColor | undefined): string {
+    if (color?.stops && color.stops.length >= 2) {
+      const key = `char-shine-tex-grad-${color.stops.map(s => s.replace('#', '')).join('-')}`;
+      if (!this.scene.textures.exists(key)) {
+        paintGradientShine(this.scene, key, 'char-blob', 'char-shine', color.stops, 0.5);
+      }
+      return key;
+    }
+    const hexNum = color?.hex ? parseInt(color.hex.replace('#', ''), 16) : this.defaultBlobColorNum;
+    const key = `char-shine-tex-${hexNum.toString(16).padStart(6, '0')}`;
+    if (!this.scene.textures.exists(key)) {
+      paintOverlayShine(this.scene, key, 'char-blob', 'char-shine', hexNum, 0.5);
+    }
+    return key;
+  }
+
   private applyEquipped(items: Record<string, string>) {
     if (items.eye)   this.setPartTexture(this.eye, `char-${items.eye}`, 'char-eye-normal');
     this.setPartTexture(this.eyebrow, items.eyebrow ? `char-${items.eyebrow}` : 'char-brow-normal', 'char-brow-normal');
@@ -133,6 +157,10 @@ export class SplotMascot {
         this.accessory.setTexture(key).setVisible(true);
       }
     }
+
+    const colorItem = items.color ? getShopItem(items.color) : undefined;
+    this.blob.setTexture(this.bakeBlobTexture(colorItem?.color));
+    this.setSparkle(colorItem?.color?.sparkle === true);
   }
 
   refresh(equipped: Record<string, string>) {
@@ -296,5 +324,45 @@ export class SplotMascot {
     } else {
       this.shadow.setDisplaySize(s, s);
     }
+    // Sparkle positions/sizes are computed once from `size` at spawn time —
+    // restart them so a rare color's shimmer stays anchored after a resize.
+    if (this.sparkleActive) {
+      this.stopSparkle();
+      this.startSparkle();
+    }
+  }
+
+  // Toggles the shimmering particle flourish rare color variants (Silver
+  // Sparkle, Opal Shimmer, Golden) add on top of their tint.
+  private setSparkle(on: boolean) {
+    if (on === this.sparkleActive) return;
+    this.sparkleActive = on;
+    if (on) this.startSparkle(); else this.stopSparkle();
+  }
+
+  private startSparkle() {
+    if (this.destroyed || !this.scene.textures.exists('icon-sparkle')) return;
+    const count = 4;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      const radius = this.size * (0.32 + Math.random() * 0.14);
+      const sx = Math.cos(angle) * radius;
+      const sy = Math.sin(angle) * radius * 0.7; // flatten to the blob's rounder silhouette
+      const spark = this.scene.add.image(sx, sy, 'icon-sparkle')
+        .setDisplaySize(this.size * 0.09, this.size * 0.09)
+        .setDepth(62).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
+      this.container.add(spark);
+      this.sparkleImgs.push(spark);
+      this.scene.tweens.add({
+        targets: spark,
+        alpha: { from: 0, to: 0.9 }, scaleX: { from: 0.4, to: 1 }, scaleY: { from: 0.4, to: 1 },
+        duration: 550, yoyo: true, repeat: -1, delay: i * 260 + Math.random() * 300, ease: 'Sine.easeInOut',
+      });
+    }
+  }
+
+  private stopSparkle() {
+    this.sparkleImgs.forEach(s => { this.scene.tweens.killTweensOf(s); s.destroy(); });
+    this.sparkleImgs = [];
   }
 }

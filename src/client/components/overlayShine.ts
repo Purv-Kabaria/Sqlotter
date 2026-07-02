@@ -86,3 +86,64 @@ export function paintOverlayShine(
   tex.refresh();
   return outKey;
 }
+
+// Same idea as paintOverlayShine, but the "tint" is a top-to-bottom multi-stop
+// gradient instead of one flat color — used for the shop's rare gradient/
+// rainbow color variants, where a single hex can't represent the effect.
+// Renders the gradient into a same-size scratch canvas via the standard 2D
+// Canvas API (createLinearGradient), then reads it back as a per-pixel tint
+// source for the identical overlay-blend loop paintOverlayShine uses.
+export function paintGradientShine(
+  scene: Phaser.Scene,
+  outKey: string,
+  baseKey: string,
+  shineKey: string,
+  stops: string[],
+  amount: number,
+): string {
+  const nativeSize = scene.textures.get(baseKey).getSourceImage().width;
+
+  const gradCanvas = document.createElement('canvas');
+  gradCanvas.width = nativeSize;
+  gradCanvas.height = nativeSize;
+  const gradCtx = gradCanvas.getContext('2d')!;
+  const grad = gradCtx.createLinearGradient(0, 0, 0, nativeSize);
+  stops.forEach((hex, i) => grad.addColorStop(i / (stops.length - 1), hex));
+  gradCtx.fillStyle = grad;
+  gradCtx.fillRect(0, 0, nativeSize, nativeSize);
+  const gradData = gradCtx.getImageData(0, 0, nativeSize, nativeSize).data;
+
+  const baseData  = readPixels(scene, baseKey, nativeSize);
+  const shineData = readPixels(scene, shineKey, nativeSize);
+
+  const existing = scene.textures.exists(outKey) ? scene.textures.get(outKey) : null;
+  const tex = (existing && existing.key !== '__MISSING')
+    ? existing as Phaser.Textures.CanvasTexture
+    : scene.textures.createCanvas(outKey, nativeSize, nativeSize)!;
+  if (tex.width !== nativeSize || tex.height !== nativeSize) tex.setSize(nativeSize, nativeSize);
+
+  const bd = baseData.data;
+  const sd = shineData.data;
+  const out = tex.context.createImageData(nativeSize, nativeSize);
+  const od = out.data;
+
+  for (let i = 0; i < bd.length; i += 4) {
+    const backdrop = {
+      r: bd[i]! * (gradData[i]! / 255),
+      g: bd[i + 1]! * (gradData[i + 1]! / 255),
+      b: bd[i + 2]! * (gradData[i + 2]! / 255),
+      a: bd[i + 3]! / 255,
+    };
+    const source  = { r: sd[i]!, g: sd[i + 1]!, b: sd[i + 2]!, a: sd[i + 3]! / 255 };
+    const blended = overlay(backdrop, source);
+
+    od[i]     = backdrop.r + (blended.r - backdrop.r) * amount;
+    od[i + 1] = backdrop.g + (blended.g - backdrop.g) * amount;
+    od[i + 2] = backdrop.b + (blended.b - backdrop.b) * amount;
+    od[i + 3] = (backdrop.a + (blended.a - backdrop.a) * amount) * 255;
+  }
+
+  tex.context.putImageData(out, 0, 0);
+  tex.refresh();
+  return outKey;
+}

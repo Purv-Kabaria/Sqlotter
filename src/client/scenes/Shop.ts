@@ -31,12 +31,13 @@ const C = {
 } as const;
 
 // Order drives both tab render order and default active category (first = default).
-const CATEGORIES: ShopCategory[] = ['brows', 'eyes', 'mouth', 'accessories'];
+const CATEGORIES: ShopCategory[] = ['brows', 'eyes', 'mouth', 'accessories', 'colors'];
 const CAT_LABELS: Record<ShopCategory, string> = {
   eyes: 'Eyes',
   mouth: 'Mouths',
   brows: 'Brows',
   accessories: 'Extras',
+  colors: 'Colors',
 };
 type Rect = { x: number; y: number; w: number; h: number };
 
@@ -228,12 +229,18 @@ export class Shop extends Phaser.Scene {
     return SHOP_ITEMS.find(it => it.id === this.selectedItemId) ?? null;
   }
 
+  // Free items (the default color) are owned by everyone without ever being
+  // purchased, so they're never in the server-persisted unlocked set.
+  private isOwned(item: ShopItem): boolean {
+    return item.price === 0 || this.unlockedItems.has(item.id);
+  }
+
   // What Splot wears right now: equipped items, plus the armed (selected but
   // unowned) item layered on top so try-ons survive UI rebuilds instead of
   // vanishing the moment the pointer lifts.
   private previewedEquipment(): Record<string, string> {
     const sel = this.selectedItem();
-    if (sel && !this.unlockedItems.has(sel.id)) {
+    if (sel && !this.isOwned(sel)) {
       return { ...this.equippedItems, [sel.slot]: sel.id };
     }
     return this.equippedItems;
@@ -274,9 +281,12 @@ export class Shop extends Phaser.Scene {
     const gridX = splitX + pad;
     const gridW = rightW - pad * 2;
     const gridH = Math.max(80, h - gridTop - pad);
-    // Categories hold 3–5 items — fewer, larger cards showcase the art better
-    // than a wide grid of small ones.
-    const cols = this.computeCols(gridW, 200, 20, 3);
+    // Most categories hold 3–5 items — fewer, larger cards showcase the art
+    // better than a wide grid of small ones. Colors holds 30 plain swatches,
+    // which read fine smaller, so it gets a denser grid instead of 10 rows
+    // of mostly-scrolled-past cards.
+    const isColors = this.activeCategory === 'colors';
+    const cols = this.computeCols(gridW, isColors ? 110 : 200, isColors ? 14 : 20, isColors ? 5 : 3);
     this.buildScrollGrid(gridX, gridTop, gridW, gridH, cols, els);
   }
 
@@ -301,7 +311,7 @@ export class Shop extends Phaser.Scene {
     this.spawnSplot(pad + panelW * 0.27, panelY + panelH * 0.02, splotSz, els);
     this.buildDetailArea(pad + panelW * 0.72, panelY, panelW * 0.50, panelH - 26, els);
 
-    // Category tabs — one row of 4 (icons keep the labels short enough)
+    // Category tabs — one row spanning all categories
     const tabsTop = panelY + panelH / 2 + 12;
     const tabGap = 8;
     const tabW = (panelW - tabGap * (CATEGORIES.length - 1)) / CATEGORIES.length;
@@ -314,7 +324,8 @@ export class Shop extends Phaser.Scene {
     const gridTop = tabsTop + tabH + 12;
     const gridW = w - pad * 2;
     const gridH = Math.max(120, h - gridTop - pad);
-    const cols = this.computeCols(gridW, 140, 14, 3);
+    const isColors = this.activeCategory === 'colors';
+    const cols = this.computeCols(gridW, isColors ? 90 : 140, isColors ? 10 : 14, isColors ? 4 : 3);
     this.buildScrollGrid(pad, gridTop, gridW, gridH, cols, els);
   }
 
@@ -376,7 +387,7 @@ export class Shop extends Phaser.Scene {
       return;
     }
 
-    const owned = this.unlockedItems.has(item.id);
+    const owned = this.isOwned(item);
     const equipped = this.equippedItems[item.slot] === item.id;
     const canAfford = this.sparks >= item.price;
 
@@ -548,7 +559,7 @@ export class Shop extends Phaser.Scene {
       const cx = offsetX + col * (cardSize + gap) + cardSize / 2;
       const cy = row * (cardSize + gap) + cardSize / 2;
 
-      const owned = this.unlockedItems.has(item.id);
+      const owned = this.isOwned(item);
       const equipped = this.equippedItems[item.slot] === item.id;
       const selected = this.selectedItemId === item.id;
 
@@ -609,13 +620,20 @@ export class Shop extends Phaser.Scene {
     if (equipped) plate.setTint(C.PLATE_EQUIP);
     content.push(plate);
 
-    // The customization art is the card's hero — sized to fill most of the
-    // plate. All character-part source images share a 128×128 canvas cropped
-    // to the mascot's full head (so layers align when composited on Splot),
-    // meaning a lot of any single icon's frame is transparent margin; sizing
-    // it up here scales the drawn glyph right along with that margin.
-    const iconSize = size * 0.66;
-    content.push(this.add.image(0, -size * 0.09, item.iconKey).setDisplaySize(iconSize, iconSize));
+    if (item.category === 'colors') {
+      // A plain painted swatch reads better as a circle than a square icon —
+      // it's immediately legible as "a color," not "a wearable part."
+      const swatchSize = size * 0.5;
+      content.push(this.add.image(0, -size * 0.09, this.getColorSwatchTexture(item)).setDisplaySize(swatchSize, swatchSize));
+    } else {
+      // The customization art is the card's hero — sized to fill most of the
+      // plate. All character-part source images share a 128×128 canvas cropped
+      // to the mascot's full head (so layers align when composited on Splot),
+      // meaning a lot of any single icon's frame is transparent margin; sizing
+      // it up here scales the drawn glyph right along with that margin.
+      const iconSize = size * 0.66;
+      content.push(this.add.image(0, -size * 0.09, item.iconKey).setDisplaySize(iconSize, iconSize));
+    }
 
     const lbl = this.add.text(0, size * 0.24, item.label, {
       fontFamily: PIXELIFY,
@@ -662,6 +680,39 @@ export class Shop extends Phaser.Scene {
     }
 
     return this.add.container(0, 0, content).setSize(size, size);
+  }
+
+  // Colors-category cards/popups paint a swatch instead of item.iconKey (an
+  // unused placeholder for these entries) — a solid fill for ordinary colors,
+  // or a baked gradient for the rare stops-based ones. Circle/Rectangle shape
+  // GameObjects can't fill a multi-stop gradient natively, so this bakes a
+  // small canvas texture (same technique as the mascot's own tint bake) and
+  // caches it by item id since the same item is drawn repeatedly (grid card,
+  // buy-confirm popup, and again on every scene rebuild).
+  private getColorSwatchTexture(item: ShopItem): string {
+    const key = `swatch-${item.id}`;
+    if (this.textures.exists(key)) return key;
+    const size = 96;
+    const stops = item.color?.stops;
+    if (stops && stops.length >= 2) {
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      const grad = ctx.createLinearGradient(0, 0, 0, size);
+      stops.forEach((hex, i) => grad.addColorStop(i / (stops.length - 1), hex));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.fill();
+      this.textures.addCanvas(key, canvas);
+    } else {
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      g.fillStyle(Phaser.Display.Color.HexStringToColor(item.color?.hex ?? '#FFFFFF').color, 1);
+      g.fillCircle(size / 2, size / 2, size / 2);
+      g.generateTexture(key, size, size);
+      g.destroy();
+    }
+    return key;
   }
 
   private hitTestCard(px: number, py: number): CardRecord | null {
@@ -825,7 +876,7 @@ export class Shop extends Phaser.Scene {
   private async buyThenEquip(item: ShopItem) {
     await this.buyItem(item);
     if (this.navigating) return;
-    if (this.unlockedItems.has(item.id) && this.equippedItems[item.slot] !== item.id) {
+    if (this.isOwned(item) && this.equippedItems[item.slot] !== item.id) {
       await this.equipItem(item, true);
     }
   }
@@ -855,7 +906,8 @@ export class Shop extends Phaser.Scene {
     }).setOrigin(0.5));
 
     const iconSize = Math.max(48, Math.min(popW * 0.28, popH * 0.30, 96));
-    content.push(this.add.image(0, -popH * 0.11, item.iconKey).setDisplaySize(iconSize, iconSize));
+    const previewKey = item.category === 'colors' ? this.getColorSwatchTexture(item) : item.iconKey;
+    content.push(this.add.image(0, -popH * 0.11, previewKey).setDisplaySize(iconSize, iconSize));
 
     const labelFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
     content.push(this.add.text(0, popH * 0.13, item.label, {
