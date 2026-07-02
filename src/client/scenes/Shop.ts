@@ -427,8 +427,9 @@ export class Shop extends Phaser.Scene {
       els.push(this.add.container(cx, statusY, [spark, txt]).setDepth(6));
     }
 
-    // CTA scales with the detail area; the adaptive button shell handles
-    // sub-65px heights with the small-corner pieces.
+    // CTA scales with the detail area. forceSmall keeps the thinner corner
+    // asset even once btnH clears the 65px auto-threshold — same tablet-sizing
+    // fix as the category tabs above.
     const btnW = Math.min(w, Math.max(150, Math.round(w * 0.92)));
     const btnH = Math.max(52, Math.min(68, Math.round(h * 0.34)));
     const btnY = cy + h * 0.32;
@@ -437,12 +438,12 @@ export class Shop extends Phaser.Scene {
     if (equipped) {
       cta = addBeigeButton(this, {
         x: cx, y: btnY, width: btnW, height: btnH,
-        label: 'Equipped', fontSize: ctaFs, fontFamily: PIXELIFY, disabled: true,
+        label: 'Equipped', fontSize: ctaFs, fontFamily: PIXELIFY, disabled: true, forceSmall: true,
       });
     } else if (owned) {
       cta = addBeigeButton(this, {
         x: cx, y: btnY, width: btnW, height: btnH,
-        label: 'Equip', iconKey: 'icon-check', fontSize: ctaFs, fontFamily: PIXELIFY,
+        label: 'Equip', iconKey: 'icon-check', fontSize: ctaFs, fontFamily: PIXELIFY, forceSmall: true,
         onClick: () => void this.equipItem(item),
       });
     } else {
@@ -450,7 +451,7 @@ export class Shop extends Phaser.Scene {
         x: cx, y: btnY, width: btnW, height: btnH,
         label: canAfford ? `Buy  ${item.price}` : 'Need more',
         iconKey: canAfford ? 'icon-spark' : 'icon-lock',
-        fontSize: ctaFs, fontFamily: PIXELIFY, disabled: !canAfford,
+        fontSize: ctaFs, fontFamily: PIXELIFY, disabled: !canAfford, forceSmall: true,
         ...(canAfford ? { onClick: () => this.showBuyConfirm(item) } : {}),
       });
     }
@@ -465,7 +466,10 @@ export class Shop extends Phaser.Scene {
   // windows, where more tabs sharing the row leaves each one narrower even
   // though the row is taller. The 0.62 factor is this codebase's usual
   // per-character width estimate for PIXELIFY (see LevelSelect's world
-  // title fit). ──────────────────────────────────────────────────────────
+  // title fit). forceSmall keeps the thinner corner asset on tablet-sized
+  // tabs (comfortably over the 65px auto-threshold, but still a compact
+  // control) — the full-size 32px corners were eating proportionally more
+  // of the button than that much text needs, reading as oversized. ────────
   private buildCategoryTabs(rects: Rect[], els: Phaser.GameObjects.GameObject[]) {
     CATEGORIES.forEach((cat, i) => {
       const r = rects[i];
@@ -480,7 +484,7 @@ export class Shop extends Phaser.Scene {
         this.activeCategory = cat;
         this.selectedItemId = null;
         this.buildUI();
-      });
+      }, true);
       shell.container.setDepth(6);
 
       const label = this.add.text(0, 0, labelText, {

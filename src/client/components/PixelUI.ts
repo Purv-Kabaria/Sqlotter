@@ -186,6 +186,7 @@ export function addBeigeButtonShell(
   x: number, y: number, width: number, height: number,
   disabled: boolean,
   onClick?: () => void,
+  forceSmall = false,
 ): BeigeButtonShell {
   // Even dimensions guarantee integer half-widths → no sub-pixel gaps between pieces
   const W = Math.round(width / 2) * 2;
@@ -197,8 +198,12 @@ export function addBeigeButtonShell(
   // pieces, so small screens get proportionally small buttons instead of
   // 66px monsters or corrupted corners. Only the open state exists at this
   // scale, so hover/press feedback tints the pieces instead of swapping
-  // textures (the y/scale tweens are shared by both variants).
-  const small = W < 65 || H < 65;
+  // textures (the y/scale tweens are shared by both variants). `forceSmall`
+  // opts a button into the thinner corners even above the 65px floor — e.g.
+  // compact controls like tabs/CTAs, whose full-size corners at tablet sizes
+  // (comfortably over 65px, but still a modest button) ate proportionally
+  // more of the button than a chunky 32px border should for that content.
+  const small = forceSmall || W < 65 || H < 65;
   const bgPieces = small
     ? build9Pieces(scene, W, H, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm')
     : build9Pieces(scene, W, H, BTN_CW, BTN_CH, disabled ? 'btn-dis' : 'btn-open');
@@ -277,6 +282,9 @@ export type BeigeButtonOptions = {
   fontFamily?: string;
   disabled?: boolean;
   onClick?: () => void;
+  // Use the thinner small-corner asset even above its 65px auto-threshold —
+  // see addBeigeButtonShell's forceSmall.
+  forceSmall?: boolean;
 };
 
 export function addBeigeButton(
@@ -289,11 +297,12 @@ export function addBeigeButton(
     fontFamily = PIXEL_FONT,
     disabled = false,
     onClick,
+    forceSmall = false,
   } = options;
 
   const W = Math.round(width / 2) * 2;
   const H = Math.round(height / 2) * 2;
-  const shell = addBeigeButtonShell(scene, x, y, width, height, disabled, onClick);
+  const shell = addBeigeButtonShell(scene, x, y, width, height, disabled, onClick, forceSmall);
 
   const iconSize = Math.min(H * 0.50, 24);
   const hasIcon  = !!iconKey;
