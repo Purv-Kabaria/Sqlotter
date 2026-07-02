@@ -17,15 +17,18 @@ const C = {
   TEXT_WARM: '#75604C',     // muted brown that stays legible on the beige panels
   TEXT_BEIGE:'#DEC998',
   GOLD:      '#FFD700',
+  GOLD_NUM:  0xFFD700,
   RED:       '#ff5555',     // toasts on dark backgrounds
   RED_DEEP:  '#C62828',     // "can't afford" prices on beige — #ff5555 washed out
   GREEN:     '#6DD400',
+  GREEN_NUM: 0x6DD400,
   GREEN_DARK:'#2E5C0A',
-  CARD_TAN:  0xD9A66C,
-  CARD_PLATE: 0xB8874E,
   PLATE_EQUIP: 0x9FD060,    // green slot plate marks the equipped card
-  CARD_SELECTED: 0xFFD966,
-  TAB_ACTIVE: 0xFFDF9E,     // warm gold highlight on the active category tab
+  // State rings drawn as stroke-only rectangles, not tints — Phaser tint is
+  // multiplicative, so tinting the warm beige button/card texture can only
+  // darken it, which read as a muddy orange instead of an actual highlight.
+  BORDER_SELECTED: 0xFFD700,
+  BORDER_EQUIPPED: 0x4C9A0A,
 } as const;
 
 // Order drives both tab render order and default active category (first = default).
@@ -72,6 +75,11 @@ export class Shop extends Phaser.Scene {
   private sparksText: Phaser.GameObjects.Text | null = null;
   private pendingItemIds: Set<string> = new Set();
 
+  // Toasts are absolutely positioned at build time and never repositioned —
+  // a resize while one is still visible (e.g. rotating the device) would
+  // otherwise leave it floating at stale coordinates from the old layout.
+  private activeToasts: Phaser.GameObjects.Container[] = [];
+
   // Currently selected item — set on every card tap. Owned items equip on tap;
   // unowned items stay "armed" (previewed on Splot + Buy CTA in the detail
   // panel) until bought, deselected, or another item is tapped.
@@ -112,6 +120,7 @@ export class Shop extends Phaser.Scene {
     this.equippedItems = {};
     this.sparksText = null;
     this.pendingItemIds = new Set();
+    this.activeToasts = [];
     this.selectedItemId = null;
     this.activePopup = null;
     this.navigating = false;
@@ -449,9 +458,11 @@ export class Shop extends Phaser.Scene {
     els.push(cta);
   }
 
-  // ── Category tabs: icon + label, active tab highlighted with a warm gold
-  // tint and bold green label. Inactive tabs stay fully opaque — the old alpha
-  // fade let the pink background bleed through and made the labels illegible ──
+  // ── Category tabs: icon + label, active tab marked with a solid green
+  // underline bar and bold green label. Inactive tabs stay fully opaque — a
+  // whole-shell tint used to mark the active state, but Phaser tint only
+  // darkens (multiplicative), so a gold tint over the warm beige button
+  // texture read as a muddy orange instead of an actual highlight. ──────────
   private buildCategoryTabs(rects: Rect[], els: Phaser.GameObjects.GameObject[]) {
     CATEGORIES.forEach((cat, i) => {
       const r = rects[i];
@@ -467,7 +478,6 @@ export class Shop extends Phaser.Scene {
         this.buildUI();
       });
       shell.container.setDepth(6);
-      if (active) shell.setTint(C.TAB_ACTIVE);
 
       // Icon + label side by side, vertically centered — stacked layouts push
       // content into the button's thick corner-border zone and look clipped.
@@ -481,7 +491,14 @@ export class Shop extends Phaser.Scene {
       const totalW = iconSz + 7 + label.width;
       const icon = addDepthIcon(this, -totalW / 2 + iconSz / 2, 0, CAT_ICONS[cat], iconSz, iconSz);
       label.setX(-totalW / 2 + iconSz + 7);
-      shell.addContent([icon, label]);
+      const content: Phaser.GameObjects.GameObject[] = [icon, label];
+
+      if (active) {
+        const barW = Math.min(r.w * 0.62, totalW + 12);
+        const barH = Math.max(3, Math.round(r.h * 0.07));
+        content.push(this.add.rectangle(0, r.h / 2 - barH * 1.8, barW, barH, C.GREEN_NUM).setOrigin(0.5));
+      }
+      shell.addContent(content);
 
       els.push(shell.container);
     });
@@ -599,29 +616,27 @@ export class Shop extends Phaser.Scene {
   // can see exactly what they'd get.
   private buildItemCard(size: number, item: ShopItem, owned: boolean, equipped: boolean, selected: boolean): Phaser.GameObjects.Container {
     // Opaque beige slab (the flat-slot texture addBeigeCard uses is ~80%
-    // transparent, which read as near-black over the dark grid panel). Natural
-    // button-face beige for the default state; a warm gold tint marks the
-    // selected card. (Equipped used to green-tint the whole slab, but green
-    // multiplied over the beige face turned the card a muddy olive.)
+    // transparent, which read as near-black over the dark grid panel).
     const bg = addBeigeSolidCard(this, 0, 0, size, size);
-    if (selected) bg.setTint(C.CARD_SELECTED);
-
     const content: Phaser.GameObjects.GameObject[] = [bg];
 
     // Translucent slot inset behind the art — over the beige slab it reads as
     // a subtly darker plate that frames the customization art. Equipped tints
-    // the plate green (plus check badge + green label) instead of the slab.
-    const plate = addBeigeCard(this, 0, -size * 0.11, size * 0.82, size * 0.58);
+    // the plate green (small, since it's layered with the check badge, green
+    // label, and border ring below — no single signal has to carry it alone).
+    const plate = addBeigeCard(this, 0, -size * 0.09, size * 0.84, size * 0.62);
     if (equipped) plate.setTint(C.PLATE_EQUIP);
-    else if (selected) plate.setTint(0xE0B550);
     content.push(plate);
 
-    // The customization art is the card's hero — keep it as large as the
-    // plate allows.
-    const iconSize = size * 0.56;
-    content.push(this.add.image(0, -size * 0.11, item.iconKey).setDisplaySize(iconSize, iconSize));
+    // The customization art is the card's hero — sized to fill most of the
+    // plate. All character-part source images share a 128×128 canvas cropped
+    // to the mascot's full head (so layers align when composited on Splot),
+    // meaning a lot of any single icon's frame is transparent margin; sizing
+    // it up here scales the drawn glyph right along with that margin.
+    const iconSize = size * 0.66;
+    content.push(this.add.image(0, -size * 0.09, item.iconKey).setDisplaySize(iconSize, iconSize));
 
-    const lbl = this.add.text(0, size * 0.20, item.label, {
+    const lbl = this.add.text(0, size * 0.24, item.label, {
       fontFamily: PIXELIFY,
       fontSize: `${Math.max(12, Math.round(size * 0.095))}px`,
       color: equipped ? C.GREEN_DARK : C.TEXT_DARK,
@@ -642,7 +657,7 @@ export class Shop extends Phaser.Scene {
       // bottom corner bevel
       const priceFs = Math.max(11, Math.round(size * 0.10));
       const sparkSz = size * 0.15;
-      const priceTxt = this.add.text(0, size * 0.385, `${item.price}`, {
+      const priceTxt = this.add.text(0, size * 0.40, `${item.price}`, {
         fontFamily: PIXELIFY,
         fontSize: `${priceFs}px`,
         fontStyle: 'bold',
@@ -650,10 +665,21 @@ export class Shop extends Phaser.Scene {
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
       const rowW = sparkSz + 5 + priceTxt.width;
-      const spark = this.add.image(-rowW / 2 + sparkSz / 2, size * 0.385, 'icon-spark')
+      const spark = this.add.image(-rowW / 2 + sparkSz / 2, size * 0.40, 'icon-spark')
         .setDisplaySize(sparkSz, sparkSz);
       priceTxt.setX(-rowW / 2 + sparkSz + 5);
       content.push(spark, priceTxt);
+    }
+
+    // State ring — a stroke-only rectangle instead of a whole-card tint (see
+    // the C constants comment: multiply-tinting the beige base can only
+    // darken it toward orange, never brighten toward an actual highlight).
+    // Equipped takes precedence over selected since a card can be both (a
+    // second tap on an already-equipped card still arms/selects it).
+    if (equipped) {
+      content.push(this.add.rectangle(0, 0, size + 2, size + 2).setStrokeStyle(3, C.BORDER_EQUIPPED, 1));
+    } else if (selected) {
+      content.push(this.add.rectangle(0, 0, size + 4, size + 4).setStrokeStyle(4, C.BORDER_SELECTED, 1));
     }
 
     return this.add.container(0, 0, content).setSize(size, size);
@@ -825,13 +851,15 @@ export class Shop extends Phaser.Scene {
     }
   }
 
-  // ── Buy-confirmation popup ───────────────────────────────────────────────
+  // ── Buy-confirmation popup — every offset/font is derived from popW/popH
+  // instead of fixed pixels, and popH itself is clamped to the viewport so a
+  // short landscape window can't push content (or the button row) off-screen ─
   private showBuyConfirm(item: ShopItem) {
     this.closeActivePopup();
     const { width, height } = this.scale;
     const cx = width / 2, cy = height / 2;
-    const popW = Math.min(width - 48, 320);
-    const popH = 280;
+    const popW = Math.min(width - 48, 340);
+    const popH = Math.min(height - 56, Math.round(popW * 1.05));
     const items: Phaser.GameObjects.GameObject[] = [];
 
     const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.55).setInteractive();
@@ -840,35 +868,52 @@ export class Shop extends Phaser.Scene {
 
     const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
     const content: Phaser.GameObjects.GameObject[] = [];
-    content.push(this.add.text(0, -popH / 2 + 30, 'Buy this item?', {
-      fontFamily: PIXELIFY, fontSize: '18px', color: C.TEXT_DARK,
+
+    const titleFs = Math.max(14, Math.min(20, Math.round(popW * 0.065)));
+    content.push(this.add.text(0, -popH * 0.36, 'Buy this item?', {
+      fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
-    content.push(this.add.image(0, -popH / 2 + 96, item.iconKey).setDisplaySize(76, 76));
-    content.push(this.add.text(0, -popH / 2 + 148, item.label, {
-      fontFamily: PIXELIFY, fontSize: '14px', color: C.TEXT_DARK,
+
+    const iconSize = Math.max(48, Math.min(popW * 0.28, popH * 0.30, 96));
+    content.push(this.add.image(0, -popH * 0.11, item.iconKey).setDisplaySize(iconSize, iconSize));
+
+    const labelFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
+    content.push(this.add.text(0, popH * 0.13, item.label, {
+      fontFamily: PIXELIFY, fontSize: `${labelFs}px`, color: C.TEXT_DARK,
     }).setOrigin(0.5));
-    content.push(addDepthIcon(this, -18, -popH / 2 + 176, 'icon-spark', 20, 20));
-    content.push(this.add.text(-2, -popH / 2 + 176, `${item.price}`, {
-      fontFamily: PIXELIFY, fontSize: '16px', color: C.GOLD,
+
+    // Price row measured and centered as a group — the old fixed -18/-2
+    // offsets assumed a 2-digit price and drifted off-center for 3 digits.
+    const priceFs = Math.max(13, Math.min(18, Math.round(popW * 0.055)));
+    const priceIconSz = priceFs * 1.1;
+    const priceTxt = this.add.text(0, popH * 0.25, `${item.price}`, {
+      fontFamily: PIXELIFY, fontSize: `${priceFs}px`, color: C.GOLD, fontStyle: 'bold',
       shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
-    }).setOrigin(0, 0.5));
+    }).setOrigin(0, 0.5);
+    const priceRowW = priceIconSz + 6 + priceTxt.width;
+    const priceIcon = addDepthIcon(this, -priceRowW / 2 + priceIconSz / 2, popH * 0.25, 'icon-spark', priceIconSz, priceIconSz);
+    priceTxt.setX(-priceRowW / 2 + priceIconSz + 6);
+    content.push(priceIcon, priceTxt);
+
     shell.addContent(content);
     items.push(shell.container);
 
     const canAfford = this.sparks >= item.price;
     const btnGap = 12;
-    const btnW = (popW - 48 - btnGap) / 2;
-    const btnH = 66;
-    const btnY = cy + popH / 2 - 44;
+    const btnPad = Math.max(20, popW * 0.07);
+    const btnW = (popW - btnPad * 2 - btnGap) / 2;
+    const btnH = Math.max(46, Math.min(64, Math.round(popH * 0.20)));
+    const btnFs = Math.max(13, Math.round(btnH * 0.30));
+    const btnY = cy + popH / 2 - btnH * 0.9;
     items.push(addBeigeButton(this, {
       x: cx - btnW / 2 - btnGap / 2, y: btnY, width: btnW, height: btnH,
-      label: 'Cancel', fontFamily: PIXELIFY,
+      label: 'Cancel', fontSize: btnFs, fontFamily: PIXELIFY,
       onClick: () => this.closeActivePopup(),
     }));
     items.push(addBeigeButton(this, {
       x: cx + btnW / 2 + btnGap / 2, y: btnY, width: btnW, height: btnH,
-      label: canAfford ? 'Buy' : 'Need more', fontFamily: PIXELIFY,
+      label: canAfford ? 'Buy' : 'Need more', fontSize: btnFs, fontFamily: PIXELIFY,
       disabled: !canAfford,
       onClick: () => { this.closeActivePopup(); void this.buyThenEquip(item); },
     }));
@@ -904,10 +949,23 @@ export class Shop extends Phaser.Scene {
     const bg = addDarkPanel(this, 0, 0, Math.ceil(txt.width) + 36, 42);
     const toast = this.add.container(width / 2, height * 0.92, [bg, txt])
       .setDepth(30).setAlpha(0);
+    this.activeToasts.push(toast);
     this.tweens.add({ targets: toast, alpha: 1, duration: 200 });
     this.time.delayedCall(2000, () => {
-      this.tweens.add({ targets: toast, alpha: 0, duration: 300, onComplete: () => toast.destroy(true) });
+      if (!toast.scene) return; // already cleared by a resize
+      this.tweens.add({ targets: toast, alpha: 0, duration: 300, onComplete: () => this.destroyToast(toast) });
     });
+  }
+
+  private destroyToast(toast: Phaser.GameObjects.Container) {
+    const idx = this.activeToasts.indexOf(toast);
+    if (idx !== -1) this.activeToasts.splice(idx, 1);
+    toast.destroy(true);
+  }
+
+  private clearToasts() {
+    this.activeToasts.forEach(t => t.destroy(true));
+    this.activeToasts = [];
   }
 
   private goToMenu() {
@@ -921,6 +979,12 @@ export class Shop extends Phaser.Scene {
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.resize(gameSize.width, gameSize.height);
     this.repositionBgLayers(gameSize.width, gameSize.height);
+    this.clearToasts();
+    // The buy-confirm popup is sized/positioned once from the viewport at open
+    // time and, like toasts, isn't part of uiLayer so buildUI() below won't
+    // touch it — closing it here avoids the same staleness (or being pushed
+    // fully off-screen on a rotation/resize) rather than leaving it frozen.
+    this.closeActivePopup();
     this.buildUI();
   }
 
@@ -933,6 +997,7 @@ export class Shop extends Phaser.Scene {
     this.input.off('wheel', this.onWheelBound);
     this.tweens.killAll();
     this.time.removeAllEvents();
+    this.clearToasts();
     this.scrollMaskGfx?.destroy();
     this.scrollMaskGfx = null;
   }
