@@ -448,15 +448,21 @@ export class Shop extends Phaser.Scene {
     els.push(cta);
   }
 
-  // ── Category tabs: text-only label, active tab in bold green. Font scales
-  // with tab height (itself already proportional to screen size) — with no
-  // icon competing for space, the label can run larger than before. ────────
+  // ── Category tabs: text-only label, active tab in bold green. Font is
+  // capped by BOTH tab height and tab width — sizing off height alone let
+  // longer labels ("Mouths", "Extras") overflow the button on desktop-wide
+  // windows, where more tabs sharing the row leaves each one narrower even
+  // though the row is taller. The 0.62 factor is this codebase's usual
+  // per-character width estimate for PIXELIFY (see LevelSelect's world
+  // title fit). ──────────────────────────────────────────────────────────
   private buildCategoryTabs(rects: Rect[], els: Phaser.GameObjects.GameObject[]) {
     CATEGORIES.forEach((cat, i) => {
       const r = rects[i];
       if (!r) return;
       const active = cat === this.activeCategory;
-      const fs = Math.max(14, Math.min(22, Math.round(r.h * 0.30)));
+      const labelText = CAT_LABELS[cat];
+      const maxFsForWidth = Math.floor((r.w * 0.78) / (labelText.length * 0.62));
+      const fs = Math.max(11, Math.min(22, Math.round(r.h * 0.30), maxFsForWidth));
 
       const shell = addBeigeButtonShell(this, r.x, r.y, r.w, r.h, false, () => {
         if (this.activeCategory === cat) return;
@@ -466,7 +472,7 @@ export class Shop extends Phaser.Scene {
       });
       shell.container.setDepth(6);
 
-      const label = this.add.text(0, 0, CAT_LABELS[cat], {
+      const label = this.add.text(0, 0, labelText, {
         fontFamily: PIXELIFY,
         fontSize: `${fs}px`,
         color: active ? C.GREEN_DARK : C.TEXT_DARK,
