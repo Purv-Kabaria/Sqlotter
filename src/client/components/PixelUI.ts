@@ -97,6 +97,25 @@ export function addBeigeCard(
 }
 
 
+// Opaque beige slab — the unsliced button-open texture as a single NineSlice.
+// addBeigeCard's flat-slot source texture is ~80% TRANSPARENT (rgba alpha 50),
+// so anything needing a solid beige face over a dark/busy background — e.g.
+// shop cards inside the masked scroll grid, where multi-piece TileSprite
+// backgrounds don't render reliably — should use this instead. Minimum size
+// 65×65 (32px corners).
+export function addBeigeSolidCard(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Phaser.GameObjects.NineSlice {
+  return scene.add.nineslice(
+    x, y, 'ui-btn-open', undefined, width, height,
+    BUTTON_SLICE_X, BUTTON_SLICE_X, BUTTON_SLICE_Y, BUTTON_SLICE_Y,
+  );
+}
+
 export function addDarkPanel(
   scene: Phaser.Scene,
   x: number,
@@ -132,6 +151,11 @@ export type BeigeButtonShell = {
   addContent: (items: Phaser.GameObjects.GameObject[]) => void;
 };
 
+// Hover/press tints for the small-corner variant, which only ships an 'open'
+// state texture (see below).
+const SM_TINT_HOVER = 0xFFE8B0;
+const SM_TINT_PRESS = 0xC9975C;
+
 export function addBeigeButtonShell(
   scene: Phaser.Scene,
   x: number, y: number, width: number, height: number,
@@ -143,26 +167,43 @@ export function addBeigeButtonShell(
   const H = Math.round(height / 2) * 2;
   const rx = Math.round(x), ry = Math.round(y);
 
-  const btnState = disabled ? 'btn-dis' : 'btn-open';
-  const bgPieces = build9Pieces(scene, W, H, BTN_CW, BTN_CH, btnState);
-  if (disabled) bgPieces.forEach(p => (p as Phaser.GameObjects.Image).setAlpha(0.5));
+  // Below the full-size assets' 65px floor (2×32px corners + 1px, see
+  // docs/9-slicing.md) fall back to the half-scale 16px-corner 'btn-open-sm'
+  // pieces, so small screens get proportionally small buttons instead of
+  // 66px monsters or corrupted corners. Only the open state exists at this
+  // scale, so hover/press feedback tints the pieces instead of swapping
+  // textures (the y/scale tweens are shared by both variants).
+  const small = W < 65 || H < 65;
+  const bgPieces = small
+    ? build9Pieces(scene, W, H, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm')
+    : build9Pieces(scene, W, H, BTN_CW, BTN_CH, disabled ? 'btn-dis' : 'btn-open');
+  if (disabled) bgPieces.forEach(p => p.setAlpha(0.5));
 
   // Visual sub-container holds all graphics and is the only thing that animates.
   // The outer container stays at a fixed world position so the hitbox never shifts.
   const visual = scene.add.container(0, 0, bgPieces as Phaser.GameObjects.GameObject[]);
   const container = scene.add.container(rx, ry, [visual]).setSize(Math.max(W, 44), Math.max(H, 44));
 
-  const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') =>
+  const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') => {
+    if (small) {
+      const tint = state === 'btn-hover' ? SM_TINT_HOVER : state === 'btn-press' ? SM_TINT_PRESS : undefined;
+      bgPieces.forEach(p => (tint === undefined ? p.clearTint() : p.setTint(tint)));
+      return;
+    }
     SLICE_POS.forEach((pos, i) =>
       (bgPieces[i] as Phaser.GameObjects.Image | undefined)?.setTexture(`${state}-${pos}`),
     );
+  };
 
   if (!disabled && onClick) {
     // Phaser adds displayOriginX (= W/2) and displayOriginY (= H/2) to local coords before
     // testing Rectangle.Contains, so the Rectangle must use top-left-origin space (0,0 = TL).
-    // 4px inset matches the button asset's 4px transparent outer corner margin exactly.
+    // 4px inset matches the full-size asset's transparent outer corner margin; the
+    // downsampled small pieces only carry ~2px, and small buttons need every bit of
+    // tap target they have.
+    const inset = small ? 2 : 4;
     container.setInteractive(
-      new Phaser.Geom.Rectangle(4, 4, W - 8, H - 8),
+      new Phaser.Geom.Rectangle(inset, inset, W - inset * 2, H - inset * 2),
       Phaser.Geom.Rectangle.Contains,
     );
     container.input!.cursor = 'pointer';
