@@ -10,6 +10,13 @@ const C = {
   TEXT_DARK: '#3A1A08',
 } as const;
 
+// Session-level cache of /api/init. MainMenu is re-created on every navigation back
+// home, and rendering placeholder data (0 sparks, no username) followed by a full UI
+// rebuild when the fetch landed made every visit visibly "reload". Seeding from the
+// cache renders the right data on the first build; the refetch then only patches
+// what actually changed instead of rebuilding.
+let cachedInit: InitResponse | null = null;
+
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private uiLayer: Phaser.GameObjects.Container | null = null;
@@ -28,7 +35,7 @@ export class MainMenu extends Phaser.Scene {
     this.bgLayers  = [];
     this.uiLayer   = null;
     this.mascot    = null;
-    this.userData  = null;
+    this.userData  = cachedInit;
     this.navigating = false;
   }
 
@@ -47,11 +54,26 @@ export class MainMenu extends Phaser.Scene {
   private async loadUserData() {
     try {
       const res = await fetch('/api/init');
+      if (this.navigating || !res.ok) return;
+      const fresh = await res.json() as InitResponse;
       if (this.navigating) return;
-      if (res.ok) {
-        this.userData = await res.json() as InitResponse;
-        if (this.navigating) return;
+
+      const prev = this.userData;
+      this.userData = fresh;
+      cachedInit = fresh;
+
+      // Full rebuild only when something the layout depends on changed (username
+      // label, streak badge, Splot's equipment). Rebuilding unconditionally here is
+      // what made the menu visibly "reload" — buttons re-fading, Splot resetting —
+      // on every single visit once the fetch landed.
+      const structuralChange = !prev
+        || prev.username !== fresh.username
+        || (prev.streakDays ?? 0) !== (fresh.streakDays ?? 0)
+        || JSON.stringify(prev.equippedItems ?? {}) !== JSON.stringify(fresh.equippedItems ?? {});
+      if (structuralChange) {
         this.buildUI();
+      } else if (prev.sparks !== fresh.sparks) {
+        this.sparksText?.setText(`${fresh.sparks}`);
       }
     } catch { /* offline / playtest fallback */ }
   }
