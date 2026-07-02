@@ -104,9 +104,11 @@ export const DEFAULT_SLIME_STATE: SlimeState = {
   underwear: false,
 };
 
+// Slot values are SplotMascot texture suffixes: `char-${value}` must be a
+// loaded texture key ('brow-normal' → 'char-brow-normal', NOT 'eyebrow-normal').
 export const DEFAULT_EQUIPPED: Record<string, string> = {
   eye:       'eye-normal',
-  eyebrow:   'eyebrow-normal',
+  eyebrow:   'brow-normal',
   mouth:     'mouth-happy',
   accessory: '',
 };

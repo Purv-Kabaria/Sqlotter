@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { SplotMascot } from '../components/SplotMascot';
 import {
   addBeigeButton, addBeigeButtonShell, addBeigeCard, addBeigeSolidCard, addDarkPanel, addDepthIcon, addPanel9,
+  applyRectClip,
 } from '../components/PixelUI';
 import { SHOP_ITEMS } from '../../shared/shop';
 import type { ShopCategory, ShopItem } from '../../shared/shop';
@@ -203,6 +204,10 @@ export class Shop extends Phaser.Scene {
     this.scrollTrack = null;
     this.cardRects = [];
     this.sparksText = null;
+    // A rebuild can land mid-gesture (async equip/buy continuations) — clear the
+    // drag state so a pointerup after the rebuild can't act on a card record
+    // whose container was just destroyed.
+    this.dragState = { active: false, startPointerY: 0, startOffset: 0, moved: 0, downRecord: null };
 
     const { width, height } = this.scale;
     const els: Phaser.GameObjects.GameObject[] = [];
@@ -496,10 +501,10 @@ export class Shop extends Phaser.Scene {
     return Math.max(2, Math.min(maxCols, fit));
   }
 
-  // ── Scrollable item grid: masked container (mask applied to the Container,
-  // matching Game.ts's proven modifier-palette scroll pattern) + drag/wheel
-  // scroll + manual tap dispatch (cards aren't interactive themselves, which
-  // avoids drag/tap conflicts — see hitTestCard) ───────────────────────────
+  // ── Scrollable item grid: container clipped to the viewport rect (see
+  // applyRectClip — Phaser 4 WebGL needs a Filters Mask, not a geometry mask)
+  // + drag/wheel scroll + manual tap dispatch (cards aren't interactive
+  // themselves, which avoids drag/tap conflicts — see hitTestCard) ─────────
   private buildScrollGrid(vx: number, vy: number, vw: number, vh: number, cols: number, els: Phaser.GameObjects.GameObject[]) {
     const gap = Math.max(10, Math.round(vw * 0.035));
     const cardSize = Math.min(260, Math.floor((vw - gap * (cols - 1)) / cols));
@@ -520,12 +525,9 @@ export class Shop extends Phaser.Scene {
     // flat full-column rectangle.
     els.push(addDarkPanel(this, vx + vw / 2, vy + vh / 2, vw + 16, vh + 16).setDepth(4).setAlpha(0.92));
 
+    const scrollContainer = this.add.container(vx, vy).setDepth(6);
     this.scrollMaskGfx = this.make.graphics();
-    this.scrollMaskGfx.fillStyle(0xffffff);
-    this.scrollMaskGfx.fillRect(vx, vy, vw, vh);
-    const mask = this.scrollMaskGfx.createGeometryMask();
-
-    const scrollContainer = this.add.container(vx, vy).setMask(mask).setDepth(6);
+    applyRectClip(this, scrollContainer, this.scrollMaskGfx, vx, vy, vw, vh);
     this.scrollContainer = scrollContainer;
 
     filtered.forEach((item, i) => {

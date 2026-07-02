@@ -1,8 +1,6 @@
 import * as Phaser from 'phaser';
 import { paintOverlayShine } from './overlayShine';
 
-let nextInstanceId = 0;
-
 export type SplotExpression = 'happy' | 'excited' | 'sad' | 'shocked' | 'doubt' | 'pain' | 'kiss' | 'squiggle';
 
 type ExpressionConfig = {
@@ -43,9 +41,19 @@ export class SplotMascot {
   private bobTween: Phaser.Tweens.Tween | null = null;
   private blinkTimer: Phaser.Time.TimerEvent | null = null;
   private squishTween: Phaser.Tweens.Tween | null = null;
+  private revertTimer: Phaser.Time.TimerEvent | null = null;
   private scene: Phaser.Scene;
+  private size: number;
 
   private useCssShadow: boolean;
+
+  // Scenes rebuild their UI (destroying the mascot's container and images) while
+  // scene-level timers scheduled by this mascot are still pending — e.g. the
+  // expression revert in setExpression(), or blink's un-hide delayedCall. Firing
+  // those against destroyed images calls setTexture()/setVisible() on objects
+  // whose scene is already null and crashes. Every mutating method is gated on
+  // this flag, which flips as soon as the container is destroyed.
+  private destroyed = false;
 
   constructor(
     scene: Phaser.Scene, x: number, y: number, size: number,
@@ -55,6 +63,7 @@ export class SplotMascot {
   ) {
     this.scene = scene;
     this.useCssShadow = useCssShadow;
+    this.size = size;
 
     const s = size;
     const mk = (key: string, depth: number, vis = true) =>
@@ -71,10 +80,15 @@ export class SplotMascot {
     }
     // Body is baked (tint + genuine overlay-blended shine) into a texture rather than
     // tinted live — see overlayShine.ts for why a plain Phaser tint + BlendModes.OVERLAY
-    // can't do this under WebGL. blobColor never changes after construction, so this
-    // only needs to run once.
-    const blobShineKey = `char-shine-tex-${nextInstanceId++}`;
-    paintOverlayShine(scene, blobShineKey, 'char-blob', 'char-shine', blobColor ?? DEFAULT_BLOB_COLOR, 0.5);
+    // can't do this under WebGL. The bake depends only on the tint, so the texture is
+    // keyed by color and shared across instances — scenes rebuild their mascot on every
+    // resize/data refresh, and re-baking a 512×512 texture per rebuild leaked textures
+    // and janked the rebuild.
+    const tint = blobColor ?? DEFAULT_BLOB_COLOR;
+    const blobShineKey = `char-shine-tex-${tint.toString(16).padStart(6, '0')}`;
+    if (!scene.textures.exists(blobShineKey)) {
+      paintOverlayShine(scene, blobShineKey, 'char-blob', 'char-shine', tint, 0.5);
+    }
     this.blob      = mk(blobShineKey,        10);
     this.mouth     = mk('char-mouth-smile',  20);
     this.blush     = mk('char-blush',        22, false);
@@ -90,26 +104,45 @@ export class SplotMascot {
       this.eye, this.eyebrow, this.accessory, this.applied, this.outline,
     ]);
 
+    this.container.once(Phaser.GameObjects.Events.DESTROY, () => {
+      this.destroyed = true;
+      this.stopIdleAnims();
+      this.revertTimer?.remove();
+      this.revertTimer = null;
+    });
+
     this.applyEquipped(equipped);
     this.startIdleAnims();
   }
 
+  // setTexture() on a key the Preloader never loaded renders Phaser's green
+  // "missing" square — guard every equip-driven swap so a stale/bad item id
+  // stored server-side can never break the mascot's face.
+  private setPartTexture(img: Phaser.GameObjects.Image, key: string, fallback: string) {
+    img.setTexture(this.scene.textures.exists(key) ? key : fallback);
+  }
+
   private applyEquipped(items: Record<string, string>) {
-    if (items.eye)       this.eye.setTexture(`char-${items.eye}`);
-    this.eyebrow.setTexture(items.eyebrow ? `char-${items.eyebrow}` : 'char-brow-normal');
-    if (items.mouth)     this.mouth.setTexture(`char-${items.mouth}`);
+    if (items.eye)   this.setPartTexture(this.eye, `char-${items.eye}`, 'char-eye-normal');
+    this.setPartTexture(this.eyebrow, items.eyebrow ? `char-${items.eyebrow}` : 'char-brow-normal', 'char-brow-normal');
+    if (items.mouth) this.setPartTexture(this.mouth, `char-${items.mouth}`, 'char-mouth-smile');
     if (items.accessory) {
       // item IDs are already prefixed: 'acc-crown' → 'char-acc-crown'
-      this.accessory.setTexture(`char-${items.accessory}`).setVisible(true);
+      const key = `char-${items.accessory}`;
+      if (this.scene.textures.exists(key)) {
+        this.accessory.setTexture(key).setVisible(true);
+      }
     }
   }
 
   refresh(equipped: Record<string, string>) {
+    if (this.destroyed) return;
     this.accessory.setVisible(false);
     this.applyEquipped(equipped);
   }
 
   setExpression(expr: SplotExpression, revertAfterMs?: number) {
+    if (this.destroyed) return;
     const cfg = EXPRESSIONS[expr];
     this.eye.setTexture(cfg.eye);
     this.eyebrow.setTexture(cfg.eyebrow);
@@ -117,8 +150,14 @@ export class SplotMascot {
     this.animateFacePart(this.blush, cfg.blush === true);
     this.animateFacePart(this.cry, cfg.cry === true);
 
+    // One pending revert at a time — a newer expression supersedes the old
+    // revert rather than fighting it. remove(), not destroy() — destroy() only
+    // nulls the callback and leaves the dead event in the scene clock forever.
+    this.revertTimer?.remove();
+    this.revertTimer = null;
     if (revertAfterMs) {
-      this.scene.time.delayedCall(revertAfterMs, () => {
+      this.revertTimer = this.scene.time.delayedCall(revertAfterMs, () => {
+        this.revertTimer = null;
         this.setExpression('happy');
       });
     }
@@ -154,20 +193,28 @@ export class SplotMascot {
       delay: 3200,
       loop: true,
       callback: () => {
+        if (this.destroyed) return;
         const key = this.eye.texture.key;
         if (key === 'char-eye-pain' || key === 'char-eye-happy') return;
         this.eye.setVisible(false);
-        this.scene.time.delayedCall(130, () => this.eye.setVisible(true));
+        this.scene.time.delayedCall(130, () => {
+          if (!this.destroyed) this.eye.setVisible(true);
+        });
       },
     });
   }
 
   stopIdleAnims() {
     this.bobTween?.destroy();
-    this.blinkTimer?.destroy();
+    this.bobTween = null;
+    // remove(), not destroy() — destroy() leaves the (looping) event in the
+    // scene clock, so one dead timer accumulated on every UI rebuild.
+    this.blinkTimer?.remove();
+    this.blinkTimer = null;
   }
 
   playSquishAnim() {
+    if (this.destroyed) return;
     this.squishTween?.destroy();
     this.squishTween = this.scene.tweens.add({
       targets: this.container,
@@ -181,6 +228,7 @@ export class SplotMascot {
   }
 
   playPressAnim() {
+    if (this.destroyed) return;
     this.scene.tweens.add({
       targets: this.container,
       scaleX: 0.95,
@@ -193,6 +241,7 @@ export class SplotMascot {
   }
 
   playWin() {
+    if (this.destroyed) return;
     this.setExpression('excited');
     this.playAppliedFlash();
     this.scene.tweens.add({
@@ -206,6 +255,7 @@ export class SplotMascot {
   }
 
   playConflict() {
+    if (this.destroyed) return;
     this.setExpression('shocked', 1500);
     const ox = this.container.x;
     this.scene.tweens.add({
@@ -219,19 +269,25 @@ export class SplotMascot {
   }
 
   playAppliedFlash() {
-    this.applied.setVisible(true).setAlpha(0.7).setScale(1);
+    if (this.destroyed) return;
+    // Reset via display size, not setScale(1) — scale 1 is the texture's native
+    // resolution (512px), which blew the flash overlay up far past the mascot.
+    this.scene.tweens.killTweensOf(this.applied);
+    this.applied.setVisible(true).setAlpha(0.7).setDisplaySize(this.size, this.size);
+    const base = this.applied.scaleX;
     this.scene.tweens.add({
       targets: this.applied,
       alpha: 0,
-      scaleX: 1.16,
-      scaleY: 1.16,
+      scaleX: base * 1.16,
+      scaleY: base * 1.16,
       duration: 300,
       ease: 'Quad.easeOut',
-      onComplete: () => this.applied.setVisible(false).setScale(1),
+      onComplete: () => this.applied.setVisible(false).setDisplaySize(this.size, this.size),
     });
   }
 
   setSize(s: number) {
+    this.size = s;
     [this.blob, this.mouth, this.blush, this.cry,
      this.eye, this.eyebrow, this.accessory, this.applied, this.outline]
       .forEach(img => img.setDisplaySize(s, s));

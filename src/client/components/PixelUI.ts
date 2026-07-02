@@ -129,6 +129,28 @@ export function addDarkPanel(
   );
 }
 
+// Clips `target` to a world-space rectangle. Phaser 4's WebGL renderer dropped
+// geometry masks — `setMask(gfx.createGeometryMask())` is a Canvas-only API that
+// just logs a warning under WebGL and clips nothing, letting "masked" scroll
+// content draw over the whole scene. The replacement is a Filters Mask: the
+// white-rect Graphics is rendered once into a DynamicTexture aligned with the
+// main camera (external filter = camera space). The caller keeps ownership of
+// `gfx` and destroys it on teardown; the filter itself dies with `target`.
+export function applyRectClip(
+  scene: Phaser.Scene,
+  target: Phaser.GameObjects.Container,
+  gfx: Phaser.GameObjects.Graphics,
+  x: number, y: number, w: number, h: number,
+): void {
+  gfx.fillStyle(0xffffff);
+  gfx.fillRect(x, y, w, h);
+  target.enableFilters();
+  const mask = target.filters?.external.addMask(gfx, false, scene.cameras.main);
+  // The clip rect never moves after build (rebuilds recreate it), so skip the
+  // per-frame DynamicTexture re-render autoUpdate would do.
+  if (mask) mask.autoUpdate = false;
+}
+
 // Non-interactive beige-button-styled badge using half-scale (16px) corners — for HUD
 // elements (e.g. the sparks pill) that need the button's pill look but must fit inside
 // a footprint smaller than the 65px floor the full-size button corners require.

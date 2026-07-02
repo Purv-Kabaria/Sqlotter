@@ -2,7 +2,7 @@ import * as Phaser from 'phaser';
 import { LevelEngine, calcStars } from '../engine/LevelEngine';
 import {
   addBeigeCard, addDarkPanel, addDepthIcon,
-  addPixelButton, PIXEL_FONT,
+  addPixelButton, applyRectClip, PIXEL_FONT,
 } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
@@ -515,9 +515,10 @@ export class Game extends Phaser.Scene {
     const totalH = padY + rows * (cellSz + gap) + padY;
     this.paletteMaxScroll = Math.max(0, totalH - pH);
 
+    // Filters Mask, not a geometry mask — setMask() is a no-op under Phaser 4's
+    // WebGL renderer, which let scrolled palette rows draw over the whole scene.
     this.paletteMask = this.make.graphics();
-    this.paletteMask.fillRect(pX, pY, pW, pH);
-    this.paletteContainer.setMask(this.paletteMask.createGeometryMask());
+    applyRectClip(this, this.paletteContainer, this.paletteMask, pX, pY, pW, pH);
 
     if (this.paletteMaxScroll > 0) {
       const zone = this.add.zone(pX + pW / 2, pY + pH / 2, pW, pH).setDepth(5).setInteractive();
