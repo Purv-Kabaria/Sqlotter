@@ -680,7 +680,8 @@ export class Game extends Phaser.Scene {
       // BlendModes.OVERLAY can't do this under WebGL. Keyed by hex so re-opening the
       // popup reuses the same generated texture instead of rebuilding it every time.
       const shadow = this.add.image(sx + 2, sy + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
-      shadow.setTint(0x000000); shadow.setTintFill(); shadow.setAlpha(0.28);
+      // setTintFill() was removed in Phaser 4 — tint + FILL tint mode instead
+      shadow.setTint(0x000000).setTintMode(Phaser.TintModes.FILL); shadow.setAlpha(0.28);
       const swatchShineKey = paintOverlayShine(
         this, `slime-shine-swatch-${numCol.toString(16)}`, 'slime-color', 'slime-shine', numCol, 0.5,
       );
@@ -747,7 +748,7 @@ export class Game extends Phaser.Scene {
       const numCol = parseInt((this.engine?.currentState.color ?? '#FFFFFF').replace('#', ''), 16);
 
       const sh  = this.add.image(cx + 2, cy + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
-      sh.setTint(0x000000); sh.setTintFill(); sh.setAlpha(0.30);
+      sh.setTint(0x000000).setTintMode(Phaser.TintModes.FILL); sh.setAlpha(0.30);
       const sli = this.add.image(cx, cy, 'slime-color').setDisplaySize(slimeSz, slimeSz).setTint(numCol);
       const pum = this.add.image(cx, cy, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
       const brd = this.add.image(cx, cy, 'slime-border').setDisplaySize(slimeSz, slimeSz);

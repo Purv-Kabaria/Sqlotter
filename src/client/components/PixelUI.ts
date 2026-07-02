@@ -73,8 +73,9 @@ export function addDepthIcon(
   shadowAlpha = 0.50,
 ): Phaser.GameObjects.Container {
   const shadow = scene.add.image(shadowOffset, shadowOffset, key).setDisplaySize(w, h);
-  shadow.setTint(0x000000);
-  shadow.setTintFill();
+  // setTintFill() was removed in Phaser 4 — tint + FILL tint mode is the
+  // replacement for a solid silhouette.
+  shadow.setTint(0x000000).setTintMode(Phaser.TintModes.FILL);
   shadow.setAlpha(shadowAlpha);
   const icon = scene.add.image(0, 0, key).setDisplaySize(w, h);
   return scene.add.container(x, y, [shadow, icon]);

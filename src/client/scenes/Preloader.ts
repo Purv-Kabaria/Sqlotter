@@ -1,4 +1,4 @@
-import { GameObjects, Scene, Structs, Tweens } from 'phaser';
+import { GameObjects, Scene, Structs, TintModes, Tweens } from 'phaser';
 import { getLaunchLevelId } from '../launch';
 import { paintOverlayShine } from '../components/overlayShine';
 
@@ -218,8 +218,8 @@ export class Preloader extends Scene {
 
     if (this.textures.exists('slime-color')) {
       this.slimeShadow = this.add.image(cx, 0, 'slime-color');
-      this.slimeShadow.setTint(0x000000);
-      this.slimeShadow.setTintFill();
+      // setTintFill() was removed in Phaser 4 — tint + FILL tint mode instead
+      this.slimeShadow.setTint(0x000000).setTintMode(TintModes.FILL);
       this.slimeShadow.setAlpha(0.30);
 
       // Body is baked (tint + genuine overlay-blended shine) into a texture rather
