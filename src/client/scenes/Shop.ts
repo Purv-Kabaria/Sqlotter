@@ -93,6 +93,15 @@ export class Shop extends Phaser.Scene {
   private scrollViewport: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private scrollMaxOffset = 0;
   private cardRects: CardRecord[] = [];
+
+  // Selecting/equipping any item rebuilds the whole UI (buildUI destroys and
+  // recreates the scroll grid from scratch), which used to always reopen at
+  // the top — scrolling down, then tapping an item down there, threw you back
+  // to the top instead of showing the state change you just made. Keyed by
+  // category so switching tabs still starts fresh, but rebuilding for the
+  // SAME category (equip, buy, resize) restores where you were.
+  private scrollOffsetByCategory: Partial<Record<ShopCategory, number>> = {};
+
   private dragState: DragState = { active: false, startPointerY: 0, startOffset: 0, moved: 0, downRecord: null };
 
   private onPointerMoveBound = (p: Phaser.Input.Pointer) => this.onGlobalPointerMove(p);
@@ -122,6 +131,7 @@ export class Shop extends Phaser.Scene {
     this.scrollViewport = { x: 0, y: 0, w: 0, h: 0 };
     this.scrollMaxOffset = 0;
     this.cardRects = [];
+    this.scrollOffsetByCategory = {};
     this.dragState = { active: false, startPointerY: 0, startOffset: 0, moved: 0, downRecord: null };
   }
 
@@ -552,7 +562,14 @@ export class Shop extends Phaser.Scene {
     // flat full-column rectangle.
     els.push(addDarkPanel(this, vx + vw / 2, vy + vh / 2, vw + 16, vh + 16).setDepth(4).setAlpha(0.92));
 
-    const scrollContainer = this.add.container(vx, vy).setDepth(6);
+    // Resume this category's scroll position instead of always reopening at
+    // the top — see scrollOffsetByCategory's field comment. Re-clamped since
+    // maxScroll can shrink (a resize, or an item's owned/equipped state
+    // changing the grid) between the offset being saved and restored here.
+    const savedOffset = this.scrollOffsetByCategory[this.activeCategory] ?? 0;
+    const initialOffset = Phaser.Math.Clamp(savedOffset, -maxScroll, 0);
+
+    const scrollContainer = this.add.container(vx, vy + initialOffset).setDepth(6);
     this.scrollMaskGfx = this.make.graphics();
     applyRectClip(this, scrollContainer, this.scrollMaskGfx, vx, vy, vw, vh);
     this.scrollContainer = scrollContainer;
@@ -597,6 +614,7 @@ export class Shop extends Phaser.Scene {
       const thumbH = Math.max(28, vh * (vh / contentH));
       this.scrollThumb = this.add.rectangle(trackX, vy, 4, thumbH, 0xDEC998, 0.85).setOrigin(0.5, 0).setDepth(9);
       els.push(this.scrollTrack, this.scrollThumb);
+      this.updateScrollThumb(); // reflects a restored (non-zero) initialOffset
     } else {
       this.scrollTrack = null;
       this.scrollThumb = null;
@@ -768,9 +786,14 @@ export class Shop extends Phaser.Scene {
     this.updateScrollThumb();
   }
 
+  // Called any time scrollContainer.y changes — the single choke point for
+  // both the visual thumb and persisting this category's scroll offset (see
+  // scrollOffsetByCategory) so the next rebuild can restore it.
   private updateScrollThumb() {
-    if (!this.scrollThumb || !this.scrollContainer || this.scrollMaxOffset <= 0) return;
+    if (!this.scrollContainer) return;
     const offset = this.scrollContainer.y - this.scrollViewport.y; // in [-max, 0]
+    this.scrollOffsetByCategory[this.activeCategory] = offset;
+    if (!this.scrollThumb || this.scrollMaxOffset <= 0) return;
     const ratio = Phaser.Math.Clamp(-offset / this.scrollMaxOffset, 0, 1);
     this.scrollThumb.y = this.scrollViewport.y + (this.scrollViewport.h - this.scrollThumb.height) * ratio;
   }
