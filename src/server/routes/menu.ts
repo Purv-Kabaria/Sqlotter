@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
-import { CURATED_LEVELS, generateDailyLevel } from '../../shared/levelData';
+import { generateDailyLevel } from '../../shared/levelData';
 
 export const menu = new Hono();
 
@@ -86,24 +86,10 @@ menu.post('/reset-all-users', async (c) => {
     for (const username of usernames) {
       keysToDelete.push(`user:${username}`, `sparks:${username}`);
     }
-    keysToDelete.push('users:all', 'lb:global:solved', 'level:first-completer');
-
-    // Per-level leaderboards: current curated ids, the pre-worlds legacy ids
-    // (L01–L14), community levels, and every daily from the past year (daily ids
-    // are date-derived, so enumerate dates — Devvit Redis has no key scan).
-    const ugcCount = await redis.zCard('ugc:index');
-    const communityIds = ugcCount > 0
-      ? (await redis.zRange('ugc:index', 0, ugcCount - 1, { by: 'rank' })).map((r) => r.member)
-      : [];
-    const legacyIds = Array.from({ length: 14 }, (_, i) => `L${String(i + 1).padStart(2, '0')}`);
-    const dailyIds: string[] = [];
-    for (let dayOffset = 0; dayOffset < 366; dayOffset++) {
-      const date = new Date(Date.now() - dayOffset * 86_400_000).toISOString().slice(0, 10);
-      dailyIds.push(`daily-${date}`);
-    }
-    for (const levelId of [...CURATED_LEVELS.map((l) => l.id), ...legacyIds, ...communityIds, ...dailyIds]) {
-      keysToDelete.push(`lb:steps:${levelId}`, `lb:time:${levelId}`);
-    }
+    keysToDelete.push(
+      'users:all', 'lb:global:solved', 'level:first-completer',
+      'lb:global:sparks', 'lb:global:moves', 'lb:global:played',
+    );
 
     for (let i = 0; i < keysToDelete.length; i += 100) {
       await redis.del(...keysToDelete.slice(i, i + 100));
@@ -119,9 +105,10 @@ menu.post('/reset-all-users', async (c) => {
   }
 });
 
-// Mod action: wipe every user's level completion stars/completion state, first-completer
-// records, and all per-level leaderboards. Sparks, unlocked/equipped shop items are untouched —
-// those are currency/cosmetics, not level statistics.
+// Mod action: wipe every user's level completion stars/completion state and
+// first-completer records. Sparks, unlocked/equipped shop items, and the
+// global Sparks/Moves/Levels Played leaderboards are untouched — those are
+// currency/cosmetics/cumulative activity, not level statistics.
 menu.post('/reset-level-stats', async (c) => {
   try {
     const solvedCount = await redis.zCard('lb:global:solved');
@@ -139,15 +126,6 @@ menu.post('/reset-level-stats', async (c) => {
 
     await redis.del('lb:global:solved');
     await redis.del('level:first-completer');
-
-    const ugcCount = await redis.zCard('ugc:index');
-    const communityIds = ugcCount > 0
-      ? (await redis.zRange('ugc:index', 0, ugcCount - 1, { by: 'rank' })).map((r) => r.member)
-      : [];
-
-    for (const levelId of [...CURATED_LEVELS.map((l) => l.id), ...communityIds]) {
-      await redis.del(`lb:steps:${levelId}`, `lb:time:${levelId}`);
-    }
 
     return c.json<UiResponse>(
       { showToast: `Reset level stats for ${usernames.length} user(s)` },

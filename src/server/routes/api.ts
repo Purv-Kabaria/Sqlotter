@@ -254,23 +254,18 @@ api.post('/complete', async (c) => {
   const userKey  = `user:${username}`;
   const isFirstCompletion = await redis.hSetNX(userKey, `done:${levelId}`, '1') === 1;
 
-  // Best steps — lower is better: only update if this is a new best
-  const stepsKey = `lb:steps:${levelId}`;
-  const prevSteps = await redis.zScore(stepsKey, username);
-  if (prevSteps === undefined || steps < prevSteps) {
-    await redis.zAdd(stepsKey, { score: steps, member: username });
-  }
-
-  // Best time — lower is better
-  const timeKey = `lb:time:${levelId}`;
-  const prevTime = await redis.zScore(timeKey, username);
-  if (prevTime === undefined || timeMs < prevTime) {
-    await redis.zAdd(timeKey, { score: timeMs, member: username });
-  }
-
   if (isFirstCompletion) {
     await redis.zIncrBy('lb:global:solved', username, 1);
   }
+
+  // Global leaderboards (Moves, Levels Played) — every completion counts, not
+  // just first-time solves, since these track cumulative activity rather than
+  // distinct levels solved. Scores are stored negated so an ascending zRange
+  // (ties broken by member A-Z) yields "highest total first, alphabetical on
+  // a tie" without a reversed-tiebreak zRevRange would give (see the read side
+  // in GET /leaderboard/global for the corresponding un-negation).
+  await redis.zIncrBy('lb:global:moves', username, -steps);
+  await redis.zIncrBy('lb:global:played', username, -1);
 
   let streakDays: number | undefined;
   const dailyDate = dailyDateFromLevel(level);
@@ -298,6 +293,12 @@ api.post('/complete', async (c) => {
   const newSparks = sparksEarned > 0
     ? await redis.incrBy(sparksKey, sparksEarned)
     : parseInt((await redis.get(sparksKey)) ?? '0', 10);
+  // Only need to touch the leaderboard when the balance actually changed —
+  // if it didn't, this user's last sync (from an earlier completion or a
+  // purchase) is still accurate.
+  if (sparksEarned > 0) {
+    await redis.zAdd('lb:global:sparks', { score: -newSparks, member: username });
+  }
 
   // Persist best star rating for this level
   const prevStarsStr = await redis.hGet(userKey, `stars:${levelId}`);
@@ -311,37 +312,31 @@ api.post('/complete', async (c) => {
   return c.json<CompleteResponse>({ sparksEarned, newTotal: newSparks, stars, isFirstCompletion, streakDays });
 });
 
-// ── /api/leaderboard/level/:id ────────────────────────────────
-api.get('/leaderboard/level/:id', async (c) => {
-  const levelId  = c.req.param('id');
-  const type     = c.req.query('type') ?? 'steps';
-  const lbKey    = type === 'time' ? `lb:time:${levelId}` : `lb:steps:${levelId}`;
+// ── /api/leaderboard/global ───────────────────────────────────
+// Three boards, selected by ?type=sparks|moves|played (sparks is the
+// default). All three sorted sets store NEGATED scores (see the sync calls
+// in /api/complete and /api/user/buy), so a plain ascending zRange already
+// yields "highest total first" — and, critically, breaks ties by member
+// ascending (A-Z). zRevRange (reverse: true) would instead reverse the WHOLE
+// canonical order, including tied members, giving Z-A on a tie instead of
+// the requested alphabetical order.
+const GLOBAL_BOARD_KEYS = {
+  sparks: 'lb:global:sparks',
+  moves:  'lb:global:moves',
+  played: 'lb:global:played',
+} as const;
+
+api.get('/leaderboard/global', async (c) => {
+  const type     = c.req.query('type') ?? 'sparks';
+  const lbKey    = GLOBAL_BOARD_KEYS[type as keyof typeof GLOBAL_BOARD_KEYS] ?? GLOBAL_BOARD_KEYS.sparks;
   const username = (await reddit.getCurrentUsername()) ?? '';
 
-  // Ascending (lower steps/time = better), top 10
   const raw = await redis.zRange(lbKey, 0, 9, { by: 'rank' });
 
   const entries = raw.map((r, i) => ({
     rank:          i + 1,
     username:      r.member,
-    score:         r.score,
-    isCurrentUser: r.member === username,
-  }));
-
-  return c.json<LeaderboardResponse>({ entries });
-});
-
-// ── /api/leaderboard/global ───────────────────────────────────
-api.get('/leaderboard/global', async (c) => {
-  const username = (await reddit.getCurrentUsername()) ?? '';
-
-  // Descending (most levels solved first)
-  const raw = await redis.zRange('lb:global:solved', 0, 9, { by: 'rank', reverse: true });
-
-  const entries = raw.map((r, i) => ({
-    rank:          i + 1,
-    username:      r.member,
-    score:         r.score,
+    score:         -r.score,
     isCurrentUser: r.member === username,
   }));
 
@@ -461,6 +456,9 @@ api.post('/user/buy', async (c) => {
 
   unlocked.push(item.id);
   await redis.hSet(userKey, { unlocked: JSON.stringify(unlocked) });
+  // Keep the Sparks leaderboard in sync with the post-purchase balance —
+  // see the matching sync in /api/complete for why the score is negated.
+  await redis.zAdd('lb:global:sparks', { score: -newSparks, member: username });
 
   return c.json<BuyResponse>({ sparks: newSparks, unlockedItems: unlocked });
 });
