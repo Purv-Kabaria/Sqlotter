@@ -34,6 +34,33 @@ html, body {
   color: var(--text);
 }
 
+/* ── Background overlay — drifting cloud layers, matching MainMenu's Phaser
+   background (bg4-1..4, same alpha ladder and drift directions/durations) ── */
+.splash-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.bg-layer {
+  position: absolute;
+  /* -6%/112% (instead of centering via a translate on `transform`) so the
+     drift keyframes below can animate `transform: translateX(...)` alone
+     without needing to also re-state a centering translate every frame. */
+  top: -6%;
+  left: -6%;
+  width: 112%;
+  height: 112%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+
+.bg-layer-1 { opacity: 1;    animation: bgDrift1 13000ms ease-in-out infinite alternate; }
+.bg-layer-2 { opacity: 0.80; animation: bgDrift2 16500ms ease-in-out infinite alternate; }
+.bg-layer-3 { opacity: 0.55; animation: bgDrift3 20000ms ease-in-out infinite alternate; }
+.bg-layer-4 { opacity: 0.30; animation: bgDrift4 23500ms ease-in-out infinite alternate; }
+
 /* ── Splot asset mascot ───────────────────────────────────── */
 .splash-content {
   display: flex;
@@ -155,6 +182,11 @@ html, body {
 }
 
 /* ── Keyframes ────────────────────────────────────────────── */
+@keyframes bgDrift1 { from { transform: translateX(0); } to { transform: translateX(18px); } }
+@keyframes bgDrift2 { from { transform: translateX(0); } to { transform: translateX(-18px); } }
+@keyframes bgDrift3 { from { transform: translateX(0); } to { transform: translateX(18px); } }
+@keyframes bgDrift4 { from { transform: translateX(0); } to { transform: translateX(-18px); } }
+
 @keyframes splotBob {
   from { transform: translateY(0); }
   to   { transform: translateY(-10px); }
