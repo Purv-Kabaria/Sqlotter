@@ -34,33 +34,6 @@ html, body {
   color: var(--text);
 }
 
-/* ── Background overlay — drifting cloud layers, matching MainMenu's Phaser
-   background (bg4-1..4, same alpha ladder and drift directions/durations) ── */
-.splash-bg {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  z-index: 0;
-}
-
-.bg-layer {
-  position: absolute;
-  /* -6%/112% (instead of centering via a translate on `transform`) so the
-     drift keyframes below can animate `transform: translateX(...)` alone
-     without needing to also re-state a centering translate every frame. */
-  top: -6%;
-  left: -6%;
-  width: 112%;
-  height: 112%;
-  object-fit: cover;
-  image-rendering: pixelated;
-}
-
-.bg-layer-1 { opacity: 1;    animation: bgDrift1 13000ms ease-in-out infinite alternate; }
-.bg-layer-2 { opacity: 0.80; animation: bgDrift2 16500ms ease-in-out infinite alternate; }
-.bg-layer-3 { opacity: 0.55; animation: bgDrift3 20000ms ease-in-out infinite alternate; }
-.bg-layer-4 { opacity: 0.30; animation: bgDrift4 23500ms ease-in-out infinite alternate; }
-
 /* ── Splot asset mascot ───────────────────────────────────── */
 .splash-content {
   display: flex;
@@ -77,7 +50,6 @@ html, body {
   position: relative;
   image-rendering: pixelated;
   animation: splotBob 1.4s ease-in-out infinite alternate;
-  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.55));
 }
 
 .splot-layer {
@@ -87,6 +59,31 @@ html, body {
   height: 100%;
   object-fit: contain;
   image-rendering: pixelated;
+}
+
+/* Soft blurred contact-shadow ellipse — same technique as the home screen's
+   Splot (see SplotMascot's useCssShadow / Boot.ts's genSplotShadowTexture):
+   a flat elliptical shadow under the character instead of a shadow sprite or
+   a silhouette-following drop-shadow filter. Boot.ts bakes this by stacking
+   8 concentric low-alpha ellipses (faking a blur Phaser's Graphics can't
+   draw directly); CSS has a real radial-gradient, so a handful of stops
+   reproduce the same soft center-to-edge falloff in one element. Sized/
+   positioned to match useCssShadow's ratios (85% × 30%, centered 40% of the
+   character's size below its middle). */
+.splot-shadow {
+  position: absolute;
+  left: 50%;
+  top: 90%;
+  width: 85%;
+  height: 30%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.34) 0%,
+    rgba(0, 0, 0, 0.24) 35%,
+    rgba(0, 0, 0, 0.12) 65%,
+    rgba(0, 0, 0, 0) 100%
+  );
 }
 
 .splot-overlay {
@@ -182,11 +179,6 @@ html, body {
 }
 
 /* ── Keyframes ────────────────────────────────────────────── */
-@keyframes bgDrift1 { from { transform: translateX(0); } to { transform: translateX(18px); } }
-@keyframes bgDrift2 { from { transform: translateX(0); } to { transform: translateX(-18px); } }
-@keyframes bgDrift3 { from { transform: translateX(0); } to { transform: translateX(18px); } }
-@keyframes bgDrift4 { from { transform: translateX(0); } to { transform: translateX(-18px); } }
-
 @keyframes splotBob {
   from { transform: translateY(0); }
   to   { transform: translateY(-10px); }
