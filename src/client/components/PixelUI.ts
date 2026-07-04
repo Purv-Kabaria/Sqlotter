@@ -330,7 +330,7 @@ export function addBeigeButton(
   return shell.container;
 }
 
-// ── Legacy panel (kept for LevelComplete, Editor, GameOver cards) ─────────
+// ── Legacy panel (kept for LevelComplete and GameOver cards) ──────────────
 
 export function addPixelPanel(
   scene: Phaser.Scene,
