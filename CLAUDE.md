@@ -1,6 +1,6 @@
 # CLAUDE.md — Sqlotter: The Slime Puzzle Game
 
-You are building **Sqlotter**, a Factory-Balls-style sequence puzzle game on Reddit's Devvit platform. Players receive a goal slime and must apply modifiers in the correct order to reproduce it. The mascot is Splot — a round, expressive slime who lives in the player's subreddit feed.
+You are building **Sqlotter**, a Factory-Balls-style stencil-painting puzzle game on Reddit's Devvit platform. Players receive a goal PATTERN (a bare slime painted in zones of color) and must reproduce it by wearing modifiers as paint stencils in the right order. The mascot is Splot — a round, expressive slime who lives in the player's subreddit feed.
 
 ---
 
@@ -164,69 +164,50 @@ backgrounds/       background 1/, background 2/, background 3/, background 4/
 
 ### Core Loop
 1. Player loads a level (from curated set, daily, or user-generated)
-2. See the **goal slime** (target state)
-3. Tap modifiers from the **palette** to apply them to the current slime
-4. Each tap = 1 step; order matters
-5. When current slime matches goal → level complete → earn Sparks
+2. See the **goal pattern** — a BARE slime painted in zones of color (never with modifiers attached)
+3. Tap palette items: **paint** splashes color over everything unprotected; **stencils** (goggles/glasses/belts/pendants/pumpkins/underwear) toggle on/off — worn stencils protect what they cover from paint. **Goggles are one-time use**: the splash that lands on them knocks them off broken (automatic, free) and they can't be worn again until a reset
+4. Each logged tap = 1 step (wearing, removing, and painting all cost a step); order matters
+5. When the painted pattern matches the goal AND nothing is worn → level complete → earn Sparks
 
-### Slime State Model
+### Simulation Model (src/shared/slimeSim.ts)
+The slime is a 64×64 cell grid. `BODY_MASK` marks body cells; `MASK_BITMAPS[maskId]`
+marks each stencil's coverage — both baked from the real PNG alpha channels by
+`scripts/generate_masks.py` into `src/shared/maskData.ts`, so client and server run
+the identical simulation with no canvas.
+
 ```typescript
-type SlimeColor = string; // hex e.g. "#4CAF50"
-
-type GogglesVariant =
-  | 'horizontal-thick' | 'horizontal-thin' | 'horizontal-monocle'
-  | 'vertical-thick'   | 'vertical-thin'   | 'vertical-monocle';
-
-type GlassesVariant =
-  | 'horizontal-thick' | 'horizontal-thin'
-  | 'vertical-thick'   | 'vertical-thin';
-
-type BeltVariant   = 'horizontal-thick' | 'horizontal-thin' | 'vertical-thick' | 'vertical-thin';
-type PendantVariant = 'horizontal' | 'vertical';
-type PumpkinCoverage = 25 | 50 | 75;
-
-type SlimeState = {
-  color: SlimeColor;
-  goggles: GogglesVariant | null;
-  glasses: GlassesVariant | null;
-  belt: BeltVariant | null;
-  pendant: PendantVariant | null;
-  pumpkin: PumpkinCoverage | null;
-  underwear: boolean;
+type SimState = {
+  grid: Uint8Array;   // per-cell index into colors
+  colors: string[];   // colors[0] = '#FFFFFF' (unpainted)
+  worn: string[];     // mask ids currently worn, in order
+  broken: string[];   // goggles broken this run (a splash landed on them)
 };
 ```
 
-Two `SlimeState` objects are equal when all fields match. This is how win detection works.
+- Paint action: every body cell not covered by a worn stencil ← the paint color; then
+  every worn GOGGLES mask snaps off into `broken` (automatic, no action logged)
+- Stencil action: toggle — on if off, off if on. Broken goggles refuse the tap
+  (nothing logged; replays containing one are invalid). Everything else is a free
+  toggle — no conflicts, no counts
+- Action ids resolve against the palette PLUS the standard catalog
+  (`resolveActionDef`): the 16 paints (`PAINT_COLORS_16`) and the 3 pumpkin sizes are
+  always available — the color picker always offers the full 16-color rack, the
+  pumpkin picker all three sizes
+- Win (`isCleanMatch`): all body cells match the goal replay's colors && `worn` is empty
+- The goal IS a replay: `LevelData.optimalSolution` replayed over `LevelData.palette`
+  produces the goal pattern. There is no stored goal state.
 
-### Modifier Rules & Incompatibilities
+Canonical example (medium level): `pumpkin-25 on → paint green → goggles on → paint
+red (goggles break off) → pumpkin off` = white cap, green goggle band, red body — bare
+slime, three colors, 5 steps.
 
-| Rule | What happens | Player feedback |
-|------|-------------|-----------------|
-| **Eye Slot** | Goggles + Glasses cannot coexist | "Splot can't see through all that!" |
-| **Goggles One-Shot** | Goggles can only be applied **once** per attempt. After use, icon grays out | Icon grays + lock icon appears |
-| **Pumpkin 75 + Underwear** | Pumpkin at 75% covers where underwear would go | "There's no room for undies!" |
-| **Pumpkin 75 + Thick Belt** | 75% pumpkin hides a thick belt | "The pumpkin ate the belt!" |
-| **Same Slot Replace** | Applying a new belt replaces the old belt (no stacking same type) | Smooth swap animation |
-
-**Stacking that IS allowed:**
-- Belt + Underwear (at pumpkin ≤ 50%)
-- Belt + Pendant (different slots)
-- Pendant + Goggles
-- Pumpkin (any %) + Glasses
-- Multiple paint applications (each overwrites previous color)
-
-### Rendering Layer Order (Phaser depth)
-```
-depth  0 — Background
-depth 10 — Slime color.png (tinted)
-depth 20 — pumpkin overlay (if present)
-depth 25 — underwear (if present)
-depth 30 — belt (if present)
-depth 35 — pendant (if present)
-depth 40 — glasses OR goggles (mutually exclusive)
-depth 60 — overlay-normal.png shine
-depth 65 — border.png outline
-```
+### Rendering (src/client/components/SlimeRenderer.ts)
+`setPattern(palette, actions)` composites on a per-instance canvas texture: white body,
+then per paint op a color-tinted body stamp with the then-worn stencils punched out
+(`destination-out`, alpha threshold 100 = same as the baked bitmaps), then shine
+(overlay blend, clamped to body alpha). Currently-worn stencils draw as normal images
+between the pattern and `border.png`. Goal previews are `setPattern(palette,
+optimalSolution)`.
 
 For the **Splot mascot** in menus/shop (not puzzle):
 ```
@@ -247,18 +228,12 @@ depth 65 — character/outline.png
 ### Level
 ```
 Key:   level:{levelId}
-Type:  hash (hSet/hGet)
-Fields:
-  id, title, authorId, authorName
-  targetSlimeJson       ← JSON.stringify(SlimeState)
-  modifiersJson         ← JSON.stringify(ModifierDef[])
-  optimalSteps          ← number (string in Redis)
-  optimalSolutionJson   ← JSON.stringify(ModifierAction[])
-  difficulty            ← 1-5
-  isDaily               ← "1" | "0"
-  dailyDate             ← "YYYY-MM-DD" | ""
-  playCount, completionCount, ratingSum, ratingCount
-  createdAt             ← unix ms
+Type:  string → JSON.stringify(LevelData)
+Shape: { id, title, difficulty, palette: ModifierDef[],
+         optimalSteps, optimalSolution: string[],   ← the solution IS the goal
+         hint?, authorName?, isDaily? }
+Notes: parseStoredLevel (src/server/routes/api.ts) validates on read and
+       rejects levels whose optimalSolution doesn't replay cleanly.
 ```
 
 ### User Profile
