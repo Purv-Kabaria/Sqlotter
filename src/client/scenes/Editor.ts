@@ -1,22 +1,18 @@
 import * as Phaser from 'phaser';
-import type { ModifierDef, SlimeState, PumpkinCoverage, GogglesVariant, GlassesVariant, BeltVariant, PendantVariant } from '../../shared/types';
-import { DEFAULT_SLIME_STATE } from '../../shared/types';
+import type { ModifierDef } from '../../shared/types';
+import { isBreakableMask, replayOps, standardPaints } from '../../shared/slimeSim';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import type { LevelData } from '../../shared/types';
 import type { LevelCreateResponse } from '../../shared/api';
-import { PIXEL_FONT, addPixelPanel, addPixelButton } from '../components/PixelUI';
+import { PIXEL_FONT, addBeigeButton, addPixelPanel } from '../components/PixelUI';
+import { DEFERRED_IMG } from './Preloader';
+
+const PIXELIFY = '"Pixelify Sans", sans-serif';
 
 // ── Modifier palette available in the editor ──────────────
-const PAINT_COLORS: ModifierDef[] = [
-  { id: 'paint-red',    type: 'paint', color: '#FF4444' },
-  { id: 'paint-orange', type: 'paint', color: '#FF8C00' },
-  { id: 'paint-yellow', type: 'paint', color: '#FFD700' },
-  { id: 'paint-lime',   type: 'paint', color: '#6DD400' },
-  { id: 'paint-blue',   type: 'paint', color: '#00BFFF' },
-  { id: 'paint-purple', type: 'paint', color: '#9B59B6' },
-  { id: 'paint-pink',   type: 'paint', color: '#FF69B4' },
-  { id: 'paint-white',  type: 'paint', color: '#FFFFFF' },
-];
+// The same 16-color rack the game's paint pot offers (slimeSim's catalog), so
+// published palettes reference the canonical paint ids and colors.
+const PAINT_COLORS: readonly ModifierDef[] = standardPaints();
 
 const ALL_MODS: ModifierDef[] = [
   { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick' },
@@ -34,42 +30,11 @@ const ALL_MODS: ModifierDef[] = [
   { id: 'underwear',       type: 'underwear'                   },
 ];
 
-// ── Local conflict check (returns message or null) ─────────
-function checkConflict(state: SlimeState, mod: ModifierDef, gogglesUsed: boolean): string | null {
-  if (mod.type === 'goggles') {
-    if (gogglesUsed)              return 'Goggles can only be applied once!';
-    if (state.glasses !== null)   return "Can't wear goggles AND glasses!";
-  }
-  if (mod.type === 'glasses' && state.goggles !== null) {
-    return "Can't wear glasses AND goggles!";
-  }
-  if (mod.type === 'underwear' && state.pumpkin === 75) {
-    return 'No room for undies with full pumpkin!';
-  }
-  if (mod.type === 'pumpkin' && mod.coverage === 75) {
-    if (state.underwear) return 'Remove underwear before full pumpkin!';
-    if (state.belt === 'h-thick' || state.belt === 'v-thick') return 'Pumpkin would cover the thick belt!';
-  }
-  if (mod.type === 'belt' && (mod.variant === 'h-thick' || mod.variant === 'v-thick') && state.pumpkin === 75) {
-    return 'Full pumpkin blocks thick belts!';
-  }
-  return null;
-}
-
-// ── Local state transition ─────────────────────────────────
-function applyMod(state: SlimeState, mod: ModifierDef): SlimeState {
-  const next = { ...state };
-  switch (mod.type) {
-    case 'paint':     next.color    = mod.color!;                         break;
-    case 'goggles':   next.goggles  = mod.variant as GogglesVariant;      break;
-    case 'glasses':   next.glasses  = mod.variant as GlassesVariant;      break;
-    case 'belt':      next.belt     = mod.variant as BeltVariant;         break;
-    case 'pendant':   next.pendant  = mod.variant as PendantVariant;      break;
-    case 'pumpkin':   next.pumpkin  = mod.coverage as PumpkinCoverage;    break;
-    case 'underwear': next.underwear = true;                               break;
-  }
-  return next;
-}
+// Everything the editor can record — paints splash color, the rest are
+// stencils that toggle on/off (tap again to remove). The creator literally
+// PLAYS their level here; the recorded action list becomes its solution and
+// its goal pattern at once.
+const EDITOR_DEFS: ModifierDef[] = [...PAINT_COLORS, ...ALL_MODS];
 
 function modLabel(mod: ModifierDef): string {
   if (mod.type === 'goggles')   return `Goggles ${mod.variant}`;
@@ -112,9 +77,8 @@ const C = {
 
 // ── Editor Scene ───────────────────────────────────────────
 export class Editor extends Phaser.Scene {
-  private goalState: SlimeState = { ...DEFAULT_SLIME_STATE };
-  private solutionSeq: ModifierDef[] = [];
-  private gogglesUsed = false;
+  // The recorded action-id sequence — solution AND goal in one.
+  private actions: string[] = [];
   private titleValue = 'My Custom Level';
 
   private goalRenderer: SlimeRenderer | null = null;
@@ -130,11 +94,18 @@ export class Editor extends Phaser.Scene {
   constructor() { super('Editor'); }
 
   init() {
-    this.goalState   = { ...DEFAULT_SLIME_STATE };
-    this.solutionSeq = [];
-    this.gogglesUsed = false;
-    this.titleValue  = 'My Custom Level';
-    this.navigating  = false;
+    this.actions    = [];
+    this.titleValue = 'My Custom Level';
+    this.navigating = false;
+  }
+
+  // Safety net for the deferred background set — normally MainMenu has already
+  // streamed it in the background and this queues nothing.
+  preload() {
+    this.load.setPath('assets');
+    for (const { key, path } of DEFERRED_IMG) {
+      if (!this.textures.exists(key)) this.load.image(key, path);
+    }
   }
 
   create() {
@@ -227,7 +198,10 @@ export class Editor extends Phaser.Scene {
     }).setOrigin(0.5, 0).setDepth(3);
 
     this.goalRenderer = new SlimeRenderer(this, cx, slimeY, slimeSize);
-    this.goalRenderer.setState(this.goalState);
+    // Above the depth-2 panel — at the default depth 0 the near-opaque panel
+    // draws over the slime and it renders as a barely-visible ghost.
+    this.goalRenderer.container.setDepth(3);
+    this.goalRenderer.setPattern(EDITOR_DEFS, this.actions);
 
     // Undo / Reset buttons
     const btnY = slimeY + slimeSize / 2 + 8;
@@ -244,15 +218,17 @@ export class Editor extends Phaser.Scene {
       strokeThickness: 2,
     }).setOrigin(0.5).setDepth(5);
 
-    // Paint color swatches
+    // Paint color swatches — the 16-color rack in two rows of 8
     const swatchD  = Math.min(Math.floor((width - 40) / 8), 36);
     const rowW     = (swatchD + 4) * 8 - 4;
     const swatchY  = startY + 20;
     const swatchX0 = cx - rowW / 2 + swatchD / 2;
+    const swatchRowH = swatchD + 6;
 
     PAINT_COLORS.forEach((mod, i) => {
-      const x = swatchX0 + i * (swatchD + 4);
-      this.buildColorSwatch(x, swatchY, swatchD, mod);
+      const x = swatchX0 + (i % 8) * (swatchD + 4);
+      const y = swatchY + Math.floor(i / 8) * swatchRowH;
+      this.buildColorSwatch(x, y, swatchD, mod);
     });
 
     // Modifier grid (3 cols)
@@ -261,7 +237,7 @@ export class Editor extends Phaser.Scene {
     const gap    = 6;
     const cardW  = (width - pad * 2 - gap * (cols - 1)) / cols;
     const cardH  = 44;
-    const gridY0 = swatchY + swatchD / 2 + 12;
+    const gridY0 = swatchY + swatchRowH + swatchD / 2 + 12;
 
     ALL_MODS.forEach((mod, i) => {
       const col = i % cols;
@@ -335,73 +311,78 @@ export class Editor extends Phaser.Scene {
     const btnW = Math.min((width - 48) / 2, 148);
     const btnH = 46;
 
-    addPixelButton(this, {
+    addBeigeButton(this, {
       x: cx - btnW / 2 - 6, y: btnY,
       width: btnW, height: btnH,
       label: 'Test Play',
       iconKey: 'icon-play',
+      fontSize: 13, fontFamily: PIXELIFY,
       onClick: () => this.testPlay(),
     }).setDepth(8);
 
-    addPixelButton(this, {
+    addBeigeButton(this, {
       x: cx + btnW / 2 + 6, y: btnY,
       width: btnW, height: btnH,
       label: 'Publish',
       iconKey: 'icon-share',
+      fontSize: 13, fontFamily: PIXELIFY,
       onClick: () => void this.publish(),
     }).setDepth(8);
   }
 
   private buildSmallBtn(x: number, y: number, w: number, h: number, label: string, cb: () => void) {
-    addPixelButton(this, {
+    addBeigeButton(this, {
       x, y,
       width: Math.max(w, 60), height: Math.max(h, 36),
       label,
-      fontSize: 8,
+      fontSize: 11, fontFamily: PIXELIFY,
       onClick: cb,
     }).setDepth(5);
   }
 
-  // ── Goal building ──────────────────────────────────────────
+  // ── Goal building — the creator plays their own level ──────
   private applyGoalMod(mod: ModifierDef) {
-    const err = checkConflict(this.goalState, mod, this.gogglesUsed);
-    if (err) {
-      this.showFeedback(err, true);
-      this.goalRenderer?.playShakeAnim(this);
+    const before = replayOps(EDITOR_DEFS, this.actions);
+    // Same rule as in play: goggles a splash landed on are broken for the run.
+    if (mod.type !== 'paint' && before.broken.includes(mod.id)) {
+      this.showFeedback(`${modLabel(mod)} broke — goggles are one-time use! (Undo or Reset restores them.)`, true);
       return;
     }
-    this.goalState = applyMod(this.goalState, mod);
-    if (mod.type === 'goggles') this.gogglesUsed = true;
-    this.solutionSeq.push(mod);
-    this.goalRenderer?.setState(this.goalState);
+    const wasWorn = before.worn.includes(mod.id);
+    this.actions.push(mod.id);
+    this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.goalRenderer?.playApplyAnim(this);
     this.updateMeta();
-    this.showFeedback('', false);
+    if (mod.type === 'paint') {
+      this.showFeedback(
+        before.worn.some(isBreakableMask) ? 'Splash! The goggles snapped off — one-time use.' : '',
+        false,
+      );
+    } else if (mod.type === 'goggles' && !wasWorn) {
+      this.showFeedback(`${modLabel(mod)} on — breaks off after one splash!`, false);
+    } else {
+      this.showFeedback(
+        wasWorn ? `${modLabel(mod)} off.` : `${modLabel(mod)} on — it protects what it covers.`,
+        false,
+      );
+    }
   }
 
   private undo() {
-    if (this.solutionSeq.length === 0) return;
-    this.solutionSeq.pop();
-    this.goalState   = { ...DEFAULT_SLIME_STATE };
-    this.gogglesUsed = false;
-    for (const m of this.solutionSeq) {
-      this.goalState = applyMod(this.goalState, m);
-      if (m.type === 'goggles') this.gogglesUsed = true;
-    }
-    this.goalRenderer?.setState(this.goalState);
+    if (this.actions.length === 0) return;
+    this.actions.pop();
+    this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.updateMeta();
   }
 
   private reset() {
-    this.solutionSeq = [];
-    this.goalState   = { ...DEFAULT_SLIME_STATE };
-    this.gogglesUsed = false;
-    this.goalRenderer?.setState(this.goalState);
+    this.actions = [];
+    this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.updateMeta();
   }
 
   private updateMeta() {
-    const steps = this.solutionSeq.length;
+    const steps = this.actions.length;
     const diff  = computeDifficulty(steps);
     this.stepsText?.setText(`Steps: ${steps}  |  Diff: ${diff}/5`);
   }
@@ -416,10 +397,21 @@ export class Editor extends Phaser.Scene {
     });
   }
 
+  // Goals must be bare slimes — a level can't be finished while stencils are
+  // still on, so a recording that ends worn isn't a valid goal either.
+  private validateRecording(): string | null {
+    if (this.actions.length === 0) return 'Paint something to build a goal first!';
+    if (!this.actions.some((id) => id.startsWith('paint-'))) return 'Goals need at least one splash of paint!';
+    const { worn } = replayOps(EDITOR_DEFS, this.actions);
+    if (worn.length > 0) return 'Take every stencil off — goals are bare slimes!';
+    return null;
+  }
+
   // ── Test / Publish ─────────────────────────────────────────
   private testPlay() {
-    if (this.solutionSeq.length === 0) {
-      this.showFeedback('Apply some modifiers to build a goal first!', true);
+    const err = this.validateRecording();
+    if (err) {
+      this.showFeedback(err, true);
       return;
     }
     const level = this.buildLevelData('__preview__');
@@ -436,8 +428,9 @@ export class Editor extends Phaser.Scene {
   }
 
   private async publish() {
-    if (this.solutionSeq.length === 0) {
-      this.showFeedback('Build a goal first!', true);
+    const err = this.validateRecording();
+    if (err) {
+      this.showFeedback(err, true);
       return;
     }
     const title = (this.titleInput?.value ?? '').trim() || 'My Custom Level';
@@ -449,11 +442,10 @@ export class Editor extends Phaser.Scene {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title,
-          difficulty:   computeDifficulty(this.solutionSeq.length),
-          goalState:    this.goalState,
+          difficulty:   computeDifficulty(this.actions.length),
           palette:      this.buildPalette(),
-          optimalSteps: this.solutionSeq.length,
-          solution:     this.solutionSeq.map((modifier) => modifier.id),
+          optimalSteps: this.actions.length,
+          solution:     [...this.actions],
         }),
       });
 
@@ -482,10 +474,10 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildPalette(): ModifierDef[] {
-    // All solution mods + up to 2 plausible decoys
-    const usedIds = new Set(this.solutionSeq.map(m => m.id));
-    const decoyPool = ALL_MODS.filter(m => !usedIds.has(m.id) && m.type !== 'goggles');
-    const palette = [...this.solutionSeq];
+    // Every distinct def the recording used + up to 2 plausible decoys
+    const usedIds = new Set(this.actions);
+    const palette = EDITOR_DEFS.filter(d => usedIds.has(d.id));
+    const decoyPool = ALL_MODS.filter(m => !usedIds.has(m.id));
 
     for (let i = 0; i < Math.min(2, decoyPool.length); i++) {
       const idx = Math.floor(Math.random() * decoyPool.length);
@@ -493,7 +485,7 @@ export class Editor extends Phaser.Scene {
       if (decoy) palette.push(decoy);
     }
 
-    // Shuffle so solution order isn't visible
+    // Shuffle so palette order doesn't leak the solution order
     for (let i = palette.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const tmp = palette[i]!;
@@ -506,11 +498,11 @@ export class Editor extends Phaser.Scene {
   private buildLevelData(id: string): LevelData {
     return {
       id,
-      title:        this.titleValue,
-      difficulty:   computeDifficulty(this.solutionSeq.length),
-      goalState:    { ...this.goalState },
-      palette:      this.buildPalette(),
-      optimalSteps: this.solutionSeq.length,
+      title:           this.titleValue,
+      difficulty:      computeDifficulty(this.actions.length),
+      palette:         this.buildPalette(),
+      optimalSteps:    this.actions.length,
+      optimalSolution: [...this.actions],
     };
   }
 

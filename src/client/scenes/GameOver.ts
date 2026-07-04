@@ -1,5 +1,7 @@
 import * as Phaser from 'phaser';
-import { addPixelPanel, addPixelButton, PIXEL_FONT } from '../components/PixelUI';
+import { addBeigeButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
+
+const PIXELIFY = '"Pixelify Sans", sans-serif';
 
 export class GameOver extends Phaser.Scene {
   constructor() { super('GameOver'); }
@@ -27,13 +29,14 @@ export class GameOver extends Phaser.Scene {
       wordWrap: { width: panelW - 32 },
     }).setOrigin(0.5);
 
-    addPixelButton(this, {
+    addBeigeButton(this, {
       x: cx,
       y: cy + 50,
       width: 160,
       height: 40,
       label: 'Main Menu',
       iconKey: 'icon-home',
+      fontSize: 12, fontFamily: PIXELIFY,
       onClick: () => this.scene.start('MainMenu'),
     });
   }

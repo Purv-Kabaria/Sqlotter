@@ -1,22 +1,27 @@
 import * as Phaser from 'phaser';
 import { LevelEngine, calcStars } from '../engine/LevelEngine';
 import {
-  addBeigeCard, addDarkPanel, addDepthIcon,
-  addPixelButton, applyRectClip, PIXEL_FONT,
+  addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeSolidCard,
+  addDarkPanel, addDepthIcon, PIXEL_FONT,
 } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
 import { paintOverlayShine } from '../components/overlayShine';
 import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse } from '../../shared/api';
-import { CURATED_LEVELS } from '../../shared/levelData';
-import { PAINT_COLORS_16 } from '../../shared/gameRules';
+import { getCuratedLevels } from '../../shared/levelData';
+import { BASE_COLOR, standardPaints, standardPumpkins } from '../../shared/slimeSim';
+
+// Tutorial modals ("Splash Course" levels) show once per page load per level —
+// replaying a lesson or resetting it doesn't re-interrupt the player.
+const tutorialShownThisSession = new Set<string>();
+
+const PIXELIFY = '"Pixelify Sans", sans-serif';
 
 // ── Colour constants ───────────────────────────────────────────────────────
 const C = {
   HEADER_BG:   0x0A0500,
-  GAME_BG:     0x3A1E6E,
-  PALETTE_BG:  0x0E0700,
+  GAME_BG:     0x57317D, // matches the bg3 purple-cloud set behind everything
   BEIGE:       '#DEC998',
   BEIGE_NUM:   0xDEC998,
   DARK_BROWN:  '#3A1A08',
@@ -24,6 +29,7 @@ const C = {
   TEXT_BEIGE:  '#DEC998',
   DIM:         '#7a8a9a',
   GOLD:        0xFFD700,
+  WORN_RING:   0x6DD400,
 } as const;
 
 const HEADER_H = 52;
@@ -94,20 +100,13 @@ export class Game extends Phaser.Scene {
   private loadingText:   Phaser.GameObjects.Text       | null = null;
 
   private paletteContainer: Phaser.GameObjects.Container | null = null;
-  private paletteMask:      Phaser.GameObjects.Graphics  | null = null;
-  private paletteScrollY = 0;
-  private paletteMaxScroll = 0;
   private paletteSlots: PaletteSlot[] = [];
-  private paletteSlotContainers: Phaser.GameObjects.Container[] = [];
-  private cols = 3;
+  // Loose game-area objects (cards, pills, pill texts) — tracked so the
+  // resize rebuild can destroy them; orphaning them duplicates the play area.
+  private areaObjs: Phaser.GameObjects.GameObject[] = [];
 
   private activePopup: Phaser.GameObjects.Container | null = null;
-  private bgRects:  Phaser.GameObjects.Rectangle[] = [];
   private bgImages: Phaser.GameObjects.Image[] = [];
-
-  // Track stat pill text objects for live updates
-  private timerPillText:  Phaser.GameObjects.Text | null = null;
-  private stepsPillText:  Phaser.GameObjects.Text | null = null;
 
   constructor() { super('Game'); }
 
@@ -121,14 +120,9 @@ export class Game extends Phaser.Scene {
     this.navigating    = false;
     this.hudLayer      = null;
     this.loadToken    += 1;
-    this.paletteScrollY = 0;
-    this.paletteMaxScroll = 0;
     this.paletteSlots  = [];
-    this.paletteSlotContainers = [];
-    this.bgRects  = [];
+    this.areaObjs      = [];
     this.bgImages = [];
-    this.timerPillText = null;
-    this.stepsPillText = null;
   }
 
   create() {
@@ -140,11 +134,7 @@ export class Game extends Phaser.Scene {
     this.buildBackground();
 
     if (this.level) {
-      this.engine = new LevelEngine(this.level);
-      this.buildHUD();
-      this.buildGameArea();
-      this.buildPalette();
-      this.startTimer();
+      this.beginLevel();
     } else if (this.levelId === 'daily') {
       this.showLoading();
       void this.fetchDailyAndStart(this.loadToken);
@@ -180,23 +170,47 @@ export class Game extends Phaser.Scene {
       this.showLoadError('Daily puzzle is unavailable.', () => this.scene.restart({ levelId: 'daily' }));
       return;
     }
+    this.beginLevel();
+  }
+
+  // Single entry point for "the level is known — set the table". Builds the
+  // engine + UI, then either starts the clock or (first visit to a tutorial
+  // level this session) holds it behind the tutorial modal so reading the
+  // lesson never costs time.
+  private beginLevel() {
+    if (!this.level) return;
     this.engine = new LevelEngine(this.level);
-    this.buildHUD(); this.buildGameArea(); this.buildPalette(); this.startTimer();
+    this.buildHUD();
+    this.buildGameArea();
+    this.buildPalette();
+
+    const tutorial = this.level.tutorial;
+    if (tutorial && !tutorialShownThisSession.has(this.level.id)) {
+      tutorialShownThisSession.add(this.level.id);
+      this.showTutorialModal(tutorial, () => {
+        // Fresh engine, NOT engine.reset(): reset is a logged, move-costing
+        // action now — re-basing the attempt clock must not add one.
+        if (this.level) this.engine = new LevelEngine(this.level);
+        this.startTimer();
+      });
+    } else {
+      this.startTimer();
+    }
   }
 
   private useFallbackLevel() {
     const dow = new Date().getDay();
-    const fb  = CURATED_LEVELS[dow % CURATED_LEVELS.length] ?? CURATED_LEVELS[0] ?? null;
+    const curated = getCuratedLevels();
+    const fb  = curated[dow % curated.length] ?? curated[0] ?? null;
     this.level   = fb;
     this.levelId = fb?.id ?? 'L01';
   }
 
   private startWithLevelId(id: string) {
-    const curated = CURATED_LEVELS.find(l => l.id === id);
+    const curated = getCuratedLevels().find(l => l.id === id);
     if (curated) {
-      this.level  = curated;
-      this.engine = new LevelEngine(this.level);
-      this.buildHUD(); this.buildGameArea(); this.buildPalette(); this.startTimer();
+      this.level = curated;
+      this.beginLevel();
       return;
     }
     this.showLoading();
@@ -204,9 +218,9 @@ export class Game extends Phaser.Scene {
     void (async () => {
       try {
         const res = await fetch(`/api/level/${id}`);
-        this.level = res.ok ? (await res.json() as { level: LevelData }).level : CURATED_LEVELS[0] ?? null;
+        this.level = res.ok ? (await res.json() as { level: LevelData }).level : getCuratedLevels()[0] ?? null;
       } catch {
-        this.level = CURATED_LEVELS[0] ?? null;
+        this.level = getCuratedLevels()[0] ?? null;
       }
       if (token !== this.loadToken) return;
       this.loadingText?.destroy();
@@ -214,56 +228,41 @@ export class Game extends Phaser.Scene {
         this.showLoadError('Could not load this level.', () => this.scene.start('LevelSelect'));
         return;
       }
-      this.engine = new LevelEngine(this.level);
-      this.buildHUD(); this.buildGameArea(); this.buildPalette(); this.startTimer();
+      this.beginLevel();
     })();
   }
 
-  // ── Background zones ─────────────────────────────────────────────────────
+  // ── Background — full-screen purple clouds (bg3 set, per the design mock),
+  // same cover-scale layering as MainMenu/Shop. The play/palette areas are
+  // panels drawn on top, not background splits. ──────────────────────────────
   private buildBackground() {
     const { width, height } = this.scale;
-    const isPortrait = height > width;
+    const keys   = ['bg3-1', 'bg3-2', 'bg3-3', 'bg3-4'];
+    const alphas = [1, 0.80, 0.55, 0.30];
 
-    this.bgRects.forEach(r => r.destroy());
     this.bgImages.forEach(i => i.destroy());
-    this.bgRects  = [];
     this.bgImages = [];
 
-    ['bg4-1', 'bg4-2'].forEach((key, i) => {
+    keys.forEach((key, i) => {
+      if (!this.textures.exists(key)) return;
       const img = this.add.image(width / 2, height / 2, key)
-        .setAlpha(i === 0 ? 0.18 : 0.08).setDepth(-10).setTint(C.GAME_BG);
+        .setAlpha(alphas[i] ?? 0.3).setDepth(-10 + i);
       img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
       this.bgImages.push(img);
     });
+  }
 
-    if (isPortrait) {
-      const gameH = this.calcPortraitGameH(height);
-      const gameRect = this.add.rectangle(width / 2, HEADER_H + gameH / 2, width, gameH, C.GAME_BG)
-        .setAlpha(0.85).setDepth(-9);
-      this.bgRects.push(gameRect);
-      const modY  = HEADER_H + gameH;
-      const modH  = height - modY;
-      const modRect = this.add.rectangle(width / 2, modY + modH / 2, width, modH, C.PALETTE_BG)
-        .setDepth(-9);
-      this.bgRects.push(modRect);
-    } else {
-      const splitX = this.calcLandscapeSplit(width);
-      this.bgRects.push(
-        this.add.rectangle(splitX / 2, height / 2, splitX, height, C.GAME_BG).setAlpha(0.85).setDepth(-9),
-      );
-      this.bgRects.push(
-        this.add.rectangle(splitX + (width - splitX) / 2, height / 2, width - splitX, height, C.PALETTE_BG).setDepth(-9),
-      );
+  // Landscape: palette column on the right. Portrait: palette panel below the
+  // cards. Both return the rect the palette panel occupies; the game area
+  // takes what's left.
+  private paletteRect(width: number, height: number): { x: number; y: number; w: number; h: number } {
+    const pad = 14;
+    if (height > width) {
+      const y = HEADER_H + Math.round((height - HEADER_H) * 0.52);
+      return { x: pad, y, w: width - pad * 2, h: height - y - pad };
     }
-  }
-
-  private calcPortraitGameH(height: number): number {
-    // Game area: header + two slime panels + stat pills = ~38% of height
-    return Math.round(height * 0.38);
-  }
-
-  private calcLandscapeSplit(width: number): number {
-    return Math.round(width * 0.57);
+    const w = Math.max(220, Math.min(360, Math.round(width * 0.32)));
+    return { x: width - pad - w, y: HEADER_H + pad, w, h: height - HEADER_H - pad * 2 };
   }
 
   // ── HUD strip ────────────────────────────────────────────────────────────
@@ -278,438 +277,358 @@ export class Game extends Phaser.Scene {
 
     elements.push(this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(15));
 
-    // Back button
-    const back = addDepthIcon(this, 28, HEADER_H / 2, 'icon-arrow', 22, 22);
-    back.setDepth(16).setInteractive({ useHandCursor: true });
+    // Back button. addDepthIcon returns a size-less container — Phaser refuses
+    // to enable input on a 0×0 container (console-warns and skips it), so every
+    // HUD icon needs an explicit setSize BEFORE setInteractive. 44×44 is the
+    // minimum tap target; the icon itself stays small. Arrow art points right,
+    // so back rotates it 180° (same as Leaderboard's back button).
+    const back = addDepthIcon(this, 28, HEADER_H / 2, 'icon-arrow', 22, 22).setAngle(180);
+    back.setDepth(16).setSize(44, 44);
+    back.setInteractive({ useHandCursor: true });
     back.on('pointerup', () => {
       this.closeActivePopup();
       this.goToScene(this.isPreview ? 'Editor' : 'LevelSelect');
     });
     elements.push(back);
 
-    // SQLOTTER logo centered
-    if (this.textures.exists('title')) {
-      const maxW = Math.min(width * 0.42, 180);
-      elements.push(this.add.image(width / 2, HEADER_H / 2, 'title')
-        .setDisplaySize(maxW, maxW * 0.22).setDepth(16));
+    // Level title + context line, centered. In-game the header identifies the
+    // puzzle ("Orange Splash" / "World 1 · Level 1") — branding stays on the
+    // splash/menu screens (and the landscape palette keeps its logo).
+    const maxChars = Math.max(10, Math.floor((width * 0.52) / 9));
+    const rawTitle = this.level.title;
+    const titleLabel = rawTitle.length > maxChars ? `${rawTitle.slice(0, maxChars - 3)}...` : rawTitle;
+    elements.push(this.add.text(width / 2, 19, titleLabel, {
+      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.TEXT_LIGHT,
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(16));
+    const context = this.levelContextLabel();
+    if (context) {
+      elements.push(this.add.text(width / 2, 37, context, {
+        fontFamily: PIXEL_FONT, fontSize: '6px', color: '#9A8A6A',
+      }).setOrigin(0.5).setDepth(16));
     }
 
-    // Hint + Reset in header right
-    const hint = addDepthIcon(this, width - 54, HEADER_H / 2, 'icon-help', 20, 20);
-    hint.setDepth(16).setInteractive({ useHandCursor: true });
+    // Hint + Reset in header right — spaced so their 44×44 tap targets can't
+    // overlap each other.
+    const hint = addDepthIcon(this, width - 72, HEADER_H / 2, 'icon-help', 20, 20);
+    hint.setDepth(16).setSize(44, 44);
+    hint.setInteractive({ useHandCursor: true });
     hint.on('pointerup', () => this.showHint());
     elements.push(hint);
 
     const reset = addDepthIcon(this, width - 26, HEADER_H / 2, 'icon-reset', 22, 22);
-    reset.setDepth(16).setInteractive({ useHandCursor: true });
+    reset.setDepth(16).setSize(44, 44);
+    reset.setInteractive({ useHandCursor: true });
     reset.on('pointerup', () => this.handleReset());
     elements.push(reset);
 
     this.hudLayer = this.add.container(0, 0, elements);
   }
 
-  // ── Game area (slime panels + stat pills) ────────────────────────────────
+  // "Where am I" line under the level title: daily / UGC author / world+level
+  // parsed from the curated id scheme (w00 is the tutorial world).
+  private levelContextLabel(): string {
+    const level = this.level;
+    if (!level) return '';
+    if (this.isPreview) return 'Editor preview';
+    if (level.isDaily) return 'Daily Puzzle';
+    if (level.authorName) return `by u/${level.authorName}`;
+    const match = /^w(\d+)-l(\d+)$/.exec(level.id);
+    if (!match) return '';
+    const world = parseInt(match[1]!, 10);
+    const lesson = parseInt(match[2]!, 10);
+    return world === 0 ? `Splash Course · Lesson ${lesson}` : `World ${world} · Level ${lesson}`;
+  }
+
+  // ── Game area — the design-mock block: two beige cards (Goal | Current)
+  // with label pills and Time/Moves pills beneath, centered in whatever the
+  // palette panel leaves free. One code path for both orientations. ─────────
   private buildGameArea() {
-    if (!this.engine) return;
+    if (!this.engine || !this.level) return;
 
     this.goalRenderer?.container.destroy();
     this.currentRenderer?.container.destroy();
+    this.splot?.stopIdleAnims();
     this.splot?.container.destroy();
-    this.timerPillText = null;
-    this.stepsPillText = null;
+    this.splot = null;
+    this.areaObjs.forEach((o) => o.destroy());
+    this.areaObjs = [];
 
     const { width, height } = this.scale;
     const isPortrait = height > width;
+    const pal = this.paletteRect(width, height);
+    const area = isPortrait
+      ? { x: 10, y: HEADER_H + 10, w: width - 20, h: pal.y - HEADER_H - 20 }
+      : { x: 14, y: HEADER_H + 10, w: pal.x - 28, h: height - HEADER_H - 24 };
 
-    if (isPortrait) {
-      this.buildPortraitGameArea(width, height);
-    } else {
-      this.buildLandscapeGameArea(width, height);
+    const gapX   = Math.max(14, Math.round(area.w * 0.04));
+    const rowGap = 10;
+    const labelH = Math.max(38, Math.min(56, Math.round(area.h * 0.14)));
+    const statH  = labelH;
+    const cardSz = Math.max(66, Math.min(
+      Math.floor((area.w - gapX) / 2),
+      area.h - labelH - statH - rowGap * 2,
+      300,
+    ));
+    const blockW = cardSz * 2 + gapX;
+    const blockH = cardSz + rowGap + labelH + rowGap + statH;
+    const left   = area.x + (area.w - blockW) / 2;
+    const top    = area.y + Math.max(0, (area.h - blockH) / 2);
+    const goalX  = left + cardSz / 2;
+    const curX   = left + cardSz + gapX + cardSz / 2;
+    const cardCy = top + cardSz / 2;
+    const labelY = top + cardSz + rowGap + labelH / 2;
+    const statY  = labelY + labelH / 2 + rowGap + statH / 2;
+    const slimeSz = Math.round(cardSz * 0.72);
+
+    this.areaObjs.push(
+      addBeigeSolidCard(this, goalX, cardCy, cardSz, cardSz).setDepth(2),
+      addBeigeSolidCard(this, curX,  cardCy, cardSz, cardSz).setDepth(2),
+    );
+
+    this.goalRenderer = new SlimeRenderer(this, goalX, cardCy, slimeSz);
+    this.goalRenderer.container.setDepth(4);
+    this.goalRenderer.setPattern(this.level.palette, this.level.optimalSolution);
+
+    this.currentRenderer = new SlimeRenderer(this, curX, cardCy, slimeSz);
+    this.currentRenderer.container.setDepth(4);
+    this.currentRenderer.setPattern(this.level.palette, this.engine.actions);
+
+    this.buildPill(goalX, labelY, cardSz, labelH, 'Goal');
+    this.buildPill(curX,  labelY, cardSz, labelH, 'Current');
+    this.timerText = this.buildPill(goalX, statY, cardSz, statH, 'Time: 0s');
+    this.stepsText = this.buildPill(curX, statY, cardSz, statH, `Moves: ${this.stepsLabel(this.engine.steps)}`);
+
+    // Splot coaches from below the block when there's room for him (desktop
+    // landscape mostly) — reactions stay null-safe everywhere he's poked.
+    const blockBottom = top + blockH;
+    const roomBelow = area.y + area.h - blockBottom;
+    if (roomBelow >= 60) {
+      const splotSz = Math.min(84, roomBelow - 12);
+      this.splot = new SplotMascot(this, left + blockW / 2, blockBottom + roomBelow / 2, splotSz);
+      this.splot.container.setDepth(5);
     }
   }
 
-  // Portrait: slimes side-by-side in game zone, stat pills below
-  private buildPortraitGameArea(width: number, height: number) {
-    const gameH   = this.calcPortraitGameH(height);
-    const areaTop = HEADER_H + 10;
-    const areaBot = HEADER_H + gameH;
-
-    // Reserve bottom row for stat pills (~36px)
-    const statPillH   = 36;
-    const statPillY   = areaBot - statPillH / 2 - 6;
-    const labelH      = 28;
-    const labelY      = areaBot - statPillH - labelH / 2 - 10;
-
-    const slimeAreaBot = labelY - labelH / 2 - 8;
-    const panelSz      = Math.min(slimeAreaBot - areaTop - 8, (width * 0.46) - 8, 160);
-    const slimeSz      = Math.round(panelSz * 0.68);
-
-    const goalX = width * 0.27;
-    const curX  = width * 0.73;
-    const panelCy = areaTop + panelSz / 2 + 4;
-
-    // Slime panels
-    addBeigeCard(this, goalX, panelCy, panelSz, panelSz).setDepth(2);
-    addBeigeCard(this, curX,  panelCy, panelSz, panelSz).setDepth(2);
-
-    this.goalRenderer = new SlimeRenderer(this, goalX, panelCy, slimeSz);
-    this.goalRenderer.container.setDepth(4);
-    this.goalRenderer.setState(this.engine!.goalState);
-
-    this.currentRenderer = new SlimeRenderer(this, curX, panelCy, slimeSz);
-    this.currentRenderer.container.setDepth(4);
-    this.currentRenderer.setState(this.engine!.currentState);
-
-    // Label pills: "Goal" and "Current"
-    const goalLabelW = 80, curLabelW = 100;
-    addBeigeCard(this, goalX, labelY, goalLabelW, labelH).setDepth(3);
-    this.add.text(goalX, labelY, 'Goal', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+  // Beige pill with centered pixel text — the Goal/Current labels and the
+  // Time/Moves stat rows. Small-corner badge pieces, so any height ≥ 33 works.
+  private buildPill(cx: number, cy: number, w: number, h: number, label: string): Phaser.GameObjects.Text {
+    this.areaObjs.push(addBeigeBadge(this, cx, cy, w, h).setDepth(3));
+    const fs = Math.max(8, Math.min(12, Math.round(h * 0.24), Math.floor(w / (Math.max(label.length, 9) * 1.05))));
+    const text = this.add.text(cx, cy, label, {
+      fontFamily: PIXEL_FONT, fontSize: `${fs}px`, color: C.DARK_BROWN,
+      shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5).setDepth(4);
-
-    addBeigeCard(this, curX, labelY, curLabelW, labelH).setDepth(3);
-    this.add.text(curX, labelY, 'Current', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0.5).setDepth(4);
-
-    // Stat pills: timer left, steps right
-    const pillW = (width / 2) - 20;
-    const timerX = pillW / 2 + 8;
-    const stepsX = width - pillW / 2 - 8;
-
-    addBeigeCard(this, timerX, statPillY, pillW, statPillH).setDepth(3);
-    const timerIc = addDepthIcon(this, timerX - pillW / 2 + 16, statPillY, 'icon-timer', 16, 16);
-    timerIc.setDepth(4);
-    this.timerText = this.add.text(timerX - pillW / 2 + 28, statPillY, '0s', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-    }).setOrigin(0, 0.5).setDepth(4);
-    this.timerPillText = this.timerText;
-
-    addBeigeCard(this, stepsX, statPillY, pillW, statPillH).setDepth(3);
-    const stepsIc = addDepthIcon(this, stepsX - pillW / 2 + 16, statPillY, 'icon-plus', 16, 16);
-    stepsIc.setDepth(4);
-    this.stepsText = this.add.text(stepsX - pillW / 2 + 28, statPillY, '0', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-    }).setOrigin(0, 0.5).setDepth(4);
-    this.stepsPillText = this.stepsText;
+    this.areaObjs.push(text);
+    return text;
   }
 
-  // Landscape: slimes side-by-side in left zone, stat pills below
-  private buildLandscapeGameArea(width: number, height: number) {
-    const splitX  = this.calcLandscapeSplit(width);
-    const areaTop = HEADER_H + 12;
-    const areaBot = height - 14;
-
-    // Stat pill row at bottom of left zone
-    const statPillH = 36;
-    const statPillY = areaBot - statPillH / 2 - 6;
-    const labelH    = 28;
-    const labelY    = areaBot - statPillH - labelH / 2 - 10;
-
-    const slimeAreaBot = labelY - labelH / 2 - 8;
-    const panelSz = Math.min(slimeAreaBot - areaTop - 8, (splitX * 0.46) - 8, 200);
-    const slimeSz = Math.round(panelSz * 0.68);
-
-    const goalX  = splitX * 0.28;
-    const curX   = splitX * 0.72;
-    const panelCy = areaTop + panelSz / 2 + 4;
-
-    addBeigeCard(this, goalX, panelCy, panelSz, panelSz).setDepth(2);
-    addBeigeCard(this, curX,  panelCy, panelSz, panelSz).setDepth(2);
-
-    this.goalRenderer = new SlimeRenderer(this, goalX, panelCy, slimeSz);
-    this.goalRenderer.container.setDepth(4);
-    this.goalRenderer.setState(this.engine!.goalState);
-
-    this.currentRenderer = new SlimeRenderer(this, curX, panelCy, slimeSz);
-    this.currentRenderer.container.setDepth(4);
-    this.currentRenderer.setState(this.engine!.currentState);
-
-    // Label pills
-    const goalLabelW = 80, curLabelW = 100;
-    addBeigeCard(this, goalX, labelY, goalLabelW, labelH).setDepth(3);
-    this.add.text(goalX, labelY, 'Goal', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0.5).setDepth(4);
-
-    addBeigeCard(this, curX, labelY, curLabelW, labelH).setDepth(3);
-    this.add.text(curX, labelY, 'Current', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0.5).setDepth(4);
-
-    // Stat pills: timer left, steps right inside left zone
-    const halfW = splitX / 2 - 14;
-    const timerX = halfW / 2 + 8;
-    const stepsX = splitX - halfW / 2 - 8;
-
-    addBeigeCard(this, timerX, statPillY, halfW, statPillH).setDepth(3);
-    const timerIc = addDepthIcon(this, timerX - halfW / 2 + 16, statPillY, 'icon-timer', 16, 16);
-    timerIc.setDepth(4);
-    this.timerText = this.add.text(timerX - halfW / 2 + 28, statPillY, '0s', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-    }).setOrigin(0, 0.5).setDepth(4);
-    this.timerPillText = this.timerText;
-
-    addBeigeCard(this, stepsX, statPillY, halfW, statPillH).setDepth(3);
-    const stepsIc = addDepthIcon(this, stepsX - halfW / 2 + 16, statPillY, 'icon-plus', 16, 16);
-    stepsIc.setDepth(4);
-    this.stepsText = this.add.text(stepsX - halfW / 2 + 28, statPillY, '0', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: C.DARK_BROWN,
-    }).setOrigin(0, 0.5).setDepth(4);
-    this.stepsPillText = this.stepsText;
+  // Moves pill shows the star target too ("2/4" = two taps against a 4-step
+  // optimum) — the star thresholds are all optimal-relative, so the target is
+  // the single most decision-relevant number on the HUD.
+  private stepsLabel(steps: number): string {
+    const optimal = this.level?.optimalSteps;
+    return optimal ? `${steps}/${optimal}` : `${steps}`;
   }
 
-  // ── Modifier palette ──────────────────────────────────────────────────────
+  private updateStepsDisplay() {
+    this.stepsText?.setText(`Moves: ${this.stepsLabel(this.engine?.steps ?? 0)}`);
+  }
+
+  // ── Modifier palette — dark panel (right column in landscape, bottom sheet
+  // in portrait) holding the logo and a 3-wide grid of beige tiles; unused
+  // grid slots render as empty tiles, matching the design mock. ─────────────
   private buildPalette() {
     if (!this.level) return;
     this.paletteContainer?.destroy(true);
-    this.paletteMask?.destroy();
-    this.paletteScrollY = 0;
-    this.paletteSlotContainers = [];
 
     const { width, height } = this.scale;
     const isPortrait = height > width;
+    const r = this.paletteRect(width, height);
 
-    let pX: number, pY: number, pW: number, pH: number;
-    if (isPortrait) {
-      const gameH = this.calcPortraitGameH(height);
-      pX = 0; pY = HEADER_H + gameH; pW = width; pH = height - pY;
-    } else {
-      const splitX = this.calcLandscapeSplit(width);
-      pX = splitX; pY = 0; pW = width - splitX; pH = height;
-    }
+    const container = this.add.container(0, 0).setDepth(6);
+    this.paletteContainer = container;
 
-    this.paletteContainer = this.add.container(0, 0).setDepth(6);
+    container.add(addDarkPanel(this, r.x + r.w / 2, r.y + r.h / 2, r.w, r.h).setAlpha(0.96));
 
-    // Logo in landscape right panel
+    // Logo header inside the panel (landscape only — portrait needs the room)
+    let gridTop = r.y + 14;
     if (!isPortrait && this.textures.exists('title')) {
-      const maxW = Math.min(pW * 0.65, 160);
-      const logo = this.add.image(pX + pW / 2, 26, 'title');
-      logo.setDisplaySize(maxW, maxW * 0.22).setDepth(16);
-      this.paletteContainer.add(logo);
+      const logoW = Math.min(r.w * 0.72, 190);
+      const logoH = Math.round(logoW * 112 / 512);
+      container.add(this.add.image(r.x + r.w / 2, r.y + 16 + logoH / 2, 'title').setDisplaySize(logoW, logoH));
+      gridTop = r.y + 16 + logoH + 14;
     }
-
-    this.cols = 3;
-    const padX = 12;
-    const padY = isPortrait ? 12 : 54;
-    const gap  = 8;
-    const cellSz = Math.floor((pW - padX * 2 - gap * (this.cols - 1)) / this.cols);
 
     this.paletteSlots = groupPalette(this.level.palette);
+    const cols = 3, gap = 10, padX = 14;
+    const availW = r.w - padX * 2;
+    const availH = r.y + r.h - 12 - gridTop;
+    const rowsNeeded = Math.max(1, Math.ceil(this.paletteSlots.length / cols));
+    // Tiles shrink until every row fits — palettes are small enough (≤ ~9
+    // grouped slots) that scrolling is never needed.
+    let cell = Math.min(92, Math.floor((availW - gap * (cols - 1)) / cols));
+    cell = Math.min(cell, Math.floor((availH - (rowsNeeded - 1) * gap) / rowsNeeded));
+    cell = Math.max(44, cell);
+    // Fill the panel with empty tiles below the real ones (the mock's look),
+    // capped so tall windows don't stack a tower of blanks.
+    const rowsFit = Math.floor((availH + gap) / (cell + gap));
+    const rowsDrawn = Math.max(rowsNeeded, Math.min(rowsFit, Math.max(rowsNeeded, 4)));
+    const gridW = cols * cell + (cols - 1) * gap;
+    const gridLeft = r.x + (r.w - gridW) / 2;
 
-    this.paletteSlots.forEach((slot, i) => {
-      const col = i % this.cols;
-      const row = Math.floor(i / this.cols);
-      const cx  = pX + padX + col * (cellSz + gap) + cellSz / 2;
-      const cy  = pY + padY + row * (cellSz + gap) + cellSz / 2;
-      const c   = this.buildPaletteSlot(cx, cy, cellSz, slot);
-      this.paletteSlotContainers.push(c);
-      this.paletteContainer!.add(c);
-    });
-
-    const rows = Math.ceil(this.paletteSlots.length / this.cols);
-    const totalH = padY + rows * (cellSz + gap) + padY;
-    this.paletteMaxScroll = Math.max(0, totalH - pH);
-
-    // Filters Mask, not a geometry mask — setMask() is a no-op under Phaser 4's
-    // WebGL renderer, which let scrolled palette rows draw over the whole scene.
-    this.paletteMask = this.make.graphics();
-    applyRectClip(this, this.paletteContainer, this.paletteMask, pX, pY, pW, pH);
-
-    if (this.paletteMaxScroll > 0) {
-      const zone = this.add.zone(pX + pW / 2, pY + pH / 2, pW, pH).setDepth(5).setInteractive();
-      let dragStart = 0, scrollStart = 0;
-      zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
-        dragStart = p.y; scrollStart = this.paletteScrollY;
-      });
-      zone.on('pointermove', (p: Phaser.Input.Pointer) => {
-        if (!p.isDown) return;
-        this.paletteScrollY = Phaser.Math.Clamp(scrollStart + dragStart - p.y, 0, this.paletteMaxScroll);
-        this.applyPaletteScroll();
-      });
+    for (let i = 0; i < rowsDrawn * cols; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const cx = gridLeft + col * (cell + gap) + cell / 2;
+      const cy = gridTop + row * (cell + gap) + cell / 2;
+      const slot = this.paletteSlots[i];
+      if (slot) {
+        container.add(this.buildPaletteSlot(cx, cy, cell, slot));
+      } else {
+        container.add(addBeigeBadge(this, cx, cy, cell, cell).setAlpha(0.5));
+      }
     }
   }
 
-  private applyPaletteScroll() {
-    if (this.paletteContainer) this.paletteContainer.y = -this.paletteScrollY;
-  }
-
-  private buildPaletteSlot(cx: number, cy: number, cellSz: number, slot: PaletteSlot): Phaser.GameObjects.Container {
-    const items: Phaser.GameObjects.GameObject[] = [];
-    const bg = addBeigeCard(this, 0, 0, cellSz, cellSz);
-    items.push(bg);
-
-    const iconSz = Math.round(cellSz * 0.44);
-
-    if (slot.kind === 'paint') {
-      items.push(addDepthIcon(this, 0, -cellSz * 0.05, 'icon-paint', iconSz, iconSz));
-      const dotR = 4, shown = Math.min(slot.mods.length, 5);
-      const totalW = shown * (dotR * 2 + 2) - 2;
-      slot.mods.slice(0, shown).forEach((m, di) => {
-        const col = m.color ? parseInt(m.color.replace('#', ''), 16) : 0xFFFFFF;
-        items.push(
-          this.add.circle(-totalW / 2 + di * (dotR * 2 + 2) + dotR, cellSz * 0.28, dotR, col)
-            .setStrokeStyle(1, 0x3D1808),
-        );
-      });
-    } else if (slot.kind === 'pumpkin') {
-      items.push(addDepthIcon(this, 0, 0, 'icon-pumpkin', iconSz, iconSz));
-      items.push(this.add.text(0, cellSz * 0.3, slot.mods.map(m => `${m.coverage}%`).join(' '), {
-        fontFamily: PIXEL_FONT, fontSize: '6px', color: C.DARK_BROWN,
-      }).setOrigin(0.5));
-
-      const state = this.engine?.currentState;
-      if (state?.pumpkin === 75 && slot.mods.every(m => m.coverage !== 75)) {
-        items.push(addDepthIcon(this, 0, 0, 'icon-cross', iconSz * 0.8, iconSz * 0.8, 1, 0.4).setAlpha(0.85));
-      }
-    } else {
-      const mod = slot.mod;
-      const isSpent = !this.engine?.isModAvailable(mod);
-      const ic = addDepthIcon(this, 0, -cellSz * 0.08, modIconKey(mod), iconSz, iconSz);
-      if (isSpent) ic.setAlpha(0.35);
-      items.push(ic);
-
-      if (isHorizontalVariant(mod) || isVerticalVariant(mod)) {
-        const angle = isHorizontalVariant(mod) ? 0 : 90;
-        const arrowSz = Math.round(cellSz * 0.22);
-        const arrow = addDepthIcon(this, cellSz * 0.28, -cellSz * 0.28, 'icon-arrow', arrowSz, arrowSz, 1, 0.4);
-        (arrow.list[1] as Phaser.GameObjects.Image | undefined)?.setTint(0xFF5500);
-        arrow.setAngle(angle);
-        items.push(arrow);
-      }
-
-      const remaining = this.engine?.getRemainingCount(mod.id) ?? Infinity;
-      if (mod.count !== undefined && remaining !== Infinity) {
-        const badgeSz = Math.round(cellSz * 0.26);
-        const bx = cellSz * 0.3, by = cellSz * 0.3;
-        items.push(addBeigeCard(this, bx, by, badgeSz, badgeSz));
-        items.push(this.add.text(bx, by, `${remaining}x`, {
-          fontFamily: PIXEL_FONT, fontSize: '6px', color: C.DARK_BROWN,
-        }).setOrigin(0.5));
-      }
-
-      if (isSpent) {
-        items.push(addDepthIcon(this, 0, 0, 'icon-cross', iconSz, iconSz, 1, 0.4).setAlpha(0.78));
-      }
-    }
-
-    const container = this.add.container(cx, cy, items).setDepth(7).setSize(cellSz, cellSz);
-    container.setInteractive({ useHandCursor: true });
-
-    container.on('pointerup', () => {
+  // One palette tile: a real beige button (shared shell = standard hover/press
+  // feedback) with the modifier's icon. Worn stencils get a green ring + check;
+  // broken goggles go dim with a cross badge and stop taking taps.
+  private buildPaletteSlot(cx: number, cy: number, cell: number, slot: PaletteSlot): Phaser.GameObjects.Container {
+    const onClick = () => {
       if (slot.kind === 'paint') {
         this.showColorPicker(slot.mods);
       } else if (slot.kind === 'pumpkin') {
         this.showPumpkinPicker(slot.mods);
-      } else if (this.engine?.isModAvailable(slot.mod)) {
+      } else {
         this.applyModifier(slot.mod);
       }
-    });
-    container.on('pointerdown', () => {
-      this.tweens.add({ targets: container, scaleX: 0.92, scaleY: 0.92, duration: 55 });
-    });
-    container.on('pointerout', () => {
-      this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 80 });
-    });
+    };
+    const broken = slot.kind === 'single' && (this.engine?.isBroken(slot.mod) ?? false);
+    const shell = addBeigeButtonShell(this, cx, cy, cell, cell, broken, broken ? undefined : onClick, true);
+    const content: Phaser.GameObjects.GameObject[] = [];
+    const iconSz = Math.round(cell * 0.5);
+    let worn = false;
 
-    return container;
+    if (slot.kind === 'paint') {
+      // Just the pot — no color dots. Showing the palette's paint colors here
+      // would hand the player the solution's color list for free.
+      content.push(addDepthIcon(this, 0, 0, 'icon-paint', iconSz, iconSz));
+    } else if (slot.kind === 'pumpkin') {
+      // Worn check goes by mask id — the picker offers all three sizes, so the
+      // worn one may not be a palette def at all.
+      worn = (this.engine?.wornMaskIds ?? []).some((id) => id.startsWith('pumpkin-'));
+      content.push(addDepthIcon(this, 0, -cell * 0.07, 'icon-pumpkin', iconSz, iconSz));
+      content.push(this.add.text(0, cell * 0.27, '25 50 75', {
+        fontFamily: PIXEL_FONT, fontSize: `${Math.max(6, Math.round(cell * 0.09))}px`, color: C.DARK_BROWN,
+      }).setOrigin(0.5));
+    } else {
+      const mod = slot.mod;
+      worn = this.engine?.isWorn(mod) ?? false;
+      const icon = addDepthIcon(this, 0, 0, modIconKey(mod), iconSz, iconSz);
+      if (broken) icon.setAlpha(0.35);
+      content.push(icon);
+
+      if (!broken && (isHorizontalVariant(mod) || isVerticalVariant(mod))) {
+        const arrowSz = Math.round(cell * 0.20);
+        const arrow = addDepthIcon(this, cell * 0.28, cell * 0.28, 'icon-arrow', arrowSz, arrowSz, 1, 0.4);
+        (arrow.list[1] as Phaser.GameObjects.Image | undefined)?.setTint(0xFF5500);
+        arrow.setAngle(isHorizontalVariant(mod) ? 0 : 90);
+        content.push(arrow);
+      }
+    }
+
+    if (worn) {
+      content.push(this.add.rectangle(0, 0, cell - 8, cell - 8).setStrokeStyle(3, C.WORN_RING, 1));
+      const badgeSz = Math.round(cell * 0.22);
+      content.push(addDepthIcon(this, -cell * 0.30, -cell * 0.30, 'icon-check', badgeSz, badgeSz));
+    }
+    if (broken) {
+      const badgeSz = Math.round(cell * 0.26);
+      content.push(addDepthIcon(this, 0, 0, 'icon-cross', badgeSz, badgeSz));
+    }
+
+    shell.addContent(content);
+    shell.container.setDepth(7);
+    return shell.container;
   }
 
   // ── Colour picker popup ───────────────────────────────────────────────────
+  // The pot always offers the full 16-color rack (plus any legacy palette
+  // color outside it). Palette defs win their color slot, so stored levels'
+  // exact action ids stay authoritative; catalog ids resolve in every replay
+  // via slimeSim's standard-catalog fallback.
   private showColorPicker(paintMods: ModifierDef[]) {
     this.closeActivePopup();
     const { width, height } = this.scale;
-    const colors = paintMods.length > 1
-      ? paintMods.map(m => m.color ?? '#FFFFFF')
-      : PAINT_COLORS_16.slice();
-    const currentColor = (this.engine?.currentState.color ?? '#FFFFFF').toUpperCase();
 
-    const COLS   = 4;
-    const pad    = 12;
+    const byColor = new Map<string, ModifierDef>();
+    for (const m of standardPaints()) byColor.set((m.color ?? BASE_COLOR).toUpperCase(), m);
+    for (const m of paintMods) byColor.set((m.color ?? BASE_COLOR).toUpperCase(), m);
+    const mods = [...byColor.values()];
+
+    // Portrait stacks a 4-wide grid; landscape lays the rack 8 across.
+    const COLS   = width > height ? 8 : 4;
+    const ROWS   = Math.ceil(mods.length / COLS);
+    const pad    = 14;
     const gap    = 8;
-    const popW   = Math.min(width - 24, 296);
-    const slotSz = Math.floor((popW - pad * 2 - gap * (COLS - 1)) / COLS);
-    const slimeSz = Math.round(slotSz * 0.68);
-    const ROWS   = Math.ceil(colors.length / COLS);
-    const titleH = 38;
-    const popH   = titleH + pad + ROWS * (slotSz + gap) - gap + pad;
+    const titleH = 36;
+    const maxW   = Math.min(width - 24, COLS === 8 ? 620 : 320);
+    let slotSz = Math.min(72, Math.floor((maxW - pad * 2 - gap * (COLS - 1)) / COLS));
+    slotSz = Math.max(36, Math.min(slotSz,
+      Math.floor((height - titleH - pad * 2 - (ROWS - 1) * gap - 40) / ROWS)));
+    const popW = slotSz * COLS + gap * (COLS - 1) + pad * 2;
+    const popH = titleH + pad + ROWS * (slotSz + gap) - gap + pad;
 
     const pcx = width  / 2;
     const pcy = height / 2;
     const items: Phaser.GameObjects.GameObject[] = [];
 
-    // Full-screen dim overlay
+    // Full-screen dim overlay — tap outside the card to dismiss
     const overlay = this.add.rectangle(pcx, pcy, width, height, 0x000000, 0.55).setInteractive();
     overlay.on('pointerup', () => this.closeActivePopup());
     items.push(overlay);
 
-    // Popup card (beige, matching modifier slots)
-    items.push(addBeigeCard(this, pcx, pcy, popW, popH));
-
-    // Title
-    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2, 'Pick a Color', {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: C.DARK_BROWN,
+    // Popup card + title — the same beige-shell look as the menu popups
+    items.push(addBeigeButtonShell(this, pcx, pcy, popW, Math.max(popH, 66), false).container);
+    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pick a Color', {
+      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
-    // Separator
-    items.push(this.add.rectangle(pcx, pcy - popH / 2 + titleH, popW - 24, 2, 0x3A1A08, 0.18));
-
     const gridLeft = pcx - popW / 2 + pad;
     const gridTop  = pcy - popH / 2 + titleH + pad;
+    const slimeSz  = Math.round(slotSz * 0.68);
 
-    colors.forEach((hex, i) => {
+    mods.forEach((mod, i) => {
       const col = i % COLS;
       const row = Math.floor(i / COLS);
       const sx  = gridLeft + col * (slotSz + gap) + slotSz / 2;
       const sy  = gridTop  + row * (slotSz + gap) + slotSz / 2;
-      const numCol   = parseInt(hex.replace('#', ''), 16);
-      const isSelected = hex.toUpperCase() === currentColor;
+      const numCol = parseInt((mod.color ?? BASE_COLOR).replace('#', ''), 16);
 
-      // Slot bg — highlight if currently selected color
-      const slotBg = addBeigeCard(this, sx, sy, slotSz, slotSz);
-      if (isSelected) slotBg.setTint(0xE8C060);
-      items.push(slotBg);
+      // Each swatch is a real small-corner beige button — shared hover/press
+      // feedback for free, no hand-rolled scale tweens.
+      const shell = addBeigeButtonShell(this, sx, sy, slotSz, slotSz, false, () => {
+        this.closeActivePopup();
+        this.applyModifier(mod);
+      }, true);
 
       // Slime: shadow + color (with genuine overlay-blended shine) + border.
       // Body is baked (tint + genuine overlay-blended shine) into a texture rather
       // than tinted live — see overlayShine.ts for why a plain Phaser tint +
       // BlendModes.OVERLAY can't do this under WebGL. Keyed by hex so re-opening the
       // popup reuses the same generated texture instead of rebuilding it every time.
-      const shadow = this.add.image(sx + 2, sy + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
+      const shadow = this.add.image(2, 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
       // setTintFill() was removed in Phaser 4 — tint + FILL tint mode instead
       shadow.setTint(0x000000).setTintMode(Phaser.TintModes.FILL); shadow.setAlpha(0.28);
       const swatchShineKey = paintOverlayShine(
         this, `slime-shine-swatch-${numCol.toString(16)}`, 'slime-color', 'slime-shine', numCol, 0.5,
       );
-      const slimeImg = this.add.image(sx, sy, swatchShineKey).setDisplaySize(slimeSz, slimeSz);
-      const border   = this.add.image(sx, sy, 'slime-border').setDisplaySize(slimeSz, slimeSz);
-      items.push(shadow, slimeImg, border);
-
-      // Checkmark badge on currently selected color
-      if (isSelected) {
-        const ckSz = Math.round(slotSz * 0.28);
-        items.push(addBeigeCard(this, sx + slotSz * 0.30, sy - slotSz * 0.30, ckSz + 6, ckSz + 6));
-        items.push(addDepthIcon(this, sx + slotSz * 0.30, sy - slotSz * 0.30, 'icon-check', ckSz, ckSz));
-      }
-
-      // Hit zone
-      const zone = this.add.zone(sx, sy, slotSz + 4, slotSz + 4).setInteractive({ useHandCursor: true });
-      zone.on('pointerup', () => {
-        this.closeActivePopup();
-        const match = paintMods.find(m => m.color === hex);
-        if (match) this.applyModifier(match);
-        else if (paintMods[0]) this.applyModifier({ ...paintMods[0], color: hex });
-      });
-      zone.on('pointerover', () =>
-        this.tweens.add({ targets: [slimeImg, border, shadow], scaleX: 1.12, scaleY: 1.12, duration: 80 }));
-      zone.on('pointerout', () =>
-        this.tweens.add({ targets: [slimeImg, border, shadow], scaleX: 1, scaleY: 1, duration: 80 }));
-      items.push(zone);
+      const slimeImg = this.add.image(0, 0, swatchShineKey).setDisplaySize(slimeSz, slimeSz);
+      const border   = this.add.image(0, 0, 'slime-border').setDisplaySize(slimeSz, slimeSz);
+      shell.addContent([shadow, slimeImg, border]);
+      items.push(shell.container);
     });
 
     this.activePopup = this.add.container(0, 0, items).setDepth(50);
@@ -724,45 +643,66 @@ export class Game extends Phaser.Scene {
   }
 
   // ── Pumpkin picker popup ──────────────────────────────────────────────────
+  // Like the paint pot, the pumpkin tile always offers all three sizes —
+  // palette defs win their id slot, catalog ids resolve in replay.
   private showPumpkinPicker(pumpkinMods: ModifierDef[]) {
     this.closeActivePopup();
     const { width, height } = this.scale;
-    const popW = Math.min(width - 32, 280);
-    const slimeSz = 72;
-    const popH = 100 + slimeSz + 24;
+
+    const byId = new Map<string, ModifierDef>();
+    for (const m of standardPumpkins()) byId.set(m.id, m);
+    for (const m of pumpkinMods) byId.set(m.id, m);
+    const mods = [...byId.values()].sort((a, b) => (a.coverage ?? 0) - (b.coverage ?? 0));
+
+    const pad    = 14;
+    const gap    = 10;
+    const titleH = 36;
+    const slotSz = Math.min(104, Math.floor(
+      (Math.min(width - 24, 360) - pad * 2 - gap * (mods.length - 1)) / mods.length));
+    const popW = slotSz * mods.length + gap * (mods.length - 1) + pad * 2;
+    const popH = titleH + pad + slotSz + pad;
+    const pcx  = width  / 2;
+    const pcy  = height / 2;
     const items: Phaser.GameObjects.GameObject[] = [];
 
-    const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.55).setInteractive();
+    const overlay = this.add.rectangle(pcx, pcy, width, height, 0x000000, 0.55).setInteractive();
     overlay.on('pointerup', () => this.closeActivePopup());
     items.push(overlay);
-    items.push(addBeigeCard(this, width / 2, height / 2, popW, popH));
-    items.push(this.add.text(width / 2, height / 2 - popH / 2 + 18, 'Pumpkin size', {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: C.DARK_BROWN,
+    items.push(addBeigeButtonShell(this, pcx, pcy, popW, popH, false).container);
+    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pumpkin size', {
+      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
-    const step = popW / (pumpkinMods.length + 1);
-    pumpkinMods.forEach((mod, ci) => {
-      const cx  = width / 2 - popW / 2 + step * (ci + 1);
-      const cy  = height / 2;
+    const gridLeft = pcx - popW / 2 + pad;
+    const tileY    = pcy - popH / 2 + titleH + pad + slotSz / 2;
+    const slimeSz  = Math.round(slotSz * 0.56);
+
+    mods.forEach((mod, i) => {
+      const sx  = gridLeft + i * (slotSz + gap) + slotSz / 2;
       const cov = mod.coverage ?? 50;
-      const numCol = parseInt((this.engine?.currentState.color ?? '#FFFFFF').replace('#', ''), 16);
+      const worn = (this.engine?.wornMaskIds ?? []).includes(`pumpkin-${cov}`);
 
-      const sh  = this.add.image(cx + 2, cy + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
+      const shell = addBeigeButtonShell(this, sx, tileY, slotSz, slotSz, false, () => {
+        this.closeActivePopup();
+        this.applyModifier(mod);
+      }, true);
+
+      const sh  = this.add.image(2, -slotSz * 0.08 + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
       sh.setTint(0x000000).setTintMode(Phaser.TintModes.FILL); sh.setAlpha(0.30);
-      const sli = this.add.image(cx, cy, 'slime-color').setDisplaySize(slimeSz, slimeSz).setTint(numCol);
-      const pum = this.add.image(cx, cy, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
-      const brd = this.add.image(cx, cy, 'slime-border').setDisplaySize(slimeSz, slimeSz);
-      items.push(sh, sli, pum, brd);
-      items.push(this.add.text(cx, cy + slimeSz / 2 + 14, `${cov}%`, {
-        fontFamily: PIXEL_FONT, fontSize: '8px', color: C.TEXT_BEIGE,
-      }).setOrigin(0.5));
-
-      const zone = this.add.zone(cx, cy, slimeSz + 8, slimeSz + 8).setInteractive({ useHandCursor: true });
-      zone.on('pointerup', () => { this.closeActivePopup(); this.applyModifier(mod); });
-      zone.on('pointerover', () => this.tweens.add({ targets: [sli, pum, brd], scaleX: 1.1, scaleY: 1.1, duration: 80 }));
-      zone.on('pointerout',  () => this.tweens.add({ targets: [sli, pum, brd], scaleX: 1,   scaleY: 1,   duration: 80 }));
-      items.push(zone);
+      const sli = this.add.image(0, -slotSz * 0.08, 'slime-color').setDisplaySize(slimeSz, slimeSz);
+      const pum = this.add.image(0, -slotSz * 0.08, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
+      const brd = this.add.image(0, -slotSz * 0.08, 'slime-border').setDisplaySize(slimeSz, slimeSz);
+      const lbl = this.add.text(0, slotSz * 0.30, worn ? `${cov}% ON` : `${cov}%`, {
+        fontFamily: PIXEL_FONT, fontSize: '8px', color: worn ? '#2E5C0A' : C.DARK_BROWN,
+      }).setOrigin(0.5);
+      shell.addContent([sh, sli, pum, brd, lbl]);
+      if (worn) {
+        shell.addContent([
+          this.add.rectangle(0, 0, slotSz - 8, slotSz - 8).setStrokeStyle(3, C.WORN_RING, 1),
+        ]);
+      }
+      items.push(shell.container);
     });
 
     this.activePopup = this.add.container(0, 0, items).setDepth(50);
@@ -774,6 +714,63 @@ export class Game extends Phaser.Scene {
     const p = this.activePopup;
     this.activePopup = null;
     this.tweens.add({ targets: p, alpha: 0, duration: 120, onComplete: () => p.destroy(true) });
+  }
+
+  // ── Tutorial modal ─────────────────────────────────────────────────────────
+  // Splot introduces the lesson ("Splash Course" levels carry a `tutorial`
+  // string). The attempt timer is held until dismissal — see beginLevel().
+  private showTutorialModal(text: string, onDismiss: () => void) {
+    this.closeActivePopup();
+    const { width, height } = this.scale;
+    const popW = Math.min(width - 28, 330);
+
+    // Measure the wrapped lesson text first so the card height fits it.
+    const txt = this.add.text(0, 0, text, {
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: C.DARK_BROWN,
+      align: 'center', lineSpacing: 6,
+      wordWrap: { width: popW - 36 },
+    }).setOrigin(0.5, 0);
+
+    const splotSz = 62;
+    const btnH = 44;
+    const popH = 20 + splotSz + 14 + txt.height + 16 + btnH + 16;
+    const cx = width / 2;
+    const cy = height / 2;
+
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      this.closeActivePopup();
+      onDismiss();
+    };
+
+    const items: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.6).setInteractive();
+    overlay.on('pointerup', dismiss);
+    items.push(overlay);
+    // Solid card, not addBeigeCard — that texture is ~80% transparent, and a
+    // paragraph of lesson text needs an opaque face to stay readable.
+    items.push(addBeigeSolidCard(this, cx, cy, popW, popH));
+
+    const splot = new SplotMascot(this, cx, cy - popH / 2 + 20 + splotSz / 2, splotSz);
+    splot.setExpression('excited');
+    items.push(splot.container);
+
+    txt.setPosition(cx, cy - popH / 2 + 20 + splotSz + 14);
+    items.push(txt);
+
+    items.push(addBeigeButton(this, {
+      x: cx, y: cy + popH / 2 - 16 - btnH / 2, width: 150, height: btnH,
+      label: 'Got it!', fontSize: 13, fontFamily: PIXELIFY, onClick: dismiss,
+    }));
+
+    this.activePopup = this.add.container(0, 0, items).setDepth(55);
+    this.activePopup.setAlpha(0).setScale(0.92);
+    this.tweens.add({
+      targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 220, ease: 'Back.easeOut',
+    });
   }
 
   // ── Conflict popup ─────────────────────────────────────────────────────────
@@ -807,32 +804,45 @@ export class Game extends Phaser.Scene {
       fontFamily: PIXEL_FONT, fontSize: '9px', color: '#ffb3b3',
       align: 'center', wordWrap: { width: panelW - 36 },
     }).setOrigin(0.5).setDepth(81);
-    const btn  = addPixelButton(this, { x: 0, y: 59, width: 148, height: 44, label: 'Try Again', onClick: retry }).setDepth(81);
+    const btn  = addBeigeButton(this, {
+      x: 0, y: 59, width: 148, height: 44, label: 'Try Again',
+      fontSize: 13, fontFamily: PIXELIFY, onClick: retry,
+    }).setDepth(81);
     const panel = this.add.container(width / 2, height / 2, [bg, icon, txt, btn])
       .setDepth(80).setAlpha(0).setScale(0.96);
     this.tweens.add({ targets: panel, alpha: 1, scaleX: 1, scaleY: 1, duration: 220, ease: 'Back.easeOut' });
   }
 
   // ── Apply modifier ────────────────────────────────────────────────────────
+  // Paints splash color over everything a worn stencil doesn't protect;
+  // stencil tiles toggle on/off — except goggles, which snap off broken after
+  // one splash lands on them. Every logged tap is a step.
   private applyModifier(mod: ModifierDef) {
-    if (!this.engine || !this.currentRenderer) return;
+    if (!this.engine || !this.currentRenderer || !this.level) return;
     const result = this.engine.applyModifier(mod);
 
-    if (!result.ok) {
-      this.currentRenderer.playShakeAnim(this);
-      this.splot?.playConflict();
-      this.showConflictPopup(result.message);
+    // Broken goggles refuse the tap — nothing was logged, no step spent.
+    // The tile is disabled too; this guards the pickers and races.
+    if (result.kind === 'broken') {
+      this.showConflictPopup('Those goggles are broken — one splash was all they had!');
+      this.splot?.setExpression('pain', 900);
       return;
     }
 
-    this.currentRenderer.setState(result.newState);
+    this.currentRenderer.setPattern(this.level.palette, this.engine.actions);
     this.currentRenderer.playApplyAnim(this);
-    this.playModifierBurst(mod);
-    this.splot?.playAppliedFlash();
+    if (result.kind === 'paint') {
+      this.playModifierBurst(mod);
+      this.splot?.playAppliedFlash();
+      if (result.broke.length > 0 && !result.isWin) {
+        this.showConflictPopup('The goggles snapped off — goggles break after one splash!');
+        this.splot?.setExpression('shocked', 1200);
+      }
+    } else {
+      this.splot?.setExpression(result.kind === 'wear' ? 'doubt' : 'excited', 900);
+    }
 
-    const steps = this.engine.steps;
-    this.stepsText?.setText(`${steps}`);
-    this.stepsPillText?.setText(`${steps}`);
+    this.updateStepsDisplay();
 
     this.buildPalette();
     if (result.isWin) void this.handleWin();
@@ -877,8 +887,11 @@ export class Game extends Phaser.Scene {
     }
 
     const payload: CompleteRequest = { levelId: this.levelId, timeMs: elapsed, actions: this.engine.actions };
+    const goalPalette = this.level.palette;
+    const goalActions = this.level.optimalSolution;
+    const title = this.level.title;
     const t0 = Date.now();
-    let sparks = 0, streakDays: number | undefined;
+    let sparks = 0, streakDays: number | undefined, firstSplat = false;
     try {
       const res = await fetch('/api/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -888,13 +901,16 @@ export class Game extends Phaser.Scene {
         const data = await res.json() as CompleteResponse;
         sparks = data.sparksEarned ?? 0;
         streakDays = data.streakDays;
+        firstSplat = data.firstSplat === true;
       }
     } catch { /* best-effort */ }
 
     this.time.delayedCall(Math.max(0, 900 - (Date.now() - t0)), () => {
       this.goToScene('LevelComplete', {
-        levelId: this.levelId, steps, timeMs: elapsed, stars, sparks, streakDays,
+        levelId: this.levelId, title, steps, timeMs: elapsed, stars, sparks, streakDays,
         nextLevelId: this.getNextLevelId(),
+        actions: payload.actions,
+        firstSplat, goalPalette, goalActions,
       }, 300, 320);
     });
   }
@@ -910,21 +926,23 @@ export class Game extends Phaser.Scene {
   }
 
   private getNextLevelId(): string | null {
-    const idx = CURATED_LEVELS.findIndex(l => l.id === this.levelId);
-    return idx >= 0 && idx < CURATED_LEVELS.length - 1 ? CURATED_LEVELS[idx + 1]!.id : null;
+    const curated = getCuratedLevels();
+    const idx = curated.findIndex(l => l.id === this.levelId);
+    return idx >= 0 && idx < curated.length - 1 ? curated[idx + 1]!.id : null;
   }
 
   private showHint() {
     if (this.level?.hint) this.showConflictPopup(this.level.hint);
   }
 
+  // Reset wipes the slime back to white but the RUN continues: moves made are
+  // kept (the reset costs one more), and the clock keeps ticking.
   private handleReset() {
-    this.engine?.reset();
-    this.currentRenderer?.setState(this.engine?.currentState ?? {
-      color: '#FFFFFF', goggles: null, glasses: null, belt: null, pendant: null, pumpkin: null, underwear: false,
-    });
-    this.stepsText?.setText('0');
-    this.stepsPillText?.setText('0');
+    if (!this.engine) return;
+    this.engine.reset();
+    this.currentRenderer?.setPattern(this.level?.palette ?? [], []);
+    this.updateStepsDisplay();
+    this.splot?.setExpression('squiggle', 900);
     this.buildPalette();
   }
 
@@ -939,8 +957,7 @@ export class Game extends Phaser.Scene {
         const m  = Math.floor(s / 60);
         const ss = String(s % 60).padStart(2, '0');
         const label = m > 0 ? `${m}:${ss}` : `${s}s`;
-        this.timerText?.setText(label);
-        this.timerPillText?.setText(label);
+        this.timerText?.setText(`Time: ${label}`);
       },
     });
   }

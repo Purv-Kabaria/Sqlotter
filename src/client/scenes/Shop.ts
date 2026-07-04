@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { showLoginPrompt } from '@devvit/web/client';
 import { SplotMascot } from '../components/SplotMascot';
 import {
   addBeigeButton, addBeigeButtonShell, addBeigeCard, addBeigeSolidCard, addDarkPanel, addDepthIcon, addPanel9,
@@ -6,7 +7,9 @@ import {
 } from '../components/PixelUI';
 import { SHOP_ITEMS } from '../../shared/shop';
 import type { ShopCategory, ShopItem } from '../../shared/shop';
+import { ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import type { BuyResponse, EquipResponse, ProfileResponse } from '../../shared/api';
+import { DEFERRED_IMG } from './Preloader';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
 // Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
@@ -81,6 +84,9 @@ export class Shop extends Phaser.Scene {
   private selectedItemId: string | null = null;
   private activePopup: Phaser.GameObjects.Container | null = null;
 
+  // Fit Check Friday share — guards the POST against double-taps.
+  private fitBusy = false;
+
   // Guards every scene.start(...) call — prevents double-tapping the home
   // button, and gates buyItem/equipItem's async continuations from rebuilding
   // the UI after the player has already navigated away mid-request.
@@ -126,6 +132,7 @@ export class Shop extends Phaser.Scene {
     this.activeToasts = [];
     this.selectedItemId = null;
     this.activePopup = null;
+    this.fitBusy = false;
     this.navigating = false;
     this.scrollMaskGfx = null;
     this.scrollContainer = null;
@@ -136,6 +143,15 @@ export class Shop extends Phaser.Scene {
     this.cardRects = [];
     this.scrollOffsetByCategory = {};
     this.dragState = { active: false, startPointerY: 0, startOffset: 0, moved: 0, downRecord: null };
+  }
+
+  // Safety net for the deferred background set — normally MainMenu has already
+  // streamed it in the background and this queues nothing.
+  preload() {
+    this.load.setPath('assets');
+    for (const { key, path } of DEFERRED_IMG) {
+      if (!this.textures.exists(key)) this.load.image(key, path);
+    }
   }
 
   async create() {
@@ -272,6 +288,13 @@ export class Shop extends Phaser.Scene {
     els.push(addPanel9(this, splitX / 2, h / 2, panelW, panelH).setDepth(3));
     const splotSz = Math.min(panelW * 0.66, panelH * 0.48, 400);
     this.spawnSplot(splitX / 2, pad + panelH * 0.30, splotSz, els);
+    // Fit Check share sits right under the mascot it shows off, in the gap
+    // between the preview and the detail card. Short landscape windows leave
+    // no such gap — skip it there rather than overlap (the button stays
+    // available on every portrait/tall layout).
+    const fitY = pad + panelH * 0.30 + splotSz / 2 + 32;
+    const detailTop = pad + panelH * 0.58;
+    if (fitY + 24 <= detailTop - 6) this.buildFitButton(splitX / 2, fitY, Math.min(170, panelW * 0.6), els);
     this.buildDetailArea(splitX / 2, pad + panelH * 0.76, panelW * 0.84, panelH * 0.36, els);
 
     // Header row: home — SHOP title — sparks pill
@@ -322,6 +345,10 @@ export class Shop extends Phaser.Scene {
 
     const splotSz = Math.min(panelH * 0.76, panelW * 0.40, 300);
     this.spawnSplot(pad + panelW * 0.27, panelY + panelH * 0.02, splotSz, els);
+    // Fit Check share tucked under the mascot, inside the preview panel.
+    // Width capped by the Splot half of the panel so it can't reach into the
+    // detail area on narrow phones.
+    this.buildFitButton(pad + panelW * 0.27, panelY + panelH / 2 - 26, Math.min(150, panelW * 0.44), els);
     this.buildDetailArea(pad + panelW * 0.72, panelY, panelW * 0.50, panelH - 26, els);
 
     // Category tabs — one row spanning all categories
@@ -439,6 +466,16 @@ export class Shop extends Phaser.Scene {
       els.push(this.add.container(cx, statusY, [spark, txt]).setDepth(6));
     }
 
+    // The golden crown does double duty: cosmetic AND the top Splotter Flair
+    // tier. Worth calling out — 25k Sparks buys more than a hat.
+    if (item.id === ROYAL_TIER_ITEM_ID && !owned) {
+      els.push(this.add.text(cx, cy + h * 0.10, 'Unlocks the Royal Slime flair!', {
+        fontFamily: PIXELIFY, fontSize: `${Math.max(10, Math.round(subFs * 0.85))}px`, color: C.GOLD,
+        align: 'center', wordWrap: { width: w - 8 },
+        shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
+      }).setOrigin(0.5).setDepth(6));
+    }
+
     // CTA scales with the detail area. forceSmall keeps the thinner corner
     // asset even once btnH clears the 65px auto-threshold — same tablet-sizing
     // fix as the category tabs above.
@@ -545,6 +582,101 @@ export class Shop extends Phaser.Scene {
     const iconSize = Math.round(size * 0.42);
     shell.addContent([addDepthIcon(this, 0, -1, iconKey, iconSize, iconSize)]);
     return shell.container;
+  }
+
+  // ── Fit Check Friday: share the current loadout to this week's thread.
+  // The button lives under the Splot preview (the thing being shown off);
+  // a confirm popup gates the actual — public — Reddit comment. ────────────
+  private buildFitButton(cx: number, cy: number, width: number, els: Phaser.GameObjects.GameObject[]) {
+    const btn = addBeigeButton(this, {
+      x: cx, y: cy, width, height: 40,
+      label: 'Fit Check', iconKey: 'icon-share', fontSize: 14, fontFamily: PIXELIFY, forceSmall: true,
+      onClick: () => this.showFitConfirm(),
+    }).setDepth(8);
+    els.push(btn);
+  }
+
+  private showFitConfirm() {
+    this.closeActivePopup();
+    const { width, height } = this.scale;
+    const cx = width / 2, cy = height / 2;
+    const popW = Math.min(width - 48, 340);
+    const popH = Math.min(height - 56, 250);
+    const items: Phaser.GameObjects.GameObject[] = [];
+
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.55).setInteractive();
+    overlay.on('pointerup', () => this.closeActivePopup());
+    items.push(overlay);
+
+    const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
+    const content: Phaser.GameObjects.GameObject[] = [];
+
+    const titleFs = Math.max(14, Math.min(20, Math.round(popW * 0.065)));
+    content.push(this.add.text(0, -popH * 0.30, 'Fit Check Friday', {
+      fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
+      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+    }).setOrigin(0.5));
+
+    const descFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
+    content.push(this.add.text(0, -popH * 0.02, "Post your Splot's current look to this week's Fit Check thread. Top-voted fit wins 500 Sparks!", {
+      fontFamily: PIXELIFY, fontSize: `${descFs}px`, color: C.TEXT_WARM,
+      align: 'center', wordWrap: { width: popW - 56 },
+    }).setOrigin(0.5));
+
+    shell.addContent(content);
+    items.push(shell.container);
+
+    const btnGap = 12;
+    const btnPad = Math.max(20, popW * 0.07);
+    const btnW = (popW - btnPad * 2 - btnGap) / 2;
+    const btnH = Math.max(46, Math.min(64, Math.round(popH * 0.22)));
+    const btnFs = Math.max(13, Math.round(btnH * 0.30));
+    const btnY = cy + popH / 2 - btnH * 0.9;
+    items.push(addBeigeButton(this, {
+      x: cx - btnW / 2 - btnGap / 2, y: btnY, width: btnW, height: btnH,
+      label: 'Cancel', fontSize: btnFs, fontFamily: PIXELIFY,
+      onClick: () => this.closeActivePopup(),
+    }));
+    items.push(addBeigeButton(this, {
+      x: cx + btnW / 2 + btnGap / 2, y: btnY, width: btnW, height: btnH,
+      label: 'Post it!', iconKey: 'icon-share', fontSize: btnFs, fontFamily: PIXELIFY, forceSmall: true,
+      onClick: () => { this.closeActivePopup(); void this.postFit(); },
+    }));
+
+    this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0).setScale(0.9);
+    this.tweens.add({ targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1, duration: 180, ease: 'Back.easeOut' });
+  }
+
+  // The endpoint distinguishes "not logged in" (401), "no thread live" (404),
+  // "already entered this week" (409), and cooldown (429) — each gets its own
+  // friendly line instead of one generic failure toast.
+  private async postFit() {
+    if (this.fitBusy) return;
+    this.fitBusy = true;
+    try {
+      const res = await fetch('/api/share/fit', { method: 'POST', signal: AbortSignal.timeout(6000) });
+      if (this.navigating) return;
+      if (res.ok) {
+        this.showToast('Fit posted — good luck on Sunday!', C.GREEN);
+        this.splot?.setExpression('excited', 1500);
+        this.splot?.playAppliedFlash();
+      } else if (res.status === 401) {
+        this.showToast('Log in to join Fit Check Friday!', '#ffb347');
+        try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
+      } else if (res.status === 404) {
+        this.showToast('No Fit Check live — come back Friday!', '#ffb347');
+      } else if (res.status === 409) {
+        this.showToast("You already posted this week's fit!", '#ffb347');
+      } else if (res.status === 429) {
+        this.showToast('Easy there — try again in a moment!', '#ffb347');
+      } else {
+        this.showToast('Could not post your fit.', C.RED);
+      }
+    } catch {
+      if (!this.navigating) this.showToast('Could not post your fit.', C.RED);
+    } finally {
+      this.fitBusy = false;
+    }
   }
 
   private computeCols(gridW: number, minCard: number, gap: number, maxCols: number): number {

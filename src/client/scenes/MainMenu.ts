@@ -1,7 +1,10 @@
 import * as Phaser from 'phaser';
+import { showLoginPrompt } from '@devvit/web/client';
 import { SplotMascot } from '../components/SplotMascot';
-import { addBeigeBadge, addBeigeButton, addBeigeCard, addDepthIcon, addPanel9 } from '../components/PixelUI';
+import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeCard, addDepthIcon, addPanel9 } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
+import { getCachedUserData, setCachedUserData } from '../userData';
+import { DEFERRED_IMG } from './Preloader';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
 
@@ -10,19 +13,17 @@ const C = {
   TEXT_DARK: '#3A1A08',
 } as const;
 
-// Session-level cache of /api/init. MainMenu is re-created on every navigation back
-// home, and rendering placeholder data (0 sparks, no username) followed by a full UI
-// rebuild when the fetch landed made every visit visibly "reload". Seeding from the
-// cache renders the right data on the first build; the refetch then only patches
-// what actually changed instead of rebuilding.
-let cachedInit: InitResponse | null = null;
-
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private uiLayer: Phaser.GameObjects.Container | null = null;
   private mascot: SplotMascot | null = null;
   private sparksText: Phaser.GameObjects.Text | null = null;
   private userData: InitResponse | null = null;
+  // Settings popup (Splotter Flair toggle) — lives outside uiLayer, like the
+  // Shop's popups, so buildUI() rebuilds don't orphan it.
+  private activePopup: Phaser.GameObjects.Container | null = null;
+  // Guards the flair-preference POST against double-taps on the toggle.
+  private flairBusy = false;
   // Guards every scene.start(...) call — prevents double-clicking a menu
   // button (or clicking two) from queuing more than one scene transition —
   // and gates loadUserData()'s async continuation from rebuilding the UI
@@ -31,11 +32,18 @@ export class MainMenu extends Phaser.Scene {
 
   constructor() { super('MainMenu'); }
 
+  // Seeding from the shared cache (filled by Preloader's prefetch, then kept
+  // fresh here) renders the right data on the first build; the refetch below
+  // then only patches what actually changed instead of rebuilding — without
+  // it, every visit home visibly "reloaded" (0 sparks, no username, then a
+  // full UI rebuild when the fetch landed).
   init() {
     this.bgLayers  = [];
     this.uiLayer   = null;
     this.mascot    = null;
-    this.userData  = cachedInit;
+    this.userData  = getCachedUserData();
+    this.activePopup = null;
+    this.flairBusy   = false;
     this.navigating = false;
   }
 
@@ -49,6 +57,18 @@ export class MainMenu extends Phaser.Scene {
     this.scale.on('resize', this.onResize, this);
 
     void this.loadUserData();
+    this.warmDeferredAssets();
+  }
+
+  // Streams the assets only Shop/Editor need while the player reads the menu —
+  // they cost the boot sequence nothing, and those scenes still declare them in
+  // their own preload() in case a fast click beats this download.
+  private warmDeferredAssets() {
+    const missing = DEFERRED_IMG.filter(({ key }) => !this.textures.exists(key));
+    if (missing.length === 0) return;
+    this.load.setPath('assets');
+    for (const { key, path } of missing) this.load.image(key, path);
+    this.load.start();
   }
 
   private async loadUserData() {
@@ -60,7 +80,7 @@ export class MainMenu extends Phaser.Scene {
 
       const prev = this.userData;
       this.userData = fresh;
-      cachedInit = fresh;
+      setCachedUserData(fresh);
 
       // Full rebuild only when something the layout depends on changed (username
       // label, streak badge, Splot's equipment). Rebuilding unconditionally here is
@@ -145,6 +165,14 @@ export class MainMenu extends Phaser.Scene {
     const pillW = Math.max(64, Math.min(100, Math.round(w * 0.24)));
     els.push(this.buildSparksPill(w - pillW / 2 - 8, titleH / 2, pillW, pillH, 12));
 
+    // Settings gear mirrors the pill on the strip's left. Only for logged-in
+    // players — its lone setting (Splotter Flair) is meaningless to guests.
+    // The logo's 2×pillW cap already reserves this slot on both sides.
+    if (this.userData?.username) {
+      els.push(this.buildIconButton(8 + pillH / 2, titleH / 2, pillH, 'icon-settings',
+        () => this.showSettingsPopup()).setDepth(12));
+    }
+
     // SQLOTTER logo centered in strip — capped so it can never run into the pill. Bobs gently.
     if (this.textures.exists('title')) {
       const logoW = Math.max(0, Math.min(w * 0.58, 260, w - 2 * pillW - 36));
@@ -226,6 +254,13 @@ export class MainMenu extends Phaser.Scene {
     const pillW = Math.max(90, Math.min(122, Math.round(rightW * 0.30)));
     const pillTop = 10;
     els.push(this.buildSparksPill(w - pillW / 2 - 10, pillTop + pillH / 2, pillW, pillH, 12));
+
+    // Settings gear beside the pill, same row (the logo starts below this row,
+    // so nothing else competes for the corner). Logged-in players only.
+    if (this.userData?.username) {
+      els.push(this.buildIconButton(w - pillW - 10 - 8 - pillH / 2, pillTop + pillH / 2, pillH,
+        'icon-settings', () => this.showSettingsPopup()).setDepth(12));
+    }
 
     // SQLOTTER title — placed below the pill's row with guaranteed clearance.
     let logoBottom = pillTop + pillH;
@@ -313,6 +348,98 @@ export class MainMenu extends Phaser.Scene {
     ).setOrigin(0, 0.5);
     button.add([icon, this.sparksText]);
     return button;
+  }
+
+  private buildIconButton(x: number, y: number, size: number, iconKey: string, onClick: () => void): Phaser.GameObjects.Container {
+    const shell = addBeigeButtonShell(this, x, y, size, size, false, onClick);
+    const iconSize = Math.round(size * 0.42);
+    shell.addContent([addDepthIcon(this, 0, -1, iconKey, iconSize, iconSize)]);
+    return shell.container;
+  }
+
+  // ── Settings popup — currently one setting: the Splotter Flair toggle.
+  // Same outside-uiLayer popup pattern as the Shop's confirms: dim overlay
+  // that closes on tap, beige shell, derived-from-popW/popH metrics. ────────
+  private showSettingsPopup() {
+    this.closeActivePopup();
+    const { width, height } = this.scale;
+    const cx = width / 2, cy = height / 2;
+    const popW = Math.min(width - 48, 360);
+    const popH = Math.min(height - 56, 300);
+    const items: Phaser.GameObjects.GameObject[] = [];
+
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.55).setInteractive();
+    overlay.on('pointerup', () => this.closeActivePopup());
+    items.push(overlay);
+
+    const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
+    const content: Phaser.GameObjects.GameObject[] = [];
+
+    const titleFs = Math.max(14, Math.min(20, Math.round(popW * 0.06)));
+    content.push(this.add.text(0, -popH * 0.32, 'Settings', {
+      fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
+      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+    }).setOrigin(0.5));
+
+    const descFs = Math.max(12, Math.min(15, Math.round(popW * 0.045)));
+    content.push(this.add.text(0, -popH * 0.08,
+      'Splotter Flair shows your streak, Sparks, and slime tier next to your name in this community.', {
+        fontFamily: PIXELIFY, fontSize: `${descFs}px`, color: '#75604C',
+        align: 'center', wordWrap: { width: popW - 56 },
+      }).setOrigin(0.5));
+
+    shell.addContent(content);
+    items.push(shell.container);
+
+    // Toggle reads the cached preference; setFlairPref reopens the popup on
+    // success so the label/icon always reflect the server-confirmed state.
+    const enabled = this.userData?.flairEnabled !== false;
+    const btnW = Math.min(popW - 48, 220);
+    const btnH = Math.max(46, Math.min(60, Math.round(popH * 0.20)));
+    const btnFs = Math.max(13, Math.round(btnH * 0.30));
+    items.push(addBeigeButton(this, {
+      x: cx, y: cy + popH / 2 - btnH * 0.9, width: btnW, height: btnH,
+      label: enabled ? 'Flair: ON' : 'Flair: OFF',
+      iconKey: enabled ? 'icon-check' : 'icon-cross',
+      fontSize: btnFs, fontFamily: PIXELIFY, forceSmall: true,
+      onClick: () => void this.setFlairPref(!enabled),
+    }));
+
+    this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0).setScale(0.9);
+    this.tweens.add({ targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1, duration: 180, ease: 'Back.easeOut' });
+  }
+
+  private async setFlairPref(enabled: boolean) {
+    if (this.flairBusy) return;
+    this.flairBusy = true;
+    try {
+      const res = await fetch('/api/user/flair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (this.navigating) return;
+      if (res.ok) {
+        if (this.userData) {
+          this.userData = { ...this.userData, flairEnabled: enabled };
+          setCachedUserData(this.userData);
+        }
+        // Rebuild the popup so the toggle shows the new state.
+        if (this.activePopup) this.showSettingsPopup();
+      } else if (res.status === 401) {
+        try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
+      }
+    } catch { /* offline — the toggle simply stays as-is */ }
+    finally {
+      this.flairBusy = false;
+    }
+  }
+
+  private closeActivePopup() {
+    if (!this.activePopup) return;
+    const p = this.activePopup;
+    this.activePopup = null;
+    this.tweens.add({ targets: p, alpha: 0, duration: 120, onComplete: () => p.destroy(true) });
   }
 
   private buildMenuButtons(
@@ -414,11 +541,16 @@ export class MainMenu extends Phaser.Scene {
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.resize(gameSize.width, gameSize.height);
     this.repositionBgLayers(gameSize.width, gameSize.height);
+    // The settings popup is sized from the viewport at open time and isn't
+    // part of uiLayer — close it rather than leave it at stale coordinates.
+    this.closeActivePopup();
     this.buildUI();
   }
 
   shutdown() {
     this.navigating = true;
+    this.activePopup?.destroy(true);
+    this.activePopup = null;
     this.mascot?.stopIdleAnims();
     this.scale.off('resize', this.onResize, this);
     this.tweens.killAll();

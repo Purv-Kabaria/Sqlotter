@@ -1,23 +1,20 @@
 import * as Phaser from 'phaser';
 import { addBeigeButton, addBeigeButtonShell, addDepthIcon } from '../components/PixelUI';
-import { CURATED_LEVELS, LEVELS_PER_WORLD, WORLD_NAMES } from '../../shared/levelData';
+import { getCuratedLevels, LEVELS_PER_WORLD, WORLDS_META } from '../../shared/levelData';
+import type { WorldMeta } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
 
 // The grid reserves layout space for a full world (see buildPage's grid geometry):
-// 8 rows × 2 cols portrait, 4 rows × 4 cols desktop.
+// 8 rows × 2 cols portrait, 4 rows × 4 cols desktop. Worlds may hold fewer
+// levels than the cap (the tutorial world has 8) — the grid just leaves the
+// remaining cells empty.
 const WORLD_CAPACITY = LEVELS_PER_WORLD;
 
-// The generated curated set is authored in contiguous blocks of LEVELS_PER_WORLD.
-function getWorldForLevel(level: LevelData): number {
-  const idx = CURATED_LEVELS.findIndex(l => l.id === level.id);
-  return Math.floor(idx / LEVELS_PER_WORLD) + 1;
-}
-
 type GridItem = { label: string; disabled: boolean; onClick?: (() => void) | undefined };
-type WorldPage = { kind: 'world'; worldNum: number; levels: LevelData[] };
+type WorldPage = { kind: 'world'; meta: WorldMeta; levels: LevelData[] };
 type CommunityPage = { kind: 'community' };
 type Page = WorldPage | CommunityPage;
 
@@ -93,15 +90,14 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private buildPages() {
-    const worlds: Map<number, LevelData[]> = new Map();
-    for (const level of CURATED_LEVELS) {
-      const w = getWorldForLevel(level);
-      if (!worlds.has(w)) worlds.set(w, []);
-      worlds.get(w)!.push(level);
-    }
-    this.pages = [...worlds.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([worldNum, levels]) => ({ kind: 'world' as const, worldNum, levels }));
+    // WORLDS_META carries each world's start offset + size into the generated
+    // curated array — worlds are contiguous but not equally sized.
+    const curated = getCuratedLevels();
+    this.pages = WORLDS_META.map((meta) => ({
+      kind: 'world' as const,
+      meta,
+      levels: curated.slice(meta.start, meta.start + meta.size),
+    }));
     this.pages.push({ kind: 'community' });
     this.pageIndex = Math.min(this.pageIndex, this.pages.length - 1);
   }
@@ -171,11 +167,11 @@ export class LevelSelect extends Phaser.Scene {
     const titleH  = Math.max(66, Math.min(96, Math.round(height * (isPortrait ? 0.11 : 0.135))));
     const titleY  = Math.max(titleH / 2 + 16, height * (isPortrait ? 0.09 : 0.11));
     const titleFs = Math.max(20, Math.min(34, Math.round(titleH * 0.36)));
-    // World pages show "World N — Name"; the font shrinks to fit the longest
-    // names inside titleW rather than overflowing the button on narrow screens.
-    const worldName = page.kind === 'world' ? WORLD_NAMES[page.worldNum - 1] : undefined;
+    // World pages show "World N — Name" (the tutorial world shows just its
+    // name); the font shrinks to fit the longest names inside titleW rather
+    // than overflowing the button on narrow screens.
     const titleLabel = page.kind === 'world'
-      ? (worldName ? `World ${page.worldNum} — ${worldName}` : `World ${page.worldNum}`)
+      ? (page.meta.num === 0 ? page.meta.name : `World ${page.meta.num} — ${page.meta.name}`)
       : 'Community Levels';
     const fittedFs = Math.max(12, Math.min(titleFs, Math.floor(titleW / (titleLabel.length * 0.62))));
     const titleBtn = addBeigeButton(this, {
@@ -286,11 +282,12 @@ export class LevelSelect extends Phaser.Scene {
 
   private buildGridItems(page: Page, maxItems: number): GridItem[] {
     if (page.kind === 'world') {
-      return page.levels.map((level) => {
-        const overallIdx = CURATED_LEVELS.findIndex(l => l.id === level.id);
+      return page.levels.map((level, i) => {
         const locked = this.isLevelLocked(level);
+        // Tutorial buttons carry their lesson name ("One-Shot Goggles");
+        // regular worlds number within the world, matching the page title.
         return {
-          label: `Level ${overallIdx + 1}`,
+          label: page.meta.num === 0 ? level.title : `Level ${i + 1}`,
           disabled: locked,
           onClick: locked ? undefined : () => this.openLevel(level.id),
         };
@@ -375,9 +372,10 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private isLevelLocked(level: LevelData): boolean {
-    const idx = CURATED_LEVELS.findIndex(l => l.id === level.id);
+    const curated = getCuratedLevels();
+    const idx = curated.findIndex(l => l.id === level.id);
     if (idx === 0) return false;
-    const prev = CURATED_LEVELS[idx - 1];
+    const prev = curated[idx - 1];
     if (!prev) return false;
     return !this.completedLevels[prev.id];
   }
