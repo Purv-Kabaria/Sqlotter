@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import type { ModifierDef } from '../../shared/types';
 import { isBreakableMask, replayOps, standardPaints } from '../../shared/slimeSim';
+import { MAX_SOLUTION_STEPS } from '../../shared/gameRules';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import type { LevelData } from '../../shared/types';
 import type { LevelCreateResponse } from '../../shared/api';
@@ -14,14 +15,24 @@ const PIXELIFY = '"Pixelify Sans", sans-serif';
 // published palettes reference the canonical paint ids and colors.
 const PAINT_COLORS: readonly ModifierDef[] = standardPaints();
 
+// The FULL stencil catalog — all 20 masks the sim knows (every goggles/
+// glasses/belt orientation and thickness, both pendants, all pumpkin sizes,
+// undies). Maximum creative range for creators.
 const ALL_MODS: ModifierDef[] = [
   { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick' },
+  { id: 'goggles-h-thin',  type: 'goggles', variant: 'h-thin'  },
+  { id: 'goggles-h-mono',  type: 'goggles', variant: 'h-mono'  },
   { id: 'goggles-v-thick', type: 'goggles', variant: 'v-thick' },
+  { id: 'goggles-v-thin',  type: 'goggles', variant: 'v-thin'  },
+  { id: 'goggles-v-mono',  type: 'goggles', variant: 'v-mono'  },
   { id: 'glasses-h-thick', type: 'glasses', variant: 'h-thick' },
+  { id: 'glasses-h-thin',  type: 'glasses', variant: 'h-thin'  },
   { id: 'glasses-v-thick', type: 'glasses', variant: 'v-thick' },
+  { id: 'glasses-v-thin',  type: 'glasses', variant: 'v-thin'  },
   { id: 'belt-h-thick',    type: 'belt',    variant: 'h-thick' },
   { id: 'belt-h-thin',     type: 'belt',    variant: 'h-thin'  },
   { id: 'belt-v-thick',    type: 'belt',    variant: 'v-thick' },
+  { id: 'belt-v-thin',     type: 'belt',    variant: 'v-thin'  },
   { id: 'pendant-h',       type: 'pendant', variant: 'h'       },
   { id: 'pendant-v',       type: 'pendant', variant: 'v'       },
   { id: 'pumpkin-25',      type: 'pumpkin', coverage: 25       },
@@ -36,11 +47,18 @@ const ALL_MODS: ModifierDef[] = [
 // its goal pattern at once.
 const EDITOR_DEFS: ModifierDef[] = [...PAINT_COLORS, ...ALL_MODS];
 
+// "h-thick" → "H thick" — orientation loud, thickness quiet.
+function variantLabel(variant: string | undefined): string {
+  if (!variant) return '';
+  const [axis, thickness] = variant.split('-');
+  return thickness ? `${(axis ?? '').toUpperCase()} ${thickness}` : (axis ?? '').toUpperCase();
+}
+
 function modLabel(mod: ModifierDef): string {
-  if (mod.type === 'goggles')   return `Goggles ${mod.variant}`;
-  if (mod.type === 'glasses')   return `Glasses ${mod.variant}`;
-  if (mod.type === 'belt')      return `Belt ${mod.variant}`;
-  if (mod.type === 'pendant')   return `Pendant ${mod.variant}`;
+  if (mod.type === 'goggles')   return `Goggles ${variantLabel(mod.variant)}`;
+  if (mod.type === 'glasses')   return `Glasses ${variantLabel(mod.variant)}`;
+  if (mod.type === 'belt')      return `Belt ${variantLabel(mod.variant)}`;
+  if (mod.type === 'pendant')   return `Pendant ${variantLabel(mod.variant)}`;
   if (mod.type === 'pumpkin')   return `Pumpkin ${mod.coverage}%`;
   if (mod.type === 'underwear') return 'Underwear';
   return mod.id;
@@ -55,8 +73,11 @@ function computeDifficulty(steps: number): 1 | 2 | 3 | 4 | 5 {
 }
 
 function getIconKey(mod: ModifierDef): string | null {
-  if (mod.type === 'goggles')   return 'icon-goggles-thick';
-  if (mod.type === 'glasses')   return 'icon-glasses-thick';
+  if (mod.type === 'goggles') {
+    if (mod.variant?.includes('mono')) return 'icon-goggle';
+    return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
+  }
+  if (mod.type === 'glasses')   return mod.variant?.includes('thin') ? 'icon-glasses-thin' : 'icon-glasses-thick';
   if (mod.type === 'belt')      return mod.variant?.includes('thin') ? 'icon-belt-thin' : 'icon-belt-thick';
   if (mod.type === 'pendant')   return 'icon-pendant';
   if (mod.type === 'pumpkin')   return 'icon-pumpkin';
@@ -80,12 +101,19 @@ export class Editor extends Phaser.Scene {
   // The recorded action-id sequence — solution AND goal in one.
   private actions: string[] = [];
   private titleValue = 'My Custom Level';
+  private hintValue = '';
+  // Creator-chosen decoy count (0-3): unused stencils/colors padded into the
+  // published palette so it doesn't spell out the recipe.
+  private decoyCount = 2;
 
   private goalRenderer: SlimeRenderer | null = null;
   private stepsText: Phaser.GameObjects.Text | null = null;
   private feedbackText: Phaser.GameObjects.Text | null = null;
+  private decoyBtn: Phaser.GameObjects.Container | null = null;
   private titleInput: HTMLInputElement | null = null;
+  private hintInput: HTMLInputElement | null = null;
   private titleInputY = 62;
+  private hintInputY = 92;
   // Guards every scene.start(...) call — prevents double-clicking back/Test
   // Play/Publish (or clicking one while another's transition is in flight)
   // from queuing more than one scene transition.
@@ -96,6 +124,9 @@ export class Editor extends Phaser.Scene {
   init() {
     this.actions    = [];
     this.titleValue = 'My Custom Level';
+    this.hintValue  = '';
+    this.decoyCount = 2;
+    this.decoyBtn   = null;
     this.navigating = false;
   }
 
@@ -126,13 +157,18 @@ export class Editor extends Phaser.Scene {
 
     this.buildHeader(cx, width);
 
-    // Title DOM input overlaid on canvas
-    this.titleInput = this.createTitleInput(cx, this.titleInputY, Math.min(width - 96, 260));
+    // Title + hint DOM inputs overlaid on canvas
+    this.titleInput = this.createOverlayInput(
+      this.titleInputY, 'Level title...', this.titleValue, 60,
+      (v) => { this.titleValue = v; });
+    this.hintInput = this.createOverlayInput(
+      this.hintInputY, 'Hint for players (optional)...', this.hintValue, 160,
+      (v) => { this.hintValue = v; });
     this.scale.on('resize', this.onResize, this);
 
-    // Goal slime panel
+    // Goal slime panel — below the two input rows
     const slimeSize = Math.min(width * 0.28, 120);
-    const slimeY = 145;
+    const slimeY = 178;
     this.buildSlimePanel(cx, slimeY, slimeSize);
 
     // Steps / difficulty line
@@ -203,10 +239,32 @@ export class Editor extends Phaser.Scene {
     this.goalRenderer.container.setDepth(3);
     this.goalRenderer.setPattern(EDITOR_DEFS, this.actions);
 
-    // Undo / Reset buttons
+    // Undo / Reset / Decoys buttons
     const btnY = slimeY + slimeSize / 2 + 8;
-    this.buildSmallBtn(cx - 36, btnY, 60, 24, 'Undo',  () => this.undo());
-    this.buildSmallBtn(cx + 36, btnY, 60, 24, 'Reset', () => this.reset());
+    this.buildSmallBtn(cx - 80, btnY, 64, 24, 'Undo',  () => this.undo());
+    this.buildSmallBtn(cx - 8,  btnY, 64, 24, 'Reset', () => this.reset());
+    this.buildDecoyButton(cx + 82, btnY);
+  }
+
+  // Cycles 0→3. addBeigeButton bakes its label, so the button is rebuilt on
+  // every tap — cheap, and it keeps the label/state in one place.
+  private buildDecoyButton(x: number, y: number) {
+    this.decoyBtn?.destroy();
+    this.decoyBtn = addBeigeButton(this, {
+      x, y, width: 104, height: 36,
+      label: `Decoys: ${this.decoyCount}`,
+      fontSize: 10, fontFamily: PIXELIFY,
+      onClick: () => {
+        this.decoyCount = (this.decoyCount + 1) % 4;
+        this.buildDecoyButton(x, y);
+        this.showFeedback(
+          this.decoyCount === 0
+            ? 'No decoys — the palette shows exactly what the solve uses.'
+            : `${this.decoyCount} decoy ${this.decoyCount === 1 ? 'item pads' : 'items pad'} the palette to hide the recipe.`,
+          false,
+        );
+      },
+    }).setDepth(5);
   }
 
   private buildModSection(cx: number, startY: number, width: number) {
@@ -231,12 +289,13 @@ export class Editor extends Phaser.Scene {
       this.buildColorSwatch(x, y, swatchD, mod);
     });
 
-    // Modifier grid (3 cols)
-    const cols   = 3;
+    // Modifier grid — 4 columns so the full 20-mask catalog keeps the same
+    // row count the old 13-mask/3-column grid had.
+    const cols   = 4;
     const pad    = 12;
     const gap    = 6;
     const cardW  = (width - pad * 2 - gap * (cols - 1)) / cols;
-    const cardH  = 44;
+    const cardH  = 40;
     const gridY0 = swatchY + swatchRowH + swatchD / 2 + 12;
 
     ALL_MODS.forEach((mod, i) => {
@@ -284,14 +343,14 @@ export class Editor extends Phaser.Scene {
     const items: Phaser.GameObjects.GameObject[] = [bg];
 
     if (iconKey && this.textures.exists(iconKey)) {
-      items.push(this.add.image(-w / 2 + 16, 0, iconKey).setDisplaySize(18, 18));
+      items.push(this.add.image(-w / 2 + 13, 0, iconKey).setDisplaySize(16, 16));
     }
 
-    const txtX = iconKey ? -w / 2 + 30 : -w / 2 + 6;
-    const txtW = w - (iconKey ? 38 : 12);
+    const txtX = iconKey ? -w / 2 + 24 : -w / 2 + 6;
+    const txtW = w - (iconKey ? 30 : 12);
     items.push(this.add.text(txtX, 0, modLabel(mod), {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
+      fontSize: '7px',
       color: C.TEXT,
       wordWrap: { width: txtW },
     }).setOrigin(0, 0.5));
@@ -342,6 +401,12 @@ export class Editor extends Phaser.Scene {
 
   // ── Goal building — the creator plays their own level ──────
   private applyGoalMod(mod: ModifierDef) {
+    // The publish cap, enforced while recording: every level ships with a
+    // proof it's beatable in at most MAX_SOLUTION_STEPS moves.
+    if (this.actions.length >= MAX_SOLUTION_STEPS) {
+      this.showFeedback(`Max ${MAX_SOLUTION_STEPS} moves — levels must stay beatable! Undo or Reset.`, true);
+      return;
+    }
     const before = replayOps(EDITOR_DEFS, this.actions);
     // Same rule as in play: goggles a splash landed on are broken for the run.
     if (mod.type !== 'paint' && before.broken.includes(mod.id)) {
@@ -384,7 +449,7 @@ export class Editor extends Phaser.Scene {
   private updateMeta() {
     const steps = this.actions.length;
     const diff  = computeDifficulty(steps);
-    this.stepsText?.setText(`Steps: ${steps}  |  Diff: ${diff}/5`);
+    this.stepsText?.setText(`Steps: ${steps}/${MAX_SOLUTION_STEPS}  |  Diff: ${diff}/5`);
   }
 
   private showFeedback(msg: string, isError: boolean) {
@@ -422,7 +487,7 @@ export class Editor extends Phaser.Scene {
   private goToScene(key: string, data?: Record<string, unknown>) {
     if (this.navigating) return;
     this.navigating = true;
-    this.titleInput?.remove();
+    this.removeInputs();
     this.cameras.main.fadeOut(250, 26, 10, 46);
     this.time.delayedCall(260, () => this.scene.start(key, data));
   }
@@ -435,6 +500,7 @@ export class Editor extends Phaser.Scene {
     }
     const title = (this.titleInput?.value ?? '').trim() || 'My Custom Level';
     this.titleValue = title;
+    const hint = (this.hintInput?.value ?? '').trim().slice(0, 160);
 
     try {
       const res = await fetch('/api/level/create', {
@@ -446,6 +512,7 @@ export class Editor extends Phaser.Scene {
           palette:      this.buildPalette(),
           optimalSteps: this.actions.length,
           solution:     [...this.actions],
+          ...(hint ? { hint } : {}),
         }),
       });
 
@@ -474,12 +541,12 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildPalette(): ModifierDef[] {
-    // Every distinct def the recording used + up to 2 plausible decoys
+    // Every distinct def the recording used + the creator-chosen decoy count
     const usedIds = new Set(this.actions);
     const palette = EDITOR_DEFS.filter(d => usedIds.has(d.id));
     const decoyPool = ALL_MODS.filter(m => !usedIds.has(m.id));
 
-    for (let i = 0; i < Math.min(2, decoyPool.length); i++) {
+    for (let i = 0; i < Math.min(this.decoyCount, decoyPool.length); i++) {
       const idx = Math.floor(Math.random() * decoyPool.length);
       const [decoy] = decoyPool.splice(idx, 1);
       if (decoy) palette.push(decoy);
@@ -496,6 +563,7 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildLevelData(id: string): LevelData {
+    const hint = this.hintValue.trim().slice(0, 160);
     return {
       id,
       title:           this.titleValue,
@@ -503,15 +571,20 @@ export class Editor extends Phaser.Scene {
       palette:         this.buildPalette(),
       optimalSteps:    this.actions.length,
       optimalSolution: [...this.actions],
+      ...(hint ? { hint } : {}),
     };
   }
 
-  private createTitleInput(cx: number, y: number, w: number): HTMLInputElement {
+  private createOverlayInput(
+    y: number, placeholder: string, value: string, maxLength: number,
+    onInput: (v: string) => void,
+  ): HTMLInputElement {
+    const { width } = this.scale;
     const input = document.createElement('input');
     input.type        = 'text';
-    input.placeholder = 'Level title...';
-    input.maxLength   = 60;
-    input.value       = this.titleValue;
+    input.placeholder = placeholder;
+    input.maxLength   = maxLength;
+    input.value       = value;
 
     Object.assign(input.style, {
       position:    'fixed',
@@ -529,12 +602,12 @@ export class Editor extends Phaser.Scene {
     const canvas = this.game.canvas;
     const parent = canvas.parentElement ?? document.body;
     parent.appendChild(input);
-    this.positionTitleInput(input, cx, y, w);
-    input.addEventListener('input', () => { this.titleValue = input.value; });
+    this.positionOverlayInput(input, width / 2, y, Math.min(width - 96, 260));
+    input.addEventListener('input', () => onInput(input.value));
     return input;
   }
 
-  private positionTitleInput(input: HTMLInputElement, cx: number, y: number, w: number) {
+  private positionOverlayInput(input: HTMLInputElement, cx: number, y: number, w: number) {
     const canvas = this.game.canvas;
     const rect   = canvas.getBoundingClientRect();
     const sx     = rect.width  / this.scale.width;
@@ -551,16 +624,23 @@ export class Editor extends Phaser.Scene {
   }
 
   private onResize() {
-    if (!this.titleInput) return;
     const { width } = this.scale;
-    this.positionTitleInput(this.titleInput, width / 2, this.titleInputY, Math.min(width - 96, 260));
+    const w = Math.min(width - 96, 260);
+    if (this.titleInput) this.positionOverlayInput(this.titleInput, width / 2, this.titleInputY, w);
+    if (this.hintInput)  this.positionOverlayInput(this.hintInput,  width / 2, this.hintInputY,  w);
+  }
+
+  private removeInputs() {
+    this.titleInput?.remove();
+    this.titleInput = null;
+    this.hintInput?.remove();
+    this.hintInput = null;
   }
 
   shutdown() {
     this.navigating = true;
     this.scale.off('resize', this.onResize, this);
-    this.titleInput?.remove();
-    this.titleInput = null;
+    this.removeInputs();
     this.tweens.killAll();
     this.time.removeAllEvents();
   }

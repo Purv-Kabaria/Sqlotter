@@ -207,9 +207,15 @@ a transient failure costs an hour, not the whole day.
 
 **User-generated.** The Editor records the creator *playing* the pattern: every tap
 (paint / stencil on / stencil off) appends to the action list, which becomes both the
-goal and the reference solution. Publishing requires the recording to end bare with
-paint on the slime; the server re-verifies, stores at `level:{id}` (90-day TTL),
-indexes in `ugc:index`, and posts the Beat-the-Creator challenge post.
+goal and the reference solution. Creators get the full 20-stencil catalog and the
+16-color rack, choose how many decoys (0–3) pad the published palette, and can attach
+an optional hint. Recordings are capped at `MAX_SOLUTION_STEPS` (20) — enforced while
+recording and re-checked by the server — so **every published level is provably
+solvable within 20 moves**, and that count is the level's advertised par. Publishing
+requires the recording to end bare with paint on the slime; the server re-verifies,
+stores at `level:{id}` (90-day TTL), indexes in `ugc:index` plus the `ugc:titles`
+search registry (`GET /api/levels/community?q=` matches title or creator), and posts
+the Beat-the-Creator challenge post.
 
 ---
 

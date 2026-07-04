@@ -32,7 +32,7 @@ import { getCuratedLevels } from '../../shared/levelData';
 import {
   isBreakableMask, maskIdOf, PAINT_COLORS_16, resolveActionDef, RESET_ACTION_ID,
 } from '../../shared/slimeSim';
-import { calcStars, isValidSolution, verifyLevelIntegrity } from '../../shared/gameRules';
+import { calcStars, isValidSolution, MAX_SOLUTION_STEPS, verifyLevelIntegrity } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
 import { flairTierName, ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import { clearUserFlair, syncUserFlair } from '../core/flair';
@@ -1005,10 +1005,12 @@ api.post('/level/create', async (c) => {
   if (uniqueIds.size !== palette.length) {
     return c.json<Err>({ status: 'error', message: 'Modifier ids must be unique' }, 400);
   }
-  if (!Array.isArray(solution) || solution.length < 1 || solution.length > 50
+  // The cap is the solvability guarantee: whatever a player faces, the
+  // creator has proven it beatable in at most MAX_SOLUTION_STEPS moves.
+  if (!Array.isArray(solution) || solution.length < 1 || solution.length > MAX_SOLUTION_STEPS
     || solution.some((action) => typeof action !== 'string' || action.length > 80)
     || optimalSteps !== solution.length) {
-    return c.json<Err>({ status: 'error', message: 'Invalid solution' }, 400);
+    return c.json<Err>({ status: 'error', message: `Levels must be solvable in 1-${MAX_SOLUTION_STEPS} moves` }, 400);
   }
   if (hint !== undefined && (typeof hint !== 'string' || hint.length > 160)) {
     return c.json<Err>({ status: 'error', message: 'Hint is too long' }, 400);

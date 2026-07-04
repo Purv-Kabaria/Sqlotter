@@ -1,6 +1,11 @@
 import type { LevelData, Stars } from './types';
 import { isCleanMatch, isPainted, replaySim } from './slimeSim';
 
+// Every published level must be provably solvable within this many moves —
+// the creator's own recording is the proof, and it doubles as the level's
+// par. Enforced in the Editor while recording and again by /api/level/create.
+export const MAX_SOLUTION_STEPS = 20;
+
 // Star thresholds are optimal-relative: match the target = 3, within 2x = 2.
 export function calcStars(steps: number, optimalSteps: number): Stars {
   if (steps <= optimalSteps) return 3;
