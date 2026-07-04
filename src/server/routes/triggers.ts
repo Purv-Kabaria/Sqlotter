@@ -44,6 +44,11 @@ async function wipeProgressIfStale(): Promise<boolean> {
 
 triggers.post('/on-app-upgrade', async (c) => {
   try {
+    // Older installs may predate the install trigger's write of this key —
+    // the daily/fitcheck schedulers can't post without it.
+    if (context.subredditName) {
+      await redis.set('subreddit:name', context.subredditName);
+    }
     const wiped = await wipeProgressIfStale();
     return c.json<TriggerResponse>(
       { status: 'success', message: wiped ? 'Progress reset for new level set' : 'Level set unchanged' },

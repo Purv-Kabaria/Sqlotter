@@ -56,7 +56,7 @@
     "tasks": {
       "daily-puzzle": {
         "endpoint": "/internal/scheduler/daily-puzzle",
-        "cron": "0 8 * * *"
+        "cron": "0 * * * *"
       },
       "fitcheck-post": {
         "endpoint": "/internal/scheduler/fitcheck-post",

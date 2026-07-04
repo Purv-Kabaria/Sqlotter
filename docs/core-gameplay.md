@@ -196,9 +196,14 @@ Three mechanisms keep the set varied and ramped:
 progress when it changes.
 
 **Daily.** `generateDailyLevel(date)` seeds the same generator from the date;
-weekday picks the difficulty tier (Sun–Sat → 3 1 2 2 3 4 5). Solvable by
-construction; `GET /api/daily` falls back to rotating curated levels if the
-scheduler hasn't published one.
+dailies skew HARD on purpose — weekdays tier 4, weekends tier 5 (easy lives in
+the Splash Course, the daily is the competitive ritual). Each daily gets a
+deterministic quirky name ("The Grumpy Goggle Job") drawn from the same seed,
+used in the level, the post title, and every Splat Card that quotes it.
+Solvable by construction; `GET /api/daily` falls back to rotating curated
+levels if the scheduler hasn't published one. The scheduler task runs hourly
+and is idempotent per piece (level store / Reddit post checked separately), so
+a transient failure costs an hour, not the whole day.
 
 **User-generated.** The Editor records the creator *playing* the pattern: every tap
 (paint / stencil on / stencil off) appends to the action list, which becomes both the

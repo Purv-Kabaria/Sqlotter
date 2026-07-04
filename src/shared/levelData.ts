@@ -27,6 +27,28 @@ const DAILY_CONFIGS: Record<1 | 2 | 3 | 4 | 5, GenConfig> = {
   5: { maskPool: ['goggles-h-mono', 'goggles-v-thick', 'glasses-v-thick', 'belt-v-thick', 'belt-h-thin', 'pumpkin-25', 'pumpkin-75', 'underwear', 'pendant-v'], masks: [3, 4], paints: [3, 4], baseFirst: 0.7, midRemove: 0.4, decoys: [2, 2] },
 };
 
+// Quirky deterministic daily names — "The Grumpy Goggle Job" beats
+// "Daily — 2026-07-04" in the post title, on the win screen, and in every
+// Splat Card that quotes it. Drawn from the date-seeded rng, so client and
+// server always agree on the name.
+const DAILY_ADJ = [
+  'Grumpy', 'Sneaky', 'Wobbly', 'Slippery', 'Dapper', 'Feral', 'Polite',
+  'Chaotic', 'Smug', 'Haunted', 'Dizzy', 'Majestic', 'Sassy', 'Rowdy',
+  'Bashful', 'Unhinged', 'Soggy', 'Suspicious', 'Glorious', 'Mischievous',
+] as const;
+const DAILY_NOUN = [
+  'Splat Heist', 'Goggle Job', 'Pumpkin Caper', 'Stripe Racket', 'Paint Panic',
+  'Undies Incident', 'Belt Ballet', 'Squish Parade', 'Drip Scheme', 'Color Crime',
+  'Splash Gambit', 'Stencil Shuffle', 'Slime Affair', 'Coat Conspiracy',
+  'Blot Plot', 'Visor Vendetta',
+] as const;
+
+function quirkyDailyTitle(rng: () => number): string {
+  const adj  = DAILY_ADJ[Math.floor(rng() * DAILY_ADJ.length)]!;
+  const noun = DAILY_NOUN[Math.floor(rng() * DAILY_NOUN.length)]!;
+  return `The ${adj} ${noun}`;
+}
+
 /**
  * Generate a deterministic daily stencil puzzle from a date string
  * (YYYY-MM-DD). The level id is `daily-YYYY-MM-DD`.
@@ -35,17 +57,22 @@ export function generateDailyLevel(date: string): LevelData {
   const seed = parseInt(date.replace(/-/g, ''), 10);
   const rng  = mulberry32(seed);
 
-  // Difficulty cycles Sun-Sat: 3 1 2 2 3 4 5 (weekend = spicier)
+  // Dailies are the competitive ritual — they skew HARD on purpose (the
+  // Splash Course and early worlds are where easy lives). Weekdays are
+  // devious, weekends diabolical. Sun-Sat.
   const dow = new Date(date).getDay(); // 0=Sun
-  const difficulties = [3, 1, 2, 2, 3, 4, 5] as const;
-  const tier = difficulties[dow] ?? 3;
+  const difficulties = [5, 4, 4, 4, 4, 5, 5] as const;
+  const tier = difficulties[dow] ?? 4;
 
+  // Title first: it must consume a fixed number of rng draws so the puzzle
+  // itself stays stable regardless of how many attempts generation burns.
+  const title = quirkyDailyTitle(rng);
   const recipe = buildGeneratedLevel(rng, DAILY_CONFIGS[tier]);
   const steps = recipe.solution.length;
 
   return {
     id: `daily-${date}`,
-    title: `Daily — ${date}`,
+    title,
     difficulty: difficultyForSteps(steps),
     palette: recipe.palette,
     optimalSteps: steps,

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { redis, reddit } from '@devvit/web/server';
+import { context, redis, reddit } from '@devvit/web/server';
 import type { TaskResponse } from '@devvit/web/server';
 import { generateDailyLevel } from '../../shared/levelData';
 import { syncUserFlair } from '../core/flair';
@@ -9,50 +9,55 @@ import { isCommentId, isPostId } from '../core/tid';
 export const schedulerRoutes = new Hono();
 
 // ── Daily puzzle generation ───────────────────────────────────
-// Called every day at 08:00 UTC by the devvit.json cron.
+// Runs HOURLY (see devvit.json) and is idempotent per piece: the level store
+// and the Reddit post are checked separately, so whichever half failed on the
+// last tick is retried on the next one instead of silently skipping the whole
+// day. The post therefore lands right after UTC midnight, and a transient
+// Reddit failure costs at most an hour — this is what actually guarantees a
+// daily post every day.
 schedulerRoutes.post('/daily-puzzle', async (c) => {
   try {
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const existing = await redis.get(`daily:${today}`);
-
-    if (existing) {
-      // Already generated for today
-      return c.json<TaskResponse>({ status: 'ok' }, 200);
-    }
-
+    // The generator is date-seeded and deterministic, so regenerating is the
+    // same as loading the stored copy — no JSON parsing needed here.
     const level  = generateDailyLevel(today);
     const levelId = level.id;
 
-    // Store the level JSON in Redis
-    await redis.set(`level:${levelId}`, JSON.stringify(level));
-    // Map today → levelId
-    await redis.set(`daily:${today}`, levelId);
-    // Set expiry so stale levels are auto-cleaned after 30 days
-    await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 30);
-    await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
-
-    // Create the Reddit post
-    const subredditName = (await redis.get('subreddit:name')) ?? '';
-    if (subredditName) {
-      const post = await reddit.submitCustomPost({
-        subredditName,
-        title: dailyPostTitle(level, today),
-        entry: 'default',
-        postData: { levelId },
-        styles: {
-          heightPixels: 512,
-          backgroundColor: '#1a0a2eff',
-          backgroundColorDark: '#1a0a2eff',
-        },
-      });
-      // Track the post id for this day
-      await redis.set(`daily-post:${today}`, post.id);
+    if (!(await redis.get(`daily:${today}`))) {
+      await redis.set(`level:${levelId}`, JSON.stringify(level));
+      await redis.set(`daily:${today}`, levelId);
+      // Expiry so stale levels are auto-cleaned after 30 days
+      await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 30);
+      await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
+      console.log(`Daily puzzle generated: ${levelId} for ${today}`);
     }
 
-    console.log(`Daily puzzle generated: ${levelId} for ${today}`);
+    if (!(await redis.get(`daily-post:${today}`))) {
+      // Scheduler runs carry the subreddit in context on current Devvit; the
+      // redis copy covers older runtimes and is refreshed for the other tasks.
+      const subredditName = context.subredditName ?? (await redis.get('subreddit:name')) ?? '';
+      if (subredditName) {
+        await redis.set('subreddit:name', subredditName);
+        const post = await reddit.submitCustomPost({
+          subredditName,
+          title: dailyPostTitle(level, today),
+          entry: 'default',
+          postData: { levelId },
+          styles: {
+            heightPixels: 512,
+            backgroundColor: '#1a0a2eff',
+            backgroundColorDark: '#1a0a2eff',
+          },
+        });
+        await redis.set(`daily-post:${today}`, post.id);
+        await redis.expire(`daily-post:${today}`, 60 * 60 * 24 * 30);
+        console.log(`Daily puzzle posted: ${post.id} for ${today}`);
+      }
+    }
+
     return c.json<TaskResponse>({ status: 'ok' }, 200);
   } catch (e) {
-    console.error('Daily puzzle generation failed:', e);
+    console.error('Daily puzzle task failed:', e);
     return c.json<TaskResponse>({ status: 'error', message: String(e) }, 500);
   }
 });

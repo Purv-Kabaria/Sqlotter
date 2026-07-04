@@ -485,20 +485,23 @@ Declare in `devvit.json`:
   "tasks": {
     "daily-puzzle": {
       "endpoint": "/internal/scheduler/daily-puzzle",
-      "cron": "0 8 * * *"
+      "cron": "0 * * * *"
     }
   }
 }
 ```
 
-Server handler generates a random solvable level using the level generation algorithm, calls `reddit.submitCustomPost()`, and stores the mapping `daily:{YYYY-MM-DD}` → `levelId` in Redis.
+The task runs **hourly and idempotent per piece**: the level store (`daily:{YYYY-MM-DD}` →
+`levelId`) and the Reddit post (`daily-post:{YYYY-MM-DD}`) are checked separately, so the
+post lands right after UTC midnight and any transient failure retries within the hour.
 
 **Generation algorithm:**
-1. Pick difficulty tier (1-5) based on day of week
-2. Pick N random compatible modifiers from modifier pool
-3. Apply them in a valid sequence to get a target state
-4. Store the generating sequence as `optimalSolution`
-5. Optionally add 1-2 decoy modifiers (valid but not needed)
+1. Pick difficulty tier from the weekday — dailies skew hard (weekdays 4, weekends 5)
+2. Draw a deterministic quirky title from the date seed ("The Grumpy Goggle Job")
+3. Pick N random compatible modifiers from the tier's pool
+4. Apply them in a valid sequence to get a target state
+5. Store the generating sequence as `optimalSolution`
+6. Add decoy modifiers (valid but not needed)
 
 ---
 

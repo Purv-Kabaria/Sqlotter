@@ -18,7 +18,7 @@ const TIER_FLAVOR: Record<LevelData['difficulty'], string> = {
 };
 
 export function dailyPostTitle(level: LevelData, date: string): string {
-  return `🎨 Daily Splat ${date} — ${TIER_FLAVOR[level.difficulty]}, par ${level.optimalSteps}. First solver takes the crown 👑`;
+  return `🎨 Daily Splat ${date}: “${level.title}” — ${TIER_FLAVOR[level.difficulty]}, par ${level.optimalSteps}. First solver takes the crown 👑`;
 }
 
 export const createPost = async () => {
