@@ -25,6 +25,14 @@ export class LevelSelect extends Phaser.Scene {
   private pageIndex = 0;
   private completedLevels: Record<string, { stars: number }> = {};
   private communityLevels: CommunityLevelSummary[] = [];
+  // Community search — a DOM input (same overlay pattern as the Editor's
+  // title field) that persists across buildPage rebuilds so typing never
+  // loses focus. window.setTimeout for the debounce: it must survive the
+  // buildPage tween/timer churn a result redraw causes.
+  private searchInput: HTMLInputElement | null = null;
+  private searchQuery = '';
+  private searchDebounce: number | null = null;
+  private searchToken = 0;
 
   // Scratch shapes reused by buildFrame() every call — RenderTexture.draw()/erase()
   // only *queue* the draw for the next render pass rather than rendering synchronously,
@@ -46,6 +54,10 @@ export class LevelSelect extends Phaser.Scene {
     this.pageIndex = 0;
     this.completedLevels = {};
     this.communityLevels = [];
+    this.searchInput = null;
+    this.searchQuery = '';
+    this.searchDebounce = null;
+    this.searchToken = 0;
     this.frameSolid = null;
     this.frameHole = null;
     this.navigating = false;
@@ -79,12 +91,18 @@ export class LevelSelect extends Phaser.Scene {
     } catch { /* fallback: no progress */ }
   }
 
-  private async loadCommunityLevels() {
+  private async loadCommunityLevels(q = '') {
+    // Stale-response guard: fast typing can land older search results after
+    // newer ones — only the latest request may write.
+    const token = ++this.searchToken;
     try {
-      const res = await fetch('/api/levels/community?limit=20');
+      const url = q
+        ? `/api/levels/community?limit=20&q=${encodeURIComponent(q)}`
+        : '/api/levels/community?limit=20';
+      const res = await fetch(url);
       if (res.ok) {
         const data: CommunityLevelsResponse = await res.json();
-        this.communityLevels = data.levels ?? [];
+        if (token === this.searchToken) this.communityLevels = data.levels ?? [];
       }
     } catch { /* fallback: empty */ }
   }
@@ -198,7 +216,17 @@ export class LevelSelect extends Phaser.Scene {
     const outerPad   = isPortrait ? Math.max(14, width * 0.05) : Math.max(96, width * 0.10);
     const gridW      = width - outerPad * 2;
     const colGap     = isPortrait ? 12 : 24;
-    const gridTop    = titleY + titleH / 2 + (isPortrait ? 26 : 34);
+    let   gridTop    = titleY + titleH / 2 + (isPortrait ? 26 : 34);
+
+    // The community page carries a search bar between the title and the grid;
+    // world pages must not leave a stale input floating over their grid.
+    if (page.kind === 'community') {
+      const searchH = 36;
+      this.ensureSearchInput(width / 2, gridTop + searchH / 2, Math.min(gridW, 420), searchH);
+      gridTop += searchH + 12;
+    } else {
+      this.removeSearchInput();
+    }
 
     // Portrait reserves a bottom row for the pagination arrows; landscape has them
     // in the margins beside the grid, so the grid can use the full remaining height.
@@ -240,9 +268,12 @@ export class LevelSelect extends Phaser.Scene {
         const row = Math.floor(i / cols);
         const cx  = outerPad + btnW / 2 + col * (btnW + colGap);
         const cy  = gridTop + btnH / 2 + row * (btnH + rowGap);
+        // Long labels (community titles, tutorial lesson names) shrink to fit
+        // the button instead of spilling past its corners.
+        const itemFs = Math.max(9, Math.min(fs, Math.floor((btnW - 16) / (item.label.length * 0.62))));
         const btn = addBeigeButton(this, {
           x: cx, y: cy, width: btnW, height: btnH,
-          label: item.label, fontSize: fs, fontFamily: PIXELIFY,
+          label: item.label, fontSize: itemFs, fontFamily: PIXELIFY,
           disabled: item.disabled,
           ...(item.onClick ? { onClick: item.onClick } : {}),
         });
@@ -294,10 +325,15 @@ export class LevelSelect extends Phaser.Scene {
       });
     }
     if (this.communityLevels.length === 0) {
-      return [{ label: 'Coming soon...', disabled: true }];
+      return [{
+        label: this.searchQuery.trim() ? 'No splats found — try another name' : 'Coming soon...',
+        disabled: true,
+      }];
     }
+    // Par on the button: every community level advertises the move count it's
+    // guaranteed to be solvable in (the creator's own verified recording).
     return this.communityLevels.slice(0, Math.max(1, maxItems)).map((level) => ({
-      label: level.title,
+      label: `${level.title.length > 12 ? `${level.title.slice(0, 12)}...` : level.title} · par ${level.optimalSteps}`,
       disabled: false,
       onClick: () => this.openLevel(level.id),
     }));
@@ -359,6 +395,70 @@ export class LevelSelect extends Phaser.Scene {
     this.buildPage();
   }
 
+  // ── Community search bar ─────────────────────────────────────────────────
+  private ensureSearchInput(cx: number, cy: number, w: number, h: number) {
+    if (!this.searchInput) {
+      const input = document.createElement('input');
+      input.type        = 'text';
+      input.placeholder = 'Search levels or creators...';
+      input.maxLength   = 60;
+      input.value       = this.searchQuery;
+      Object.assign(input.style, {
+        position:     'fixed',
+        padding:      '0 12px',
+        boxSizing:    'border-box',
+        background:   '#FFF6DF',
+        color:        '#3A1A08',
+        border:       '2px solid #7A4A20',
+        borderRadius: '8px',
+        outline:      'none',
+        zIndex:       '100',
+        fontFamily:   '"Pixelify Sans", sans-serif',
+      });
+      input.addEventListener('input', () => {
+        this.searchQuery = input.value;
+        if (this.searchDebounce !== null) window.clearTimeout(this.searchDebounce);
+        this.searchDebounce = window.setTimeout(() => {
+          this.searchDebounce = null;
+          void this.runSearch();
+        }, 300);
+      });
+      (this.game.canvas.parentElement ?? document.body).appendChild(input);
+      this.searchInput = input;
+    }
+    this.positionSearchInput(cx, cy, w, h);
+  }
+
+  private positionSearchInput(cx: number, cy: number, w: number, h: number) {
+    if (!this.searchInput) return;
+    const rect = this.game.canvas.getBoundingClientRect();
+    const sx = rect.width  / this.scale.width;
+    const sy = rect.height / this.scale.height;
+    Object.assign(this.searchInput.style, {
+      left:     `${rect.left + (cx - w / 2) * sx}px`,
+      top:      `${rect.top  + (cy - h / 2) * sy}px`,
+      width:    `${w * sx}px`,
+      height:   `${h * sy}px`,
+      fontSize: `${Math.round(15 * Math.min(sx, sy))}px`,
+    });
+  }
+
+  private removeSearchInput() {
+    if (this.searchDebounce !== null) {
+      window.clearTimeout(this.searchDebounce);
+      this.searchDebounce = null;
+    }
+    this.searchInput?.remove();
+    this.searchInput = null;
+  }
+
+  private async runSearch() {
+    await this.loadCommunityLevels(this.searchQuery.trim());
+    // Only redraw if the player is still looking at the community page.
+    const page = this.pages[this.pageIndex];
+    if (!this.navigating && page?.kind === 'community') this.buildPage();
+  }
+
   private openLevel(levelId: string) {
     this.goToScene('Game', { levelId });
   }
@@ -367,6 +467,7 @@ export class LevelSelect extends Phaser.Scene {
   private goToScene(key: string, data?: Record<string, unknown>) {
     if (this.navigating) return;
     this.navigating = true;
+    this.removeSearchInput();
     this.cameras.main.fadeOut(250, 26, 10, 46);
     this.time.delayedCall(260, () => this.scene.start(key, data));
   }
@@ -389,6 +490,7 @@ export class LevelSelect extends Phaser.Scene {
   shutdown() {
     this.navigating = true;
     this.scale.off('resize', this.onResize, this);
+    this.removeSearchInput();
     this.frameSolid?.destroy();
     this.frameHole?.destroy();
     this.tweens.killAll();

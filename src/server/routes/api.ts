@@ -1048,12 +1048,20 @@ api.post('/level/create', async (c) => {
   created.push(levelId);
   await redis.hSet(userKey, { created: JSON.stringify(created) });
 
-  // Add to global community index (sorted by creation time)
+  // Add to global community index (sorted by creation time) and the search
+  // registry (levelId → "title␁author" — one hGetAll serves any title/author
+  // search without fetching hundreds of level JSONs).
   const now = Date.now();
   await redis.zAdd('ugc:index', { score: now, member: levelId });
-  // Keep index at max 500 entries — remove oldest if exceeded
+  await redis.hSet('ugc:titles', { [levelId]: `${level.title}\u0001${username}` });
+  // Keep index at max 500 entries — remove oldest (and their search entries)
+  // if exceeded.
   const count = await redis.zCard('ugc:index');
   if (count > 500) {
+    const oldest = await redis.zRange('ugc:index', 0, count - 501, { by: 'rank' });
+    if (oldest.length > 0) {
+      await redis.hDel('ugc:titles', oldest.map((r) => r.member));
+    }
     await redis.zRemRangeByRank('ugc:index', 0, count - 501);
   }
 
@@ -1083,21 +1091,40 @@ api.post('/level/create', async (c) => {
 });
 
 // ── /api/levels/community ─────────────────────────────────────
+// Newest-first community levels, optionally filtered by ?q= — a
+// case-insensitive substring match on title OR creator name, answered from
+// the ugc:titles registry (one hGetAll) instead of fetching level JSONs.
 api.get('/levels/community', async (c) => {
   const limitStr = c.req.query('limit') ?? '20';
   const limit = Math.min(parseInt(limitStr, 10) || 20, 50);
+  const q = (c.req.query('q') ?? '').trim().toLowerCase().slice(0, 60);
 
-  // Fetch most recent UGC level IDs (descending by creation time)
-  const raw = await redis.zRange('ugc:index', 0, limit - 1, { by: 'rank', reverse: true });
-  if (!raw.length) return c.json<CommunityLevelsResponse>({ levels: [] });
+  const total = await redis.zCard('ugc:index');
+  if (total === 0) return c.json<CommunityLevelsResponse>({ levels: [] });
+  const raw = await redis.zRange('ugc:index', 0, total - 1, { by: 'rank', reverse: true });
+  let ids = raw.map((r) => r.member);
+
+  if (q) {
+    const registry: Record<string, string> = (await redis.hGetAll('ugc:titles')) ?? {};
+    ids = ids.filter((id) => (registry[id] ?? '').toLowerCase().includes(q));
+  }
+  ids = ids.slice(0, limit);
 
   const levels = (
     await Promise.all(
-      raw.map(async (r) => {
-        const json = await redis.get(`level:${r.member}`);
-        if (!json) return null;
+      ids.map(async (id) => {
+        const json = await redis.get(`level:${id}`);
+        if (!json) {
+          // Level hit its 90-day TTL — drop it from both indexes so it stops
+          // appearing in (and slowing down) future lists and searches.
+          await redis.zRem('ugc:index', [id]);
+          await redis.hDel('ugc:titles', [id]);
+          return null;
+        }
         const level = parseStoredLevel(json);
         if (!level) return null;
+        // Backfill the search registry for levels created before it existed.
+        await redis.hSet('ugc:titles', { [id]: `${level.title}\u0001${level.authorName ?? ''}` });
         return {
           id: level.id,
           title: level.title,
