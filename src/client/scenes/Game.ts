@@ -708,12 +708,14 @@ export class Game extends Phaser.Scene {
       const sh  = this.add.image(2, -slotSz * 0.08 + 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
       sh.setTint(0x000000).setTintMode(Phaser.TintModes.FILL); sh.setAlpha(0.30);
       const sli = this.add.image(0, -slotSz * 0.08, 'slime-color').setDisplaySize(slimeSz, slimeSz);
-      const pum = this.add.image(0, -slotSz * 0.08, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
       const brd = this.add.image(0, -slotSz * 0.08, 'slime-border').setDisplaySize(slimeSz, slimeSz);
+      // Pumpkin above the border — worn stencils sit ON the slime (same
+      // layering as SlimeRenderer), so the outline must not cut across it.
+      const pum = this.add.image(0, -slotSz * 0.08, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
       const lbl = this.add.text(0, slotSz * 0.30, worn ? `${cov}% ON` : `${cov}%`, {
         fontFamily: PIXEL_FONT, fontSize: '8px', color: worn ? '#2E5C0A' : C.DARK_BROWN,
       }).setOrigin(0.5);
-      shell.addContent([sh, sli, pum, brd, lbl]);
+      shell.addContent([sh, sli, brd, pum, lbl]);
       if (worn) {
         shell.addContent([
           this.add.rectangle(0, 0, slotSz - 8, slotSz - 8).setStrokeStyle(3, C.WORN_RING, 1),

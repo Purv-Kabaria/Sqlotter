@@ -206,8 +206,8 @@ slime, three colors, 5 steps.
 then per paint op a color-tinted body stamp with the then-worn stencils punched out
 (`destination-out`, alpha threshold 100 = same as the baked bitmaps), then shine
 (overlay blend, clamped to body alpha). Currently-worn stencils draw as normal images
-between the pattern and `border.png`. Goal previews are `setPattern(palette,
-optimalSolution)`.
+above `border.png` — they sit ON the slime, so the outline must not cut across their
+art. Goal previews are `setPattern(palette, optimalSolution)`.
 
 For the **Splot mascot** in menus/shop (not puzzle):
 ```

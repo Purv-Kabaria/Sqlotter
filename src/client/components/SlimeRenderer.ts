@@ -10,8 +10,8 @@ import { replayOps } from '../../shared/slimeSim';
 //   for each paint op:  stamp = body tinted op.color, minus worn stencils
 //   pattern            = base body + stamps in order (+ shine, alpha-clamped)
 //
-// Currently-worn stencils are then drawn on top as regular images (between
-// the pattern and the outline), so the player sees what's protecting what.
+// Currently-worn stencils are then drawn on top as regular images (above the
+// outline), so the player sees what's protecting what.
 // Win logic never reads pixels — src/shared/slimeSim.ts runs the same
 // geometry on baked bitmaps; this class is presentation only.
 
@@ -98,7 +98,7 @@ export class SlimeRenderer {
       .setBlendMode(Phaser.BlendModes.ADD);
 
     // Containers render children in list order — worn stencils are inserted
-    // just before borderImg in setPattern().
+    // just before appliedFlash (above the border) in setPattern().
     this.container.add([this.patternImg, this.borderImg, this.appliedFlash]);
 
     // Per-instance canvas texture — release it with the container, otherwise
@@ -167,14 +167,16 @@ export class SlimeRenderer {
     ctx.restore();
     this.canvasTex.refresh();
 
-    // Worn stencil overlays, in wear order, under the outline.
+    // Worn stencil overlays, in wear order, ABOVE the outline (but under the
+    // apply flash) — accessories sit on the slime, so the border must not cut
+    // across their art.
     this.wornImgs.forEach((img) => img.destroy());
     this.wornImgs = [];
     for (const maskId of worn) {
       const key = `mod-${maskId}`;
       if (!this.scene.textures.exists(key)) continue;
       const img = this.scene.add.image(0, 0, key).setDisplaySize(this.size, this.size);
-      this.container.addAt(img, this.container.getIndex(this.borderImg));
+      this.container.addAt(img, this.container.getIndex(this.appliedFlash));
       this.wornImgs.push(img);
     }
   }

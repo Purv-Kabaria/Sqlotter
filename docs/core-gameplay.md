@@ -125,8 +125,9 @@ matches the actual art.
    the same threshold the grid sampling used), draw the stamp.
 3. Overlay-blend the gloss shine, clamp back to the body alpha.
 
-Stencils currently worn are then drawn as normal images between the pattern and the
-outline, so the player sees exactly what's protecting what. The goal preview is just
+Stencils currently worn are then drawn as normal images above the outline (they sit
+ON the slime, so the border must not cut across their art), and the player sees
+exactly what's protecting what. The goal preview is just
 `setPattern(palette, optimalSolution)` — always bare, since valid solutions end bare.
 
 The sim and the renderer share their geometry by construction (the bitmaps were
