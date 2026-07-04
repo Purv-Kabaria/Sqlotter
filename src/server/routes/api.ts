@@ -34,7 +34,7 @@ import {
 } from '../../shared/slimeSim';
 import { calcStars, isValidSolution, verifyLevelIntegrity } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
-import { ROYAL_TIER_ITEM_ID } from '../../shared/flair';
+import { flairTierName, ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import { clearUserFlair, syncUserFlair } from '../core/flair';
 import { createDuelComment, recordDuelResult } from '../core/duel';
 import { isPostId } from '../core/tid';
@@ -336,6 +336,12 @@ api.post('/complete', async (c) => {
   if (isFirstCompletion) {
     isFirstOverall = await redis.hSetNX('level:first-completer', levelId, username) === 1;
     sparksEarned = 10 + (stars === 3 ? 20 : 0) + (level.isDaily ? 15 : 0) + (isFirstOverall ? 30 : 0);
+    // The crown comment cites the first solve's stats (steps are replay-
+    // verified above; time is client-claimed but bounded by validation).
+    // Crown-eligible levels only — see the firstSplat gate below.
+    if (isFirstOverall && (level.isDaily || levelId.startsWith('ugc-'))) {
+      await redis.hSet('level:first-stats', { [levelId]: `${steps}|${timeMs}` });
+    }
   }
 
   // First Splat Crown: offer the claimable trophy to the level's first-ever
@@ -412,6 +418,28 @@ const MOD_NAME: Record<Exclude<ModifierType, 'paint'>, string> = {
 function formatCardTime(timeMs: number): string {
   const secs = Math.floor(timeMs / 1000);
   return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
+}
+
+// The level's paint rack as emoji squares — the card's feed-visible identity,
+// like Wordle's grid. Spoiler-safe: the rack is on the color picker for anyone
+// who opens the level (and may include decoys), so it reveals nothing about
+// the solution.
+const COLOR_SQUARE: Record<string, string> = {
+  '#FF4136': '🟥', '#FF851B': '🟧', '#FFDC00': '🟨',
+  '#2ECC40': '🟩', '#01FF70': '🟩', '#3D9970': '🟩',
+  '#39CCCC': '🟦', '#7FDBFF': '🟦', '#0074D9': '🟦', '#003AB4': '🟦',
+  '#B10DC9': '🟪', '#F012BE': '🟪', '#FF69B4': '🟪', '#85144B': '🟫',
+  '#AAAAAA': '⬜', '#111111': '⬛',
+};
+
+function paletteStrip(palette: readonly ModifierDef[]): string {
+  const squares = new Set<string>();
+  for (const mod of palette) {
+    if (mod.type !== 'paint') continue;
+    const square = COLOR_SQUARE[(mod.color ?? '').toUpperCase()];
+    if (square) squares.add(square);
+  }
+  return [...squares].join('');
 }
 
 function colorNameOf(hex: string | undefined): string {
@@ -516,12 +544,31 @@ api.post('/share/card', async (c) => {
 
   // UGC titles are user text — keep them to a single markdown line.
   const safeTitle = level.title.replace(/[\r\n]+/g, ' ').trim();
+  // Star-tiered voice: a flawless card reads like a flex, a scrappy one like
+  // a war story. Identical cards are wallpaper, and wallpaper gets scrolled
+  // past instead of replied to.
+  const par = level.optimalSteps;
+  const headline = stars === 3
+    ? `🏆 **FLAWLESS SPLAT — u/${username} painted “${safeTitle}” move-perfect!**`
+    : stars === 2
+      ? `🎯 **u/${username} splatted “${safeTitle}”!**`
+      : `🫠 **u/${username} wrestled “${safeTitle}” into submission!**`;
+  const strip = paletteStrip(level.palette);
+  const statsLine = [
+    ...(strip ? [strip] : []),
+    '⭐'.repeat(stars),
+    `${steps}/${par} moves`,
+    formatCardTime(timeMs),
+  ].join(' · ') + streakLine;
+  const footer = stars === 3
+    ? '^(Splat Card — that recipe can\'t be beaten, only matched. Play this post and prove you can.)'
+    : `^(Splat Card — par is ${par}. Play this post and out-splat this card.)`;
   const text = [
-    `🟢 **u/${username} splatted “${safeTitle}”!**`,
+    headline,
     ...(caption ? [`💬 *“${caption}”*`] : []),
-    `${'⭐'.repeat(stars)} · ${steps} ${steps === 1 ? 'move' : 'moves'} · ${formatCardTime(timeMs)}${streakLine}`,
-    `Moves: >!${recipe}!<`,
-    '^(Splat Card — think you can do it in fewer moves? Play this post and drop your own.)',
+    statsLine,
+    `Recipe: >!${recipe}!<`,
+    footer,
   ].join('\n\n');
 
   try {
@@ -597,8 +644,15 @@ api.post('/share/first-splat', async (c) => {
 
   // UGC titles are user text — keep them to a single line.
   const safeTitle = level.title.replace(/[\r\n]+/g, ' ').trim();
-  const headline = `First Splat! u/${username} is the first player ever to solve "${safeTitle}".`;
-  const footer = 'The crown on this level is claimed forever — but the leaderboard is not. Play this post and take the top spot.';
+  // Cite the first solve's verified stats when /api/complete recorded them
+  // (accounts that solved before the field existed just get the plain line).
+  const [fsSteps, fsTimeMs] = ((await redis.hGet('level:first-stats', levelId)) ?? '')
+    .split('|').map((n) => parseInt(n, 10));
+  const statsBit = fsSteps && fsTimeMs
+    ? ` — ${fsSteps} ${fsSteps === 1 ? 'move' : 'moves'}, ${formatCardTime(fsTimeMs)}, before anyone else on Reddit`
+    : '';
+  const headline = `👑 FIRST SPLAT! u/${username} drew first paint on "${safeTitle}"${statsBit}.`;
+  const footer = 'This crown is claimed forever. The leaderboard is not — play this post and take the top spot.';
 
   try {
     let postedWithImage = false;
@@ -687,11 +741,15 @@ api.post('/share/fit', async (c) => {
     if (field.startsWith('done:')) solved++;
   }
 
-  const statsBits = [`${solved} ${solved === 1 ? 'level' : 'levels'} solved`];
+  // Lead the stats with the player's flair tier — the fit thread is where
+  // the Sparks economy gets to be socially visible, so say the rank out loud.
+  const lifetime = Math.max(parseInt(allFields['sparks:lifetime'] ?? '0', 10) || 0, 0);
+  const tier = flairTierName(lifetime, allFields[`owned:${ROYAL_TIER_ITEM_ID}`] === '1');
+  const statsBits = [tier, `${solved} ${solved === 1 ? 'level' : 'levels'} solved`];
   if (streak > 1) statsBits.push(`🔥 ${streak}-day streak`);
   const text = [
-    `📸 **u/${username}'s Splot today:** ${describeFit(equipped)}`,
-    `^(${statsBits.join(' · ')} — top-voted fit takes 500 Sparks and the crown on Sunday.)`,
+    `📸 **u/${username}'s Splot walked in wearing:** ${describeFit(equipped)}`,
+    `^(${statsBits.join(' · ')} — upvote the drip. Top fit takes 500 Sparks and the crown on Sunday.)`,
   ].join('\n\n');
 
   let commentId: string;
@@ -1006,7 +1064,7 @@ api.post('/level/create', async (c) => {
     const moves = `${level.optimalSteps} ${level.optimalSteps === 1 ? 'move' : 'moves'}`;
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: `u/${username} built “${level.title}” in ${moves} — beat that.`,
+      title: `⚔️ u/${username} built “${level.title}” in ${moves} — beat that.`,
       entry: 'default',
       postData: { levelId },
       styles: {

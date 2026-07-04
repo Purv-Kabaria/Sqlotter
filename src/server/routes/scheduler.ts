@@ -3,6 +3,7 @@ import { redis, reddit } from '@devvit/web/server';
 import type { TaskResponse } from '@devvit/web/server';
 import { generateDailyLevel } from '../../shared/levelData';
 import { syncUserFlair } from '../core/flair';
+import { dailyPostTitle } from '../core/post';
 import { isCommentId, isPostId } from '../core/tid';
 
 export const schedulerRoutes = new Hono();
@@ -35,7 +36,7 @@ schedulerRoutes.post('/daily-puzzle', async (c) => {
     if (subredditName) {
       const post = await reddit.submitCustomPost({
         subredditName,
-        title: `Sqlotter Daily Puzzle — ${today}`,
+        title: dailyPostTitle(level, today),
         entry: 'default',
         postData: { levelId },
         styles: {
@@ -85,7 +86,7 @@ schedulerRoutes.post('/fitcheck-post', async (c) => {
 
     const post = await reddit.submitCustomPost({
       subredditName,
-      title: `Fit Check Friday ${week} — show off your Splot! Top-voted fit wins 500 Sparks 👑`,
+      title: `Fit Check Friday ${week} — dress your Splot, drop the fit below. Top vote takes 500 Sparks + the crown flair 👑`,
       entry: 'default',
       postData: { fitcheck: week },
       styles: {
@@ -149,7 +150,7 @@ schedulerRoutes.post('/fitcheck-award', async (c) => {
       try {
         await reddit.submitComment({
           id: winningCommentId,
-          text: `👑 **Crowned!** u/${winner} wins Fit Check ${week} — +500 Sparks and the Fit crown flair. See you next Friday!`,
+          text: `👑 **CROWNED.** The people have spoken — u/${winner} takes Fit Check ${week}: +500 Sparks, the Fit crown flair, and a full week of drip supremacy. See you next Friday!`,
         });
       } catch {
         // The Sparks and flair already landed; the shout-out is a bonus.

@@ -24,16 +24,23 @@ function duelCommentText(level: LevelData, stats: DuelStats): string {
   const moves = `${level.optimalSteps} ${level.optimalSteps === 1 ? 'move' : 'moves'}`;
   const author = level.authorName ? `u/${level.authorName}` : 'the creator';
   if (stats.attempts === 0) {
-    return `⚔️ **The Duel so far:** no challengers yet. ${author}'s ${moves} stand unbeaten — Splot believes in you.`;
+    return `⚔️ **THE DUEL IS OPEN.** ${author} painted this slime in ${moves} and left it here as a dare. `
+      + 'Nobody has answered yet — the first challenger gets their name on this scoreboard. Splot believes in you.';
   }
   const parts = [
-    `${stats.attempts} ${stats.attempts === 1 ? 'attempt' : 'attempts'}`,
-    `${stats.matched} matched ${author}'s ${moves}`,
+    `${stats.attempts} ${stats.attempts === 1 ? 'challenger' : 'challengers'}`,
+    // "nobody has matched it" is the tension line — bold it while it lasts.
+    stats.matched === 0
+      ? `**nobody** has matched ${author}'s ${moves} yet`
+      : `${stats.matched} matched ${author}'s ${moves}`,
   ];
   if (stats.bestTimeMs !== null && stats.bestTimeUser) {
-    parts.push(`fastest: u/${stats.bestTimeUser} (${formatDuelTime(stats.bestTimeMs)})`);
+    parts.push(`fastest splat: u/${stats.bestTimeUser} (${formatDuelTime(stats.bestTimeMs)})`);
   }
-  return `⚔️ **The Duel so far:** ${parts.join(' · ')}. Splot believes in you.`;
+  const rally = stats.matched === 0
+    ? 'The record stands. Splot believes in you.'
+    : 'Splot believes in you.';
+  return `⚔️ **The Duel so far:** ${parts.join(' · ')}. ${rally}`;
 }
 
 // Posts the initial duel scoreboard on a freshly created UGC level post.

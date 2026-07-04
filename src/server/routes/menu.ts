@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
 import { generateDailyLevel } from '../../shared/levelData';
+import { dailyPostTitle, GAME_POST_TITLE } from '../core/post';
 
 export const menu = new Hono();
 
@@ -10,7 +11,7 @@ menu.post('/post-create', async (c) => {
   try {
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: 'Sqlotter — The Slime Puzzle Game',
+      title: GAME_POST_TITLE,
       entry: 'default',
       styles: {
         heightPixels: 512,
@@ -43,7 +44,7 @@ menu.post('/post-daily', async (c) => {
 
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: `Sqlotter Daily Puzzle — ${today}`,
+      title: dailyPostTitle(level, today),
       entry: 'default',
       postData: { levelId },
       styles: {

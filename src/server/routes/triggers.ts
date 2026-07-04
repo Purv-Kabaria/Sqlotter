@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { OnAppInstallRequest, TriggerResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
 import { LEVELS_VERSION } from '../../shared/levelData';
+import { GAME_POST_TITLE } from '../core/post';
 
 export const triggers = new Hono();
 
@@ -71,7 +72,7 @@ triggers.post('/on-app-install', async (c) => {
     // Create the initial welcome post
     const post = await reddit.submitCustomPost({
       subredditName,
-      title: 'Sqlotter — The Slime Puzzle Game',
+      title: GAME_POST_TITLE,
       entry: 'default',
       styles: {
         heightPixels: 512,
