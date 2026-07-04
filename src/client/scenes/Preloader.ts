@@ -1,6 +1,8 @@
 import { GameObjects, Scene, Structs, TintModes, Tweens } from 'phaser';
 import { getLaunchLevelId } from '../launch';
 import { paintOverlayShine } from '../components/overlayShine';
+import type { InitResponse } from '../../shared/api';
+import { prefetchUserData } from '../userData';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -72,10 +74,9 @@ const IMG: AssetDef[] = [
 
   // ── UI panels & buttons ───────────────────────────
   { key: 'ui-panel',       path: 'ui/panel.png' },
+  // Whole-image button texture — only addBeigeSolidCard slabs use it now; the
+  // interactive buttons all run on the pre-sliced btn-* pieces loaded below.
   { key: 'ui-btn-open',    path: 'ui/button-open.png' },
-  { key: 'ui-btn-hover',   path: 'ui/button-hover.png' },
-  { key: 'ui-btn-disabled',path: 'ui/button-disabled.png' },
-  { key: 'ui-btn-press',   path: 'ui/button-press.png' },
 
   // ── Navigation icons ──────────────────────────────
   { key: 'icon-arrow',    path: 'icons/navigation/arrow.png' },
@@ -136,14 +137,9 @@ const IMG: AssetDef[] = [
   { key: 'icon-sparkle', path: 'icons/misc/sparkle.png' },
 
   // ── Backgrounds ───────────────────────────────────
-  { key: 'bg1-1', path: 'background/background 1/1.png' },
-  { key: 'bg1-2', path: 'background/background 1/2.png' },
-  { key: 'bg1-3', path: 'background/background 1/3.png' },
-  { key: 'bg1-4', path: 'background/background 1/4.png' },
-  { key: 'bg2-1', path: 'background/background 2/1.png' },
-  { key: 'bg2-2', path: 'background/background 2/2.png' },
-  { key: 'bg2-3', path: 'background/background 2/3.png' },
-  { key: 'bg2-4', path: 'background/background 2/4.png' },
+  // bg2 (Shop/Editor) is NOT here — those scenes sit behind a click, so
+  // MainMenu warms it in the background and the scenes preload it as a
+  // safety net (see DEFERRED_IMG). There is no bg1 user anywhere.
   { key: 'bg3-1', path: 'background/background 3/1.png' },
   { key: 'bg3-2', path: 'background/background 3/2.png' },
   { key: 'bg3-3', path: 'background/background 3/3.png' },
@@ -153,8 +149,18 @@ const IMG: AssetDef[] = [
   { key: 'bg4-3', path: 'background/background 4/3.png' },
   { key: 'bg4-4', path: 'background/background 4/4.png' },
 
-  // ── Flat UI slot (beige card nine-slice source, loaded early by Boot) ──────
+  // ── Flat UI slot (beige card nine-slice source) ───────────────────────────
   { key: 'ui-flat-slot', path: 'more ui/UI_Flat_FrameSlot01c.png' },
+];
+
+// Assets no scene needs before the player clicks through the menu. MainMenu
+// streams these in the background once it is interactive; Shop/Editor also
+// declare them in their own preload() so a fast click still can't outrun them.
+export const DEFERRED_IMG: AssetDef[] = [
+  { key: 'bg2-1', path: 'background/background 2/1.png' },
+  { key: 'bg2-2', path: 'background/background 2/2.png' },
+  { key: 'bg2-3', path: 'background/background 2/3.png' },
+  { key: 'bg2-4', path: 'background/background 2/4.png' },
 ];
 
 export class Preloader extends Scene {
@@ -171,6 +177,7 @@ export class Preloader extends Scene {
   private bobTween: Tweens.Tween | null = null;
   private squishTween: Tweens.TweenChain | null = null;
   private currentProgress = 0;
+  private userDataPromise: Promise<InitResponse | null> | null = null;
 
   constructor() { super('Preloader'); }
 
@@ -179,15 +186,15 @@ export class Preloader extends Scene {
     this.createLoadingUI();
     this.scale.on('resize', this.onResize, this);
 
+    // Player profile fetch runs alongside the asset stream — by the time the
+    // bar fills, MainMenu's data is (usually) already cached, so its first
+    // build shows the real username/sparks/equipment instead of placeholders.
+    this.userDataPromise = prefetchUserData();
+
     const BOOT_KEYS = new Set([
       'title', 'bg4-1',
       'loading-border', 'loading-filler',
       'slime-color', 'slime-border', 'slime-shine',
-      'ui-flat-slot',
-      // Pre-sliced panel + button cells loaded by Boot
-      ...(['tl','tc','tr','ml','mc','mr','bl','bc','br'].map(p => `pnl-${p}`)),
-      ...(['open','hover','press'].flatMap(s => ['tl','tc','tr','ml','mc','mr','bl','bc','br'].map(p => `btn-${s}-${p}`))),
-      ...(['tl','tc','tr','ml','mc','mr','bl','bc','br'].map(p => `btn-dis-${p}`)),
     ]);
 
     this.load.setPath('assets');
@@ -195,6 +202,17 @@ export class Preloader extends Scene {
       if (BOOT_KEYS.has(key)) continue; // already loaded by Boot
       this.load.image(key, path);
     }
+
+    // Pre-sliced panel + button cells (moved out of Boot so they stream in
+    // behind the progress bar instead of delaying the first paint)
+    const slicePos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
+    for (const pos of slicePos) this.load.image(`pnl-${pos}`, `ui/slices/pnl-${pos}.png`);
+    for (const st of ['open','hover','press'] as const)
+      for (const pos of slicePos) this.load.image(`btn-${st}-${pos}`, `ui/slices/btn-${st}-${pos}.png`);
+    for (const pos of slicePos) this.load.image(`btn-dis-${pos}`, `ui/slices/btn-dis-${pos}.png`);
+    // Small-corner (16px) variant of btn-open — for badges that must shrink below
+    // the 65px floor the 32px-corner assets require (e.g. the HUD sparks pill)
+    for (const pos of slicePos) this.load.image(`btn-open-sm-${pos}`, `ui/slices/btn-open-sm-${pos}.png`);
 
     this.load.on('progress', (p: number) => {
       this.currentProgress = p;
@@ -326,14 +344,26 @@ export class Preloader extends Scene {
 
   create() {
     this.scale.off('resize', this.onResize, this);
-    if (this.tipText) this.tipText.setText('Ready!');
     const launchLevelId = getLaunchLevelId();
-    this.time.delayedCall(200, () => {
-      if (launchLevelId) {
-        this.scene.start('Game', { levelId: launchLevelId });
-      } else {
-        this.scene.start('MainMenu');
-      }
-    });
+
+    // Assets are done; give the profile fetch started in preload() a moment
+    // to land so the menu opens with real data — but race it against a short
+    // timeout: MainMenu refetches and patches itself anyway, so a slow server
+    // (mobile + cold start) must not hold the player on this screen.
+    if (this.tipText) this.tipText.setText('Waking up Splot...');
+    void (async () => {
+      await Promise.race([
+        this.userDataPromise ?? Promise.resolve(null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+      ]);
+      if (this.tipText) this.tipText.setText('Ready!');
+      this.time.delayedCall(200, () => {
+        if (launchLevelId) {
+          this.scene.start('Game', { levelId: launchLevelId });
+        } else {
+          this.scene.start('MainMenu');
+        }
+      });
+    })();
   }
 }

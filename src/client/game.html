@@ -7,6 +7,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="game.css" />
+    <!-- NOTE: no <link rel="preload"> hints for the Boot images — Phaser loads
+         assets via XHR as blobs, which Chrome never serves from the preload
+         cache ("not used because the new request loads the content as a
+         blob"), so hints here just download everything twice. -->
     <title>Sqlotter</title>
   </head>
 

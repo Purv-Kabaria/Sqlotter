@@ -4,11 +4,12 @@ export class Boot extends Scene {
   constructor() { super('Boot'); }
 
   preload() {
-    // Load just enough to show a rich loading screen in Preloader
+    // Absolute minimum for Preloader's loading screen — every file here delays
+    // the FIRST thing the player sees, so the UI slices and everything else
+    // stream in behind the progress bar (Preloader) instead.
     this.load.setPath('assets');
     this.load.image('title',         'title.png');
     this.load.image('bg4-1',         'background/background 4/1.png');
-    this.load.image('ui-flat-slot', 'more ui/UI_Flat_FrameSlot01c.png');
     // Loading bar assets
     this.load.image('loading-border', 'ui/loading-border.png');
     this.load.image('loading-filler', 'ui/loading-filler.png');
@@ -16,26 +17,6 @@ export class Boot extends Scene {
     this.load.image('slime-color',  'slime/color.png');
     this.load.image('slime-border', 'slime/border.png');
     this.load.image('slime-shine',  'slime/overlay-normal.png');
-    // Pre-sliced panel cells (panel.png 96×96, corner=8px)
-    const pnlPos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
-    for (const pos of pnlPos) this.load.image(`pnl-${pos}`, `ui/slices/pnl-${pos}.png`);
-    // Pre-sliced button cells (button 128×96, corner=12px)
-    const btnStates = ['open','hover','press'] as const;
-    const btnPos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
-    for (const st of btnStates)
-      for (const pos of btnPos) this.load.image(`btn-${st}-${pos}`, `ui/slices/btn-${st}-${pos}.png`);
-    this.load.image('btn-dis-tl', 'ui/slices/btn-dis-tl.png');
-    this.load.image('btn-dis-tc', 'ui/slices/btn-dis-tc.png');
-    this.load.image('btn-dis-tr', 'ui/slices/btn-dis-tr.png');
-    this.load.image('btn-dis-ml', 'ui/slices/btn-dis-ml.png');
-    this.load.image('btn-dis-mc', 'ui/slices/btn-dis-mc.png');
-    this.load.image('btn-dis-mr', 'ui/slices/btn-dis-mr.png');
-    this.load.image('btn-dis-bl', 'ui/slices/btn-dis-bl.png');
-    this.load.image('btn-dis-bc', 'ui/slices/btn-dis-bc.png');
-    this.load.image('btn-dis-br', 'ui/slices/btn-dis-br.png');
-    // Small-corner (16px) variant of btn-open — for badges that must shrink below the
-    // 65px floor the 32px-corner assets require (e.g. the HUD sparks pill on narrow screens)
-    for (const pos of btnPos) this.load.image(`btn-open-sm-${pos}`, `ui/slices/btn-open-sm-${pos}.png`);
   }
 
   create() {

@@ -1,142 +1,181 @@
 import * as Phaser from 'phaser';
-import type { SlimeState } from '../../shared/types';
-import { paintOverlayShine } from './overlayShine';
+import type { ModifierDef } from '../../shared/types';
+import { replayOps } from '../../shared/slimeSim';
+
+// ── Pattern renderer for the stencil-paint gameplay ─────────────────────────
+// The slime's look is a PAINT PATTERN: each paint op colors the body except
+// where the then-worn stencils protected it. This renderer replays an action
+// list and composites the result with the real PNGs on a canvas texture:
+//
+//   for each paint op:  stamp = body tinted op.color, minus worn stencils
+//   pattern            = base body + stamps in order (+ shine, alpha-clamped)
+//
+// Currently-worn stencils are then drawn on top as regular images (between
+// the pattern and the outline), so the player sees what's protecting what.
+// Win logic never reads pixels — src/shared/slimeSim.ts runs the same
+// geometry on baked bitmaps; this class is presentation only.
+
+// Must match THRESHOLD in scripts/generate_masks.py: translucent goggle
+// lenses PROTECT in the sim, so paint erasure flattens mask alpha to the same
+// binary coverage — otherwise paint would peek through lenses the sim says
+// are covered.
+const STENCIL_ALPHA_THRESHOLD = 100;
 
 let nextInstanceId = 0;
 
+// maskId → binary-alpha stencil canvas, shared by every renderer instance.
+const stencilCache = new Map<string, HTMLCanvasElement>();
+
+function getStencil(scene: Phaser.Scene, maskId: string, size: number): HTMLCanvasElement | null {
+  const cached = stencilCache.get(maskId);
+  if (cached) return cached;
+  const key = `mod-${maskId}`;
+  if (!scene.textures.exists(key)) return null;
+  const src = scene.textures.get(key).getSourceImage() as CanvasImageSource;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(src, 0, 0, size, size);
+  const data = ctx.getImageData(0, 0, size, size);
+  const px = data.data;
+  for (let i = 3; i < px.length; i += 4) {
+    px[i] = (px[i] ?? 0) >= STENCIL_ALPHA_THRESHOLD ? 255 : 0;
+  }
+  ctx.putImageData(data, 0, 0);
+  stencilCache.set(maskId, canvas);
+  return canvas;
+}
+
+// One shared scratch canvas for building per-op stamps.
+let scratch: HTMLCanvasElement | null = null;
+function getScratch(size: number): CanvasRenderingContext2D {
+  if (!scratch) scratch = document.createElement('canvas');
+  if (scratch.width !== size || scratch.height !== size) {
+    scratch.width = size;
+    scratch.height = size;
+  }
+  const ctx = scratch.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('2D canvas context unavailable');
+  return ctx;
+}
+
 export class SlimeRenderer {
   readonly container: Phaser.GameObjects.Container;
-  private topImg: Phaser.GameObjects.Image;
-  private bottomImg: Phaser.GameObjects.Image;
-  private pumpkinImg: Phaser.GameObjects.Image;
-  private underwearImg: Phaser.GameObjects.Image;
-  private beltImg: Phaser.GameObjects.Image;
-  private pendantImg: Phaser.GameObjects.Image;
-  private eyeImg: Phaser.GameObjects.Image;
+  private patternImg: Phaser.GameObjects.Image;
   private borderImg: Phaser.GameObjects.Image;
   private appliedFlash: Phaser.GameObjects.Image;
+  private wornImgs: Phaser.GameObjects.Image[] = [];
 
   private scene: Phaser.Scene;
   private size: number;
-  private texW = 256;
-  private texH = 256;
-  private currentState: SlimeState | null = null;
+  private native = 256;
+  private readonly texKey: string;
+  private canvasTex: Phaser.Textures.CanvasTexture;
 
-  // Unique per-instance texture keys — the top/bottom color zones are genuine
-  // overlay-blended (color + slime-shine) textures baked at runtime, see setState().
-  private readonly topShineKey: string;
-  private readonly bottomShineKey: string;
+  // Kept so setSize() can re-render at the same state.
+  private lastPalette: readonly ModifierDef[] = [];
+  private lastActions: readonly string[] = [];
 
   constructor(scene: Phaser.Scene, x: number, y: number, size: number) {
     this.scene = scene;
     this.size = size;
     this.container = scene.add.container(x, y);
 
-    const id = nextInstanceId++;
-    this.topShineKey = `slime-shine-tex-${id}-top`;
-    this.bottomShineKey = `slime-shine-tex-${id}-bottom`;
-
-    // Cache texture dimensions (standalone PNG so frame = full texture)
     const src = scene.textures.get('slime-color')?.source[0];
-    if (src) { this.texW = src.width; this.texH = src.height; }
+    if (src) this.native = src.width;
 
-    // Layer -1: two-colour bottom zone (hidden when single-colour)
-    this.bottomImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(-1).setVisible(false);
+    this.texKey = `slime-pattern-${nextInstanceId++}`;
+    const created = scene.textures.createCanvas(this.texKey, this.native, this.native);
+    if (!created) throw new Error('Could not create slime pattern texture');
+    this.canvasTex = created;
 
-    // Layer 0: top colour (or full single colour)
-    this.topImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(0);
-
-    // Modifier overlay layers
-    this.pumpkinImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(1).setVisible(false);
-    this.underwearImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(2).setVisible(false);
-    this.beltImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(3).setVisible(false);
-    this.pendantImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(4).setVisible(false);
-    this.eyeImg = scene.add.image(0, 0, 'slime-color')
-      .setDisplaySize(size, size).setDepth(5).setVisible(false);
-
-    this.borderImg = scene.add.image(0, 0, 'slime-border')
-      .setDisplaySize(size, size).setDepth(7);
+    this.patternImg = scene.add.image(0, 0, this.texKey).setDisplaySize(size, size);
+    this.borderImg = scene.add.image(0, 0, 'slime-border').setDisplaySize(size, size);
     this.appliedFlash = scene.add.image(0, 0, 'slime-applied')
-      .setDisplaySize(size, size).setDepth(8).setAlpha(0).setVisible(false)
+      .setDisplaySize(size, size).setAlpha(0).setVisible(false)
       .setBlendMode(Phaser.BlendModes.ADD);
 
-    this.container.add([
-      this.bottomImg, this.topImg, this.pumpkinImg, this.underwearImg,
-      this.beltImg, this.pendantImg, this.eyeImg, this.borderImg, this.appliedFlash,
-    ]);
+    // Containers render children in list order — worn stencils are inserted
+    // just before borderImg in setPattern().
+    this.container.add([this.patternImg, this.borderImg, this.appliedFlash]);
+
+    // Per-instance canvas texture — release it with the container, otherwise
+    // every scene rebuild leaks a 256x256 canvas into the texture manager.
+    this.container.once(Phaser.GameObjects.Events.DESTROY, () => {
+      this.scene.textures.remove(this.texKey);
+    });
+
+    this.setPattern([], []);
   }
 
-  setState(state: SlimeState) {
-    this.currentState = { ...state };
+  /**
+   * Renders the pattern produced by replaying `actions` against `palette`,
+   * plus whatever stencils are worn at the end of the replay.
+   */
+  setPattern(palette: readonly ModifierDef[], actions: readonly string[]) {
+    this.lastPalette = palette;
+    this.lastActions = [...actions];
 
-    // Top/bottom color zones are baked (tint + genuine overlay-blended shine) into a
-    // texture rather than tinted live — see overlayShine.ts for why a plain
-    // Phaser tint + BlendModes.OVERLAY can't do this under WebGL.
-    const topColor = Phaser.Display.Color.HexStringToColor(state.color).color;
-    paintOverlayShine(this.scene, this.topShineKey, 'slime-color', 'slime-shine', topColor, 0.5);
-    this.topImg.setTexture(this.topShineKey);
+    const { ops, worn } = replayOps(palette, actions);
+    const N = this.native;
+    const body = this.scene.textures.get('slime-color').getSourceImage() as CanvasImageSource;
+    const shine = this.scene.textures.exists('slime-shine')
+      ? this.scene.textures.get('slime-shine').getSourceImage() as CanvasImageSource
+      : null;
 
-    if (state.colorBottom !== undefined && state.pumpkin !== null) {
-      // Two-colour rendering: split into top zone (exposed) and bottom zone (pumpkin-protected)
-      const fraction = state.pumpkin / 100;
-      const topFraction = 1 - fraction;
+    const ctx = this.canvasTex.context;
+    ctx.save();
+    ctx.clearRect(0, 0, N, N);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(body, 0, 0, N, N);
 
-      // Bottom zone image: bottomColor, bottom fraction only
-      const bottomColor = Phaser.Display.Color.HexStringToColor(state.colorBottom).color;
-      paintOverlayShine(this.scene, this.bottomShineKey, 'slime-color', 'slime-shine', bottomColor, 0.5);
-      this.bottomImg
-        .setTexture(this.bottomShineKey)
-        .setDisplaySize(this.size, this.size)
-        .setOrigin(0.5, 0)
-        .setPosition(0, this.size * (topFraction - 0.5))
-        .setCrop(0, Math.floor(this.texH * topFraction), this.texW, Math.ceil(this.texH * fraction))
-        .setVisible(true);
-
-      // Top zone image: topColor, top fraction only
-      this.topImg
-        .setDisplaySize(this.size, this.size)
-        .setOrigin(0.5, 0)
-        .setPosition(0, -this.size / 2)
-        .setCrop(0, 0, this.texW, Math.ceil(this.texH * topFraction));
-
-    } else {
-      // Single colour: full slime
-      this.bottomImg.setVisible(false);
-      this.topImg
-        .setDisplaySize(this.size, this.size)
-        .setOrigin(0.5, 0.5)
-        .setPosition(0, 0)
-        .setCrop(0, 0, this.texW, this.texH);
+    for (const op of ops) {
+      const s = getScratch(N);
+      s.save();
+      s.clearRect(0, 0, N, N);
+      // Tinted body silhouette: multiply matches Phaser's tint of the white
+      // body art, destination-in restores the body alpha the fill flattened.
+      s.globalCompositeOperation = 'source-over';
+      s.drawImage(body, 0, 0, N, N);
+      s.globalCompositeOperation = 'multiply';
+      s.fillStyle = op.color;
+      s.fillRect(0, 0, N, N);
+      s.globalCompositeOperation = 'destination-in';
+      s.drawImage(body, 0, 0, N, N);
+      // Punch out every stencil worn at paint time.
+      s.globalCompositeOperation = 'destination-out';
+      for (const maskId of op.maskedBy) {
+        const stencil = getStencil(this.scene, maskId, N);
+        if (stencil) s.drawImage(stencil, 0, 0, N, N);
+      }
+      s.restore();
+      if (scratch) ctx.drawImage(scratch, 0, 0);
     }
 
-    // Pumpkin overlay (decoration on top of colour zones)
-    this.setLayer(this.pumpkinImg, state.pumpkin !== null ? `mod-pumpkin-${state.pumpkin}` : null);
+    // Gloss shine, overlay-blended then alpha-clamped back to the body shape.
+    if (shine) {
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.globalAlpha = 0.5;
+      ctx.drawImage(shine, 0, 0, N, N);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.drawImage(body, 0, 0, N, N);
+    }
+    ctx.restore();
+    this.canvasTex.refresh();
 
-    // Other modifier overlays
-    this.setLayer(this.underwearImg, state.underwear ? 'mod-underwear' : null);
-    this.setLayer(this.beltImg, state.belt ? `mod-belt-${state.belt}` : null);
-    this.setLayer(this.pendantImg, state.pendant ? `mod-pendant-${state.pendant}` : null);
-
-    const eyeKey = state.goggles
-      ? `mod-goggles-${state.goggles}`
-      : state.glasses
-        ? `mod-glasses-${state.glasses}`
-        : null;
-    this.setLayer(this.eyeImg, eyeKey);
-  }
-
-  private setLayer(img: Phaser.GameObjects.Image, textureKey: string | null) {
-    if (textureKey) {
-      img.setTexture(textureKey).setDisplaySize(this.size, this.size)
-        .setOrigin(0.5, 0.5).setPosition(0, 0).setVisible(true);
-    } else {
-      img.setVisible(false);
+    // Worn stencil overlays, in wear order, under the outline.
+    this.wornImgs.forEach((img) => img.destroy());
+    this.wornImgs = [];
+    for (const maskId of worn) {
+      const key = `mod-${maskId}`;
+      if (!this.scene.textures.exists(key)) continue;
+      const img = this.scene.add.image(0, 0, key).setDisplaySize(this.size, this.size);
+      this.container.addAt(img, this.container.getIndex(this.borderImg));
+      this.wornImgs.push(img);
     }
   }
 
@@ -181,10 +220,9 @@ export class SlimeRenderer {
 
   setSize(size: number) {
     this.size = size;
-    if (this.currentState) {
-      this.setState(this.currentState);
-    }
+    this.patternImg.setDisplaySize(size, size);
     this.borderImg.setDisplaySize(size, size);
     this.appliedFlash.setDisplaySize(size, size);
+    this.setPattern(this.lastPalette, this.lastActions);
   }
 }
