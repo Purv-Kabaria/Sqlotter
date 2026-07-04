@@ -32,7 +32,9 @@ const C = {
   WORN_RING:   0x6DD400,
 } as const;
 
-const HEADER_H = 52;
+// Tall enough for the 48px beige header buttons plus breathing room.
+const HEADER_H = 64;
+const HUD_BTN  = 48;
 
 // ── Modifier grouping ──────────────────────────────────────────────────────
 type PaletteSlot =
@@ -277,52 +279,50 @@ export class Game extends Phaser.Scene {
 
     elements.push(this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(15));
 
-    // Back button. addDepthIcon returns a size-less container — Phaser refuses
-    // to enable input on a 0×0 container (console-warns and skips it), so every
-    // HUD icon needs an explicit setSize BEFORE setInteractive. 44×44 is the
-    // minimum tap target; the icon itself stays small. Arrow art points right,
+    // Header controls are real beige buttons (same shells as every other
+    // screen's icon buttons) — 48px, so the shell auto-picks the small-corner
+    // pieces and hover/press feedback comes built in. Arrow art points right,
     // so back rotates it 180° (same as Leaderboard's back button).
-    const back = addDepthIcon(this, 28, HEADER_H / 2, 'icon-arrow', 22, 22).setAngle(180);
-    back.setDepth(16).setSize(44, 44);
-    back.setInteractive({ useHandCursor: true });
-    back.on('pointerup', () => {
+    elements.push(this.hudIconButton(10 + HUD_BTN / 2, HEADER_H / 2, 'icon-arrow', 180, () => {
       this.closeActivePopup();
       this.goToScene(this.isPreview ? 'Editor' : 'LevelSelect');
-    });
-    elements.push(back);
+    }));
 
     // Level title + context line, centered. In-game the header identifies the
     // puzzle ("Orange Splash" / "World 1 · Level 1") — branding stays on the
-    // splash/menu screens (and the landscape palette keeps its logo).
-    const maxChars = Math.max(10, Math.floor((width * 0.52) / 9));
+    // splash/menu screens (and the landscape palette keeps its logo). Width
+    // budget: whatever the back button (left) and hint+reset pair (right)
+    // leave free, mirrored so the title stays visually centered.
+    const sideReserve = 10 + HUD_BTN * 2 + 8 + 12;
+    const maxChars = Math.max(10, Math.floor((width - sideReserve * 2) / 9));
     const rawTitle = this.level.title;
     const titleLabel = rawTitle.length > maxChars ? `${rawTitle.slice(0, maxChars - 3)}...` : rawTitle;
-    elements.push(this.add.text(width / 2, 19, titleLabel, {
+    elements.push(this.add.text(width / 2, HEADER_H / 2 - 8, titleLabel, {
       fontFamily: PIXEL_FONT, fontSize: '9px', color: C.TEXT_LIGHT,
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(16));
     const context = this.levelContextLabel();
     if (context) {
-      elements.push(this.add.text(width / 2, 37, context, {
+      elements.push(this.add.text(width / 2, HEADER_H / 2 + 12, context, {
         fontFamily: PIXEL_FONT, fontSize: '6px', color: '#9A8A6A',
       }).setOrigin(0.5).setDepth(16));
     }
 
-    // Hint + Reset in header right — spaced so their 44×44 tap targets can't
-    // overlap each other.
-    const hint = addDepthIcon(this, width - 72, HEADER_H / 2, 'icon-help', 20, 20);
-    hint.setDepth(16).setSize(44, 44);
-    hint.setInteractive({ useHandCursor: true });
-    hint.on('pointerup', () => this.showHint());
-    elements.push(hint);
-
-    const reset = addDepthIcon(this, width - 26, HEADER_H / 2, 'icon-reset', 22, 22);
-    reset.setDepth(16).setSize(44, 44);
-    reset.setInteractive({ useHandCursor: true });
-    reset.on('pointerup', () => this.handleReset());
-    elements.push(reset);
+    // Hint + Reset in header right.
+    elements.push(this.hudIconButton(width - 10 - HUD_BTN - 8 - HUD_BTN / 2, HEADER_H / 2, 'icon-help', 0, () => this.showHint()));
+    elements.push(this.hudIconButton(width - 10 - HUD_BTN / 2, HEADER_H / 2, 'icon-reset', 0, () => this.handleReset()));
 
     this.hudLayer = this.add.container(0, 0, elements);
+  }
+
+  // Square beige icon button for the header strip — the same shell+depth-icon
+  // recipe as MainMenu/Leaderboard's icon buttons, sized to fit inside HEADER_H.
+  private hudIconButton(x: number, y: number, iconKey: string, angle: number, onClick: () => void): Phaser.GameObjects.Container {
+    const shell = addBeigeButtonShell(this, x, y, HUD_BTN, HUD_BTN, false, onClick);
+    const iconSize = Math.round(HUD_BTN * 0.44);
+    shell.addContent([addDepthIcon(this, 0, -1, iconKey, iconSize, iconSize).setAngle(angle)]);
+    shell.container.setDepth(16);
+    return shell.container;
   }
 
   // "Where am I" line under the level title: daily / UGC author / world+level
@@ -363,17 +363,27 @@ export class Game extends Phaser.Scene {
 
     const gapX   = Math.max(14, Math.round(area.w * 0.04));
     const rowGap = 10;
-    const labelH = Math.max(38, Math.min(56, Math.round(area.h * 0.14)));
+    const labelH = Math.max(38, Math.min(48, Math.round(area.h * 0.14)));
     const statH  = labelH;
+    // Portrait caps the cards a touch lower than landscape so tablets keep
+    // enough leftover height below the block for the mascot.
     const cardSz = Math.max(66, Math.min(
       Math.floor((area.w - gapX) / 2),
       area.h - labelH - statH - rowGap * 2,
-      300,
+      isPortrait ? 272 : 300,
     ));
     const blockW = cardSz * 2 + gapX;
     const blockH = cardSz + rowGap + labelH + rowGap + statH;
+
+    // Splot gets whatever height the block leaves over (capped so he doesn't
+    // dwarf the cards). Block + mascot are centered together as one group, so
+    // he's a designed part of the layout rather than leftover-strip garnish.
+    const splotSz   = Math.min(150, area.h - blockH - 16);
+    const showSplot = splotSz >= 52;
+    const groupH    = blockH + (showSplot ? 8 + splotSz : 0);
+
     const left   = area.x + (area.w - blockW) / 2;
-    const top    = area.y + Math.max(0, (area.h - blockH) / 2);
+    const top    = area.y + Math.max(0, (area.h - groupH) / 2);
     const goalX  = left + cardSz / 2;
     const curX   = left + cardSz + gapX + cardSz / 2;
     const cardCy = top + cardSz / 2;
@@ -399,14 +409,21 @@ export class Game extends Phaser.Scene {
     this.timerText = this.buildPill(goalX, statY, cardSz, statH, 'Time: 0s');
     this.stepsText = this.buildPill(curX, statY, cardSz, statH, `Moves: ${this.stepsLabel(this.engine.steps)}`);
 
-    // Splot coaches from below the block when there's room for him (desktop
-    // landscape mostly) — reactions stay null-safe everywhere he's poked.
-    const blockBottom = top + blockH;
-    const roomBelow = area.y + area.h - blockBottom;
-    if (roomBelow >= 60) {
-      const splotSz = Math.min(84, roomBelow - 12);
-      this.splot = new SplotMascot(this, left + blockW / 2, blockBottom + roomBelow / 2, splotSz);
+    // Splot coaches from below the block, sized by the group layout above —
+    // only screens too short for a ≥52px mascot go without (reactions stay
+    // null-safe everywhere he's poked). Tapping him is the same freebie squish
+    // as the home screen.
+    if (showSplot) {
+      this.splot = new SplotMascot(this, left + blockW / 2, top + blockH + 8 + splotSz / 2, splotSz);
       this.splot.container.setDepth(5);
+      this.splot.container.setInteractive(
+        new Phaser.Geom.Circle(0, 0, splotSz * 0.5),
+        Phaser.Geom.Circle.Contains,
+      );
+      this.splot.container.on('pointerdown', () => {
+        this.splot?.playSquishAnim();
+        this.splot?.setExpression('excited', 1200);
+      });
     }
   }
 
