@@ -386,7 +386,7 @@ export class MainMenu extends Phaser.Scene {
 
     const descFs = Math.max(12, Math.min(15, Math.round(popW * 0.045)));
     content.push(this.add.text(0, -popH * 0.08,
-      'Splotter Flair shows your streak, Sparks, and slime tier next to your name in this community.', {
+      'Splotter Flair shows your streak and slime tier next to your name in this community.', {
         // #40301F, not the lighter #75604C often seen for muted copy elsewhere —
         // this sits on the beige popup shell, where the lighter tone reads too
         // close to the background to be legible.

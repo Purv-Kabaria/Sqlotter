@@ -1,7 +1,11 @@
 // Splotter Flair — the player's Splot status rendered as subreddit user
-// flair, e.g. "🔥 6 · ⚡ 1,240 · Mega-Blob". Lives in shared/ (next to
-// shop.ts) so the Shop can advertise what an item unlocks (the Golden Crown
-// grants the Royal Slime tier) with the exact same ladder the server applies.
+// flair, e.g. "🔥 6 · Mega-Blob". Lives in shared/ (next to shop.ts) so the
+// Shop can advertise what an item unlocks (the Golden Crown grants the
+// Royal Slime tier) with the exact same ladder the server applies.
+//
+// Sparks are deliberately NOT shown in the flair text — lifetimeSparks only
+// drives the tier name below; players didn't want their raw currency count
+// broadcast next to their username.
 
 export type FlairTier = {
   name: string;
@@ -41,11 +45,10 @@ export type FlairParts = {
 };
 
 // Reddit caps user flair at 64 characters; the longest realistic line here
-// ("🔥 365 · ⚡ 9,999,999 · Royal Slime · 👑 Fit W52") is comfortably under.
+// ("🔥 365 · Royal Slime · 👑 Fit W52") is comfortably under.
 export function buildFlairText(parts: FlairParts): string {
   const segments: string[] = [];
   if (parts.streakDays > 1) segments.push(`🔥 ${parts.streakDays}`);
-  segments.push(`⚡ ${parts.lifetimeSparks.toLocaleString('en-US')}`);
   segments.push(flairTierName(parts.lifetimeSparks, parts.ownsGoldenCrown));
   if (parts.fitCrownWeek) segments.push(`👑 Fit ${parts.fitCrownWeek}`);
   return segments.join(' · ');
