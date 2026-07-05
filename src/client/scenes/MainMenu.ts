@@ -391,8 +391,8 @@ export class MainMenu extends Phaser.Scene {
     shell.addContent(content);
     items.push(shell.container);
 
-    // Toggle reads the cached preference; setFlairPref reopens the popup on
-    // success so the label/icon always reflect the server-confirmed state.
+    // Toggle reads the cached preference; setFlairPref flips it optimistically
+    // and reopens the popup right away (reverting if the server says no).
     const enabled = this.userData?.flairEnabled !== false;
     const btnW = Math.min(popW - 48, 220);
     const btnH = Math.max(46, Math.min(60, Math.round(popH * 0.20)));
@@ -412,26 +412,37 @@ export class MainMenu extends Phaser.Scene {
   private async setFlairPref(enabled: boolean) {
     if (this.flairBusy) return;
     this.flairBusy = true;
+
+    // Optimistic: flip the cached value and rebuild the toggle immediately —
+    // the flair round-trip to Reddit takes seconds and the button must feel
+    // instant. A failed request reverts the flip below.
+    const prev = this.userData;
+    if (this.userData) {
+      this.userData = { ...this.userData, flairEnabled: enabled };
+      setCachedUserData(this.userData);
+    }
+    if (this.activePopup) this.showSettingsPopup();
+
+    let status = 0;
     try {
       const res = await fetch('/api/user/flair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
       });
-      if (this.navigating) return;
-      if (res.ok) {
-        if (this.userData) {
-          this.userData = { ...this.userData, flairEnabled: enabled };
-          setCachedUserData(this.userData);
-        }
-        // Rebuild the popup so the toggle shows the new state.
-        if (this.activePopup) this.showSettingsPopup();
-      } else if (res.status === 401) {
-        try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
-      }
-    } catch { /* offline — the toggle simply stays as-is */ }
-    finally {
-      this.flairBusy = false;
+      status = res.status;
+    } catch { /* network failure → revert below */ }
+    this.flairBusy = false;
+
+    if (status === 200) return;
+    if (prev) {
+      this.userData = prev;
+      setCachedUserData(prev);
+    }
+    if (this.navigating) return;
+    if (this.activePopup) this.showSettingsPopup();
+    if (status === 401) {
+      try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
     }
   }
 
