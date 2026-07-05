@@ -11,12 +11,12 @@ const PIXELIFY = '"Pixelify Sans", sans-serif';
 const NUM_FONT = PIXEL_FONT;
 
 const C = {
-  BG:        0x232323,
-  TEXT_DARK: '#3A1A08',
-  TEXT_WARM: '#75604C',
-  TEXT_BEIGE:'#DEC998',
-  GOLD:      '#FFD700',
-  GREEN_DARK:'#2E5C0A',
+  BG:          0x232323,
+  TEXT_DARK:   '#3A1A08',   // tabs — sits on the beige button shell, good contrast there
+  TEXT_BEIGE:  '#DEC998',   // row text — sits on the near-black addDarkPanel rows
+  GOLD:        '#FFD700',
+  GREEN_DARK:  '#1E3D08',   // active tab — darkened from #2E5C0A, which read too close to the beige tab behind it
+  GREEN_BRIGHT:'#6DD400',   // current-user row highlight — needs to read on the near-black row panel, not beige
 } as const;
 
 type BoardType = 'sparks' | 'moves' | 'played';
@@ -343,7 +343,7 @@ export class Leaderboard extends Phaser.Scene {
     } else {
       const rankFs = Math.max(13, Math.min(18, Math.round(h * 0.30)));
       content.push(this.add.text(rankX, 0, `${entry.rank}`, {
-        fontFamily: NUM_FONT, fontSize: `${rankFs}px`, color: C.TEXT_WARM,
+        fontFamily: NUM_FONT, fontSize: `${rankFs}px`, color: C.TEXT_BEIGE,
       }).setOrigin(0.5));
     }
 
@@ -352,7 +352,7 @@ export class Leaderboard extends Phaser.Scene {
     const nameLabel = entry.isCurrentUser ? `${entry.username}  (You)` : entry.username;
     content.push(this.add.text(nameX, 0, nameLabel, {
       fontFamily: PIXELIFY, fontSize: `${nameFs}px`,
-      color: entry.isCurrentUser ? C.GREEN_DARK : C.TEXT_DARK,
+      color: entry.isCurrentUser ? C.GREEN_BRIGHT : C.TEXT_BEIGE,
       fontStyle: entry.isCurrentUser ? 'bold' : 'normal',
     }).setOrigin(0, 0.5));
 
@@ -360,7 +360,7 @@ export class Leaderboard extends Phaser.Scene {
     const scoreIconSz = scoreFs * 1.15;
     const scoreTxt = this.add.text(0, 0, `${entry.score}`, {
       fontFamily: NUM_FONT, fontSize: `${scoreFs}px`,
-      color: index === 0 ? C.GOLD : C.TEXT_DARK,
+      color: index === 0 ? C.GOLD : C.TEXT_BEIGE,
       shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
     }).setOrigin(1, 0.5);
     const scoreRight = w / 2 - 12;

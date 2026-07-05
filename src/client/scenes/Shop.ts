@@ -21,14 +21,15 @@ const C = {
   BG:        0x232323,
   TEXT_DARK: '#3A1A08',
   TEXT_DIM:  '#8a7a6a',
-  TEXT_WARM: '#75604C',     // muted brown that stays legible on the beige panels
+  TEXT_WARM: '#40301F',     // muted brown that stays legible on the beige/terracotta panels
+                            // (was #75604C — too close in luminance to both surfaces to read)
   TEXT_BEIGE:'#DEC998',
   GOLD:      '#FFD700',
   GOLD_NUM:  0xFFD700,
   RED:       '#ff5555',     // toasts on dark backgrounds
   RED_DEEP:  '#C62828',     // "can't afford" prices on beige — #ff5555 washed out
   GREEN:     '#6DD400',
-  GREEN_DARK:'#2E5C0A',
+  GREEN_DARK:'#1E3D08',     // "equipped"/active-tab text on beige — darkened from #2E5C0A, which was too light to read there
   PLATE_EQUIP: 0x9FD060,    // green slot plate marks the equipped card
   // Selected-but-unowned card ring, drawn as a stroke-only rectangle rather
   // than a tint — Phaser tint is multiplicative, so tinting the warm beige
@@ -458,6 +459,10 @@ export class Shop extends Phaser.Scene {
       const txt = this.add.text(0, 0, `${item.price}`, {
         fontFamily: NUM_FONT, fontSize: `${priceFs}px`,
         color: canAfford ? C.GOLD : C.RED_DEEP,
+        // Gold/red-deep are both close in luminance to the terracotta panel
+        // behind this text — a corner shadow alone doesn't separate them, so
+        // a full outline (same trick the crown card uses) does the real work.
+        stroke: '#2B1400', strokeThickness: 3,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
       const rowW = iconSz + 8 + txt.width;
@@ -472,6 +477,7 @@ export class Shop extends Phaser.Scene {
       els.push(this.add.text(cx, cy + h * 0.10, 'Unlocks the Royal Slime flair!', {
         fontFamily: PIXELIFY, fontSize: `${Math.max(10, Math.round(subFs * 0.85))}px`, color: C.GOLD,
         align: 'center', wordWrap: { width: w - 8 },
+        stroke: '#2B1400', strokeThickness: 3,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0.5).setDepth(6));
     }
@@ -828,6 +834,7 @@ export class Shop extends Phaser.Scene {
         fontFamily: NUM_FONT,
         fontSize: `${priceFs}px`,
         color: this.sparks >= item.price ? C.GOLD : C.RED_DEEP,
+        stroke: '#2B1400', strokeThickness: 2,
         shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
       }).setOrigin(0, 0.5);
       const rowW = sparkSz + 5 + priceTxt.width;
@@ -1092,6 +1099,7 @@ export class Shop extends Phaser.Scene {
     const priceIconSz = priceFs * 1.1;
     const priceTxt = this.add.text(0, popH * 0.25, `${item.price}`, {
       fontFamily: NUM_FONT, fontSize: `${priceFs}px`, color: C.GOLD,
+      stroke: '#2B1400', strokeThickness: 3,
       shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
     }).setOrigin(0, 0.5);
     const priceRowW = priceIconSz + 6 + priceTxt.width;

@@ -158,6 +158,10 @@ export class LevelComplete extends Phaser.Scene {
         fontFamily: PIXEL_FONT,
         fontSize: '10px',
         color: label === 'Sparks' ? '#B8860B' : '#3A1A08',
+        // The darkgoldenrod Sparks value is close in luminance to the panel's
+        // terracotta background — an outline keeps it legible without losing
+        // the gold color that sets it apart from the plain stat rows.
+        ...(label === 'Sparks' ? { stroke: '#2B1400', strokeThickness: 2 } : {}),
       }).setOrigin(1, 0).setAlpha(0);
 
       if (label === 'Sparks') {
@@ -349,7 +353,7 @@ export class LevelComplete extends Phaser.Scene {
       shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5));
     layer.add(this.add.text(cx, cy - popH / 2 + 56, 'Add your own caption (optional):', {
-      fontFamily: PIXELIFY, fontSize: '13px', color: '#7A4A20',
+      fontFamily: PIXELIFY, fontSize: '13px', color: '#40301F',
     }).setOrigin(0.5));
 
     this.cardInput = this.createCardInput(cx, cy - 6, popW - 48);
@@ -507,8 +511,12 @@ export class LevelComplete extends Phaser.Scene {
 
     // Level title, hard-capped to one line (UGC titles run up to 60 chars)
     const levelName = info.title.length > 24 ? `${info.title.slice(0, 23)}...` : info.title;
+    // '#c9b8e8' was a light lavender tuned for a dark backdrop; the card's
+    // actual panel (addPixelPanel) is a warm terracotta, so darken while
+    // keeping the purple hue rather than switching to a brown/gold already
+    // used elsewhere on this card.
     card.add(this.add.text(0, -cardH / 2 + 62, `"${levelName}"`, {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#c9b8e8',
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#362D4D',
     }).setOrigin(0.5));
 
     // Splot presents the solved slime
@@ -531,14 +539,19 @@ export class LevelComplete extends Phaser.Scene {
 
     const secs = Math.floor(info.timeMs / 1000);
     const timeStr = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
+    // C.DIM ('#7a8a9a') and the branding strip's original '#9a8a5a' were both
+    // tuned for a near-black background — against this card's terracotta
+    // panel (addPixelPanel) they sat at ~1.2:1 contrast, invisible on the
+    // very image this scene exports and posts to Reddit. '#40301F' matches
+    // the muted-brown fix used elsewhere on this same panel texture.
     card.add(this.add.text(0, cardH / 2 - 60,
       `${info.steps} ${info.steps === 1 ? 'move' : 'moves'} · ${timeStr}`, {
-        fontFamily: PIXEL_FONT, fontSize: '8px', color: C.DIM,
+        fontFamily: PIXEL_FONT, fontSize: '8px', color: '#40301F',
       }).setOrigin(0.5));
 
     // Branding strip — this card IS the shared image, so sign it
     const brand = this.add.text(0, cardH / 2 - 26, 'SQLOTTER · FIRST SPLAT CROWN', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: '#9a8a5a',
+      fontFamily: PIXEL_FONT, fontSize: '7px', color: '#40301F',
     }).setOrigin(0.5);
     const sparkL = this.add.image(-brand.width / 2 - 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(11, 11);
     const sparkR = this.add.image(brand.width / 2 + 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(11, 11);
