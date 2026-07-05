@@ -1,12 +1,15 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
 import { SplotMascot } from '../components/SplotMascot';
-import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeCard, addDepthIcon, addPanel9 } from '../components/PixelUI';
+import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeCard, addDepthIcon, addPanel9, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 import { getCachedUserData, setCachedUserData } from '../userData';
 import { DEFERRED_IMG } from './Preloader';
 
 const PIXELIFY = '"Pixelify Sans", sans-serif';
+// Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
+// ambiguously) — same convention as Shop's NUM_FONT, used for the sparks count.
+const NUM_FONT = PIXEL_FONT;
 
 const C = {
   HEADER_BG: 0x232323,
@@ -343,7 +346,7 @@ export class MainMenu extends Phaser.Scene {
     this.sparksText = this.add.text(
       -w * 0.24 + iconSz * 0.60 + 5, -1,
       `${this.userData?.sparks ?? 0}`,
-      { fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.TEXT_DARK,
+      { fontFamily: NUM_FONT, fontSize: `${fs}px`, color: C.TEXT_DARK,
         shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true } },
     ).setOrigin(0, 0.5);
     button.add([icon, this.sparksText]);
