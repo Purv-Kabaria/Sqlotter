@@ -385,6 +385,13 @@ export class LevelComplete extends Phaser.Scene {
     input.placeholder = 'e.g. Nailed it first try!';
     input.maxLength   = 60;
 
+    // Phaser also listens for mouse/pointer events on the window (to catch
+    // releases outside the canvas), so a tap on this input would still hit
+    // the dim overlay underneath and close the prompt. Keep them to ourselves.
+    for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend']) {
+      input.addEventListener(ev, (e) => e.stopPropagation());
+    }
+
     const canvas = this.game.canvas;
     const rect   = canvas.getBoundingClientRect();
     const sx     = rect.width  / this.scale.width;
