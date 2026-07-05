@@ -81,8 +81,8 @@ export class SplotMascot {
 
     if (useCssShadow) {
       // Soft procedural "CSS-style" contact shadow (see Boot.ts genSplotShadowTexture) —
-      // a flat blurred ellipse under the character instead of the shadow-shaped sprite.
-      // Used on the home screen only; other screens keep the sprite shadow below.
+      // a flat blurred ellipse under the character instead of the shadow-shaped sprite,
+      // which reads as a hard black blob against flat panel backgrounds.
       this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
         .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
     } else {

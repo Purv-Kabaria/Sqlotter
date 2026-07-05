@@ -414,7 +414,7 @@ export class Game extends Phaser.Scene {
     // null-safe everywhere he's poked). Tapping him is the same freebie squish
     // as the home screen.
     if (showSplot) {
-      this.splot = new SplotMascot(this, left + blockW / 2, top + blockH + 8 + splotSz / 2, splotSz);
+      this.splot = new SplotMascot(this, left + blockW / 2, top + blockH + 8 + splotSz / 2, splotSz, {}, undefined, true);
       this.splot.container.setDepth(5);
       this.splot.container.setInteractive(
         new Phaser.Geom.Circle(0, 0, splotSz * 0.5),
@@ -772,7 +772,7 @@ export class Game extends Phaser.Scene {
     // paragraph of lesson text needs an opaque face to stay readable.
     items.push(addBeigeSolidCard(this, cx, cy, popW, popH));
 
-    const splot = new SplotMascot(this, cx, cy - popH / 2 + 20 + splotSz / 2, splotSz);
+    const splot = new SplotMascot(this, cx, cy - popH / 2 + 20 + splotSz / 2, splotSz, {}, undefined, true);
     splot.setExpression('excited');
     items.push(splot.container);
 
