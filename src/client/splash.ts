@@ -35,7 +35,11 @@ void (async () => {
       const init = await initRes.json() as { username?: string; sparks?: number };
       if (init.username) greeting.textContent = `Hey u/${init.username}!`;
       if (init.sparks !== undefined) {
-        dailyInfo.textContent = `${init.sparks} Sparks`;
+        dailyInfo.replaceChildren();
+        const count = document.createElement('span');
+        count.className = 'spark-num';
+        count.textContent = `${init.sparks}`;
+        dailyInfo.append(count, document.createTextNode(' Sparks'));
       }
     }
 

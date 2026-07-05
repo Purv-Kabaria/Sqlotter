@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Press+Start+2P&display=swap');
 
 * {
   box-sizing: border-box;
@@ -113,6 +113,14 @@ html, body {
   line-height: 1.5;
   text-align: center;
   max-width: 260px;
+}
+
+/* Sparks count — Press Start 2P, matching every other numeric readout in the
+   game (Shop's prices/counter, the leaderboards). Pixelify's digits (esp. "5")
+   read ambiguously at small sizes; the rest of this line stays in Pixelify. */
+.spark-num {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.85em;
 }
 
 /* ── CTA ──────────────────────────────────────────────────── */
