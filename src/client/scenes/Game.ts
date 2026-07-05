@@ -713,7 +713,9 @@ export class Game extends Phaser.Scene {
       // layering as SlimeRenderer), so the outline must not cut across it.
       const pum = this.add.image(0, -slotSz * 0.08, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
       const lbl = this.add.text(0, slotSz * 0.30, worn ? `${cov}% ON` : `${cov}%`, {
-        fontFamily: PIXEL_FONT, fontSize: '8px', color: worn ? '#2E5C0A' : C.DARK_BROWN,
+        // #1E3D08, not the lighter #2E5C0A — this sits on the beige button
+        // shell, where the lighter green was too close to it to read.
+        fontFamily: PIXEL_FONT, fontSize: '8px', color: worn ? '#1E3D08' : C.DARK_BROWN,
       }).setOrigin(0.5);
       shell.addContent([sh, sli, brd, pum, lbl]);
       if (worn) {
