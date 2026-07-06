@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
 import { SplotMascot } from '../components/SplotMascot';
-import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeCard, addDepthIcon, addPanel9, PIXEL_FONT } from '../components/PixelUI';
+import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 import { getCachedUserData, setCachedUserData } from '../userData';
 import { DEFERRED_IMG } from './Preloader';
@@ -92,6 +92,9 @@ export class MainMenu extends Phaser.Scene {
       const structuralChange = !prev
         || prev.username !== fresh.username
         || (prev.streakDays ?? 0) !== (fresh.streakDays ?? 0)
+        // The sparks pill is sized around the rendered count, so crossing a
+        // digit boundary needs a rebuild; same-width counts patch in place.
+        || `${prev.sparks}`.length !== `${fresh.sparks}`.length
         || JSON.stringify(prev.equippedItems ?? {}) !== JSON.stringify(fresh.equippedItems ?? {});
       if (structuralChange) {
         this.buildUI();
@@ -165,8 +168,8 @@ export class MainMenu extends Phaser.Scene {
     // Sparks counter — sized to always fit inside the title strip, never overflow it.
     // Floor of 34 (not lower) keeps it above the 33px minimum the small badge asset needs.
     const pillH = Math.max(34, Math.min(titleH - 10, Math.round(titleH * 0.58)));
-    const pillW = Math.max(64, Math.min(100, Math.round(w * 0.24)));
-    els.push(this.buildSparksPill(w - pillW / 2 - 8, titleH / 2, pillW, pillH, 12));
+    const pill = this.buildSparksPill(w - 8, titleH / 2, pillH, 12);
+    els.push(pill.container);
 
     // Settings gear mirrors the pill on the strip's left. Only for logged-in
     // players — its lone setting (Splotter Flair) is meaningless to guests.
@@ -178,7 +181,7 @@ export class MainMenu extends Phaser.Scene {
 
     // SQLOTTER logo centered in strip — capped so it can never run into the pill. Bobs gently.
     if (this.textures.exists('title')) {
-      const logoW = Math.max(0, Math.min(w * 0.58, 260, w - 2 * pillW - 36));
+      const logoW = Math.max(0, Math.min(w * 0.58, 260, w - 2 * pill.width - 36));
       const logoH = Math.round(logoW * 112 / 512);
       const logo = this.add.image(cx, titleH / 2, 'title')
         .setDisplaySize(logoW, logoH).setDepth(11);
@@ -254,21 +257,21 @@ export class MainMenu extends Phaser.Scene {
 
     // Sparks pill — top-right corner, scaled with height so it never collides with the logo.
     const pillH = Math.max(34, Math.min(66, Math.round(h * 0.09)));
-    const pillW = Math.max(90, Math.min(122, Math.round(rightW * 0.30)));
     const pillTop = 10;
-    els.push(this.buildSparksPill(w - pillW / 2 - 10, pillTop + pillH / 2, pillW, pillH, 12));
+    const pill = this.buildSparksPill(w - 10, pillTop + pillH / 2, pillH, 12);
+    els.push(pill.container);
 
     // Settings gear beside the pill, same row (the logo starts below this row,
     // so nothing else competes for the corner). Logged-in players only.
     if (this.userData?.username) {
-      els.push(this.buildIconButton(w - pillW - 10 - 8 - pillH / 2, pillTop + pillH / 2, pillH,
+      els.push(this.buildIconButton(w - pill.width - 10 - 8 - pillH / 2, pillTop + pillH / 2, pillH,
         'icon-settings', () => this.showSettingsPopup()).setDepth(12));
     }
 
     // SQLOTTER title — placed below the pill's row with guaranteed clearance.
     let logoBottom = pillTop + pillH;
     if (this.textures.exists('title')) {
-      const logoW   = Math.max(0, Math.min(rightW * 0.80, 420, w - pillW - 40));
+      const logoW   = Math.max(0, Math.min(rightW * 0.80, 420, w - pill.width - 40));
       const logoH   = Math.round(logoW * 112 / 512);
       const logoTop = logoBottom + 12;
       const logoY   = logoTop + logoH / 2;
@@ -286,9 +289,9 @@ export class MainMenu extends Phaser.Scene {
     const streakDays = this.userData?.streakDays ?? 0;
     let contentBottom = logoBottom + 8;
     if (streakDays > 0) {
-      const streakY = logoBottom + 16 + 12;
+      const streakY = logoBottom + 16 + 17;
       els.push(this.buildStreakBadge(rightCx, streakY, streakDays).setDepth(5));
-      contentBottom = streakY + 12;
+      contentBottom = streakY + 17;
     }
 
     // Pre-compute button group dimensions for vertical centering
@@ -331,26 +334,39 @@ export class MainMenu extends Phaser.Scene {
     els.push(this.mascot.container);
   }
 
+  // Sized around the measured count rather than a fixed proportional width —
+  // Press Start 2P runs a full fontSize width per digit, so a fixed pill
+  // overflowed past 3-4 digits (same fix as Shop.buildSparksPill). The pill's
+  // RIGHT edge anchors at rightX since its width depends on the digit count;
+  // callers lay out the gear/logo from the returned width.
   private buildSparksPill(
-    x: number, y: number, w: number, h: number, depth: number,
-  ): Phaser.GameObjects.Container {
-    const fs = Math.max(9, Math.round(h * 0.28));
-    const iconSz = Math.max(11, Math.round(h * 0.38));
+    rightX: number, y: number, h: number, depth: number,
+  ): { container: Phaser.GameObjects.Container; width: number } {
+    // Caps (14/20/12) keep a tall pill from inflating its contents — at the
+    // proportional 18px a 5-digit count widened the pill enough to starve the
+    // centered logo of its `w - 2*pill.width` budget.
+    const fs = Math.max(9, Math.min(14, Math.round(h * 0.28)));
+    const iconSz = Math.max(11, Math.min(20, Math.round(h * 0.38)));
+    const pad = Math.max(8, Math.min(12, Math.round(h * 0.26)));
+
+    this.sparksText = this.add.text(0, -1, `${this.userData?.sparks ?? 0}`, {
+      fontFamily: NUM_FONT, fontSize: `${fs}px`, color: C.TEXT_DARK,
+      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+    }).setOrigin(0, 0.5);
+
+    const contentW = iconSz + 6 + Math.round(this.sparksText.width);
+    const w = Math.max(64, contentW + pad * 2);
+    const x = rightX - w / 2;
     // The 32px-corner button assets corrupt below 65px (see docs/9-slicing.md); on small
     // screens the pill can shrink past that floor, so fall back to the 16px-corner variant.
     const button = (h < 65 || w < 65
       ? addBeigeBadge(this, x, y, w, h)
       : addBeigeButton(this, { x, y, width: w, height: h, label: '', fontSize: fs, fontFamily: PIXELIFY })
     ).setDepth(depth);
-    const icon = addDepthIcon(this, -w * 0.24, -1, 'icon-spark', iconSz, iconSz);
-    this.sparksText = this.add.text(
-      -w * 0.24 + iconSz * 0.60 + 5, -1,
-      `${this.userData?.sparks ?? 0}`,
-      { fontFamily: NUM_FONT, fontSize: `${fs}px`, color: C.TEXT_DARK,
-        shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true } },
-    ).setOrigin(0, 0.5);
+    const icon = addDepthIcon(this, -contentW / 2 + iconSz / 2, -1, 'icon-spark', iconSz, iconSz);
+    this.sparksText.setPosition(-contentW / 2 + iconSz + 6, -1);
     button.add([icon, this.sparksText]);
-    return button;
+    return { container: button, width: w };
   }
 
   private buildIconButton(x: number, y: number, size: number, iconKey: string, onClick: () => void): Phaser.GameObjects.Container {
@@ -537,8 +553,12 @@ export class MainMenu extends Phaser.Scene {
   }
 
   private buildStreakBadge(x: number, y: number, days: number): Phaser.GameObjects.Container {
-    const pillW = 160, pillH = 24;
-    const bg   = addBeigeCard(this, 0, 0, pillW, pillH);
+    // addBeigeCard's 'ui-flat-slot' texture is ~80% transparent — over this
+    // scene's dark right-column rectangle it reads as almost-black, making
+    // TEXT_DARK unreadable. addBeigeBadge uses the opaque button-open slices
+    // instead (same fix as buildSparksPill's fallback below the 65px floor).
+    const pillW = 160, pillH = 34;
+    const bg   = addBeigeBadge(this, 0, 0, pillW, pillH);
     const icon = addDepthIcon(this, -pillW / 2 + 14, 0, 'icon-fire', 14, 14);
     const txt  = this.add.text(-pillW / 2 + 28, 0, `${days} day streak!`, {
       fontFamily: PIXELIFY, fontSize: '12px', color: C.TEXT_DARK,
