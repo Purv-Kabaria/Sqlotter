@@ -10,11 +10,6 @@ import { schedulerRoutes } from './routes/scheduler';
 const app      = new Hono();
 const internal = new Hono();
 
-// Store the subreddit name on install so the scheduler can look it up later
-app.use('*', async (_, next) => {
-  await next();
-});
-
 internal.route('/menu',      menu);
 internal.route('/form',      forms);
 internal.route('/triggers',  triggers);
