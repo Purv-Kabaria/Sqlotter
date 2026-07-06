@@ -8,7 +8,18 @@ export type PumpkinCoverage = 25 | 50 | 75;
 
 export type ModifierType =
   | 'paint' | 'goggles' | 'glasses'
-  | 'belt' | 'pendant' | 'pumpkin' | 'underwear';
+  | 'belt' | 'pendant' | 'pumpkin' | 'underwear'
+  // ── Newer modifiers (see src/shared/slimeSim.ts for the exact rules) ──
+  // plain toggle stencils, like belts:
+  | 'plate' | 'cone' | 'scarf'
+  // 'nose'   — a stencil worn small that GROWS one size per paint splash
+  //            (small→medium→big); a splash on the big nose knocks it off,
+  //            re-wearable as small. One nose per level.
+  // 'alpha'  — a paint VARIANT: dips every exposed cell to 75% opacity
+  //            (colour kept). Usable once per level.
+  // 'bubble' — a reusable opacity changer: dips only its inner circle to 75%,
+  //            leaving the outer ring untouched.
+  | 'nose' | 'alpha' | 'bubble';
 
 // Non-paint modifiers are paint STENCILS: worn, they protect the slime cells
 // they cover; tapped again, they come off. Paints color every exposed cell.

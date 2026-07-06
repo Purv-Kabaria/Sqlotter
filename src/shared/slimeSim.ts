@@ -20,6 +20,38 @@ import { BODY_MASK, MASK_BITMAPS, MASK_GRID } from './maskData';
 export const BASE_COLOR = '#FFFFFF';
 export const CELL_COUNT = MASK_GRID * MASK_GRID;
 
+// A "dipped" cell renders its colour at 75% opacity over the white body — the
+// alpha dip (paint variant) and the bubble both set this. Kept as a per-cell
+// binary state (opaque | dipped) so it's idempotent: dipping a dipped cell, or
+// a second bubble over the same spot, leaves it at 75%, never 56%. A fresh
+// colour splash makes the cell opaque again.
+export const DIP_FACTOR = 0.75;
+export const CELL_OPAQUE = 0;
+export const CELL_DIPPED = 1;
+
+const dipHexCache = new Map<string, string>();
+
+/** The colour a dipped cell shows: `color` composited at 75% over white. */
+export function dipHex(hex: string): string {
+  const key = hex.toUpperCase();
+  const cached = dipHexCache.get(key);
+  if (cached) return cached;
+  const n = key.startsWith('#') ? key.slice(1) : key;
+  const ch = (o: number) => parseInt(n.slice(o, o + 2), 16) || 0;
+  const mix = (c: number) => Math.round(c * DIP_FACTOR + 255 * (1 - DIP_FACTOR));
+  const out = '#' + [mix(ch(0)), mix(ch(2)), mix(ch(4))]
+    .map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+  dipHexCache.set(key, out);
+  return out;
+}
+
+// The nose is worn small, then grows one size per paint splash. Its worn mask
+// id is the current size; wearing always starts at 'nose-small'.
+const NOSE_SIZES = ['nose-small', 'nose-medium', 'nose-big'] as const;
+function isNoseMaskId(id: string): boolean {
+  return id === 'nose-small' || id === 'nose-medium' || id === 'nose-big';
+}
+
 // ── Standard action catalog ─────────────────────────────────────────────────
 // The paint pot always offers these 16 colors and the pumpkin tile always
 // offers all three sizes, regardless of what the level's palette stores —
@@ -133,17 +165,33 @@ export function getBit(bits: Uint8Array, i: number): boolean {
   return ((bits[i >> 3] ?? 0) & (1 << (i & 7))) !== 0;
 }
 
-/** The stencil geometry a modifier uses; null for paints. */
+/**
+ * The FIXED stencil geometry a modifier uses, or null. Null means "not a plain
+ * worn stencil": paints/alpha/bubble (which colour or dip instead of protect),
+ * and the nose (whose worn geometry is dynamic — its size lives in `worn` as
+ * nose-small/medium/big, so it's handled directly in applySimAction).
+ */
 export function maskIdOf(mod: ModifierDef): string | null {
   switch (mod.type) {
     case 'paint':     return null;
+    case 'alpha':     return null;
+    case 'bubble':    return null;
+    case 'nose':      return null;
     case 'goggles':   return `goggles-${mod.variant ?? 'h-thick'}`;
     case 'glasses':   return `glasses-${mod.variant ?? 'h-thick'}`;
     case 'belt':      return `belt-${mod.variant ?? 'h-thick'}`;
     case 'pendant':   return `pendant-${mod.variant ?? 'h'}`;
     case 'pumpkin':   return `pumpkin-${mod.coverage ?? 50}`;
     case 'underwear': return 'underwear';
+    case 'plate':     return 'plate';
+    case 'cone':      return 'cone';
+    case 'scarf':     return 'scarf';
   }
+}
+
+/** True for a nose modifier (whichever size). */
+export function isNoseMod(mod: ModifierDef): boolean {
+  return mod.type === 'nose';
 }
 
 // ── Sim state ───────────────────────────────────────────────────────────────
@@ -151,16 +199,21 @@ export function maskIdOf(mod: ModifierDef): string | null {
 export type SimState = {
   /** Per-cell index into `colors`. Only body cells are meaningful. */
   grid: Uint8Array;
+  /** Per-cell opacity: CELL_OPAQUE (full) or CELL_DIPPED (75%). */
+  alpha: Uint8Array;
   /** Color table; colors[0] is always BASE_COLOR (unpainted). */
   colors: string[];
-  /** Mask ids currently worn, in wear order. */
+  /** Mask ids currently worn, in wear order (nose stored as its size id). */
   worn: string[];
   /** Mask ids broken this run (goggles painted over) — unwearable until reset. */
   broken: string[];
+  /** One-shot action ids used this run (alpha dip) — refused until reset. */
+  spent: string[];
 };
 
-// 'broken' = a wear attempt on broken goggles; the state is untouched and the
-// tap must NOT be logged as an action (replays reject sequences containing one).
+// 'broken' = a refused tap (broken goggles, or an already-spent one-shot like
+// the alpha dip); the state is untouched and the tap must NOT be logged as an
+// action (replays reject sequences containing one).
 export type ActionKind = 'paint' | 'wear' | 'remove' | 'reset' | 'broken';
 
 // Reset is part of the action log (it must be — the server replays the log to
@@ -169,14 +222,23 @@ export type ActionKind = 'paint' | 'wear' | 'remove' | 'reset' | 'broken';
 export const RESET_ACTION_ID = '__reset__';
 
 export function createSimState(): SimState {
-  return { grid: new Uint8Array(CELL_COUNT), colors: [BASE_COLOR], worn: [], broken: [] };
+  return {
+    grid: new Uint8Array(CELL_COUNT),
+    alpha: new Uint8Array(CELL_COUNT),
+    colors: [BASE_COLOR],
+    worn: [],
+    broken: [],
+    spent: [],
+  };
 }
 
 function resetSimState(state: SimState): void {
   state.grid.fill(0);
+  state.alpha.fill(0);
   state.colors.length = 1;
   state.worn.length = 0;
   state.broken.length = 0;
+  state.spent.length = 0;
 }
 
 // Scratch buffer for the per-paint combined protection bitset — paints run in
@@ -184,81 +246,148 @@ function resetSimState(state: SimState): void {
 // fresh allocation per op matters. Safe: the sim is fully synchronous.
 const protScratch = new Uint8Array((CELL_COUNT + 7) >> 3);
 
-export function applySimAction(state: SimState, mod: ModifierDef): ActionKind {
-  const maskId = maskIdOf(mod);
-  if (maskId === null) {
-    const color = (mod.color ?? BASE_COLOR).toUpperCase();
-    let idx = state.colors.indexOf(color);
-    if (idx === -1) {
-      idx = state.colors.length;
-      state.colors.push(color);
-    }
-    const body = bodyBits();
-    // OR all worn masks into one protection bitset, then walk whole bytes —
-    // most bytes are fully covered or fully empty, so this skips the vast
-    // majority of the 4096 cells instead of testing each bit per mask.
-    protScratch.fill(0);
-    for (const id of state.worn) {
-      const bits = maskBits(id);
-      if (!bits) continue;
-      for (let b = 0; b < protScratch.length; b++) protScratch[b] = (protScratch[b] ?? 0) | (bits[b] ?? 0);
-    }
-    for (let b = 0; b < body.length; b++) {
-      const exposed = (body[b] ?? 0) & ~(protScratch[b] ?? 0);
-      if (exposed === 0) continue;
-      const base = b << 3;
-      for (let bit = 0; bit < 8; bit++) {
-        if (exposed & (1 << bit)) state.grid[base + bit] = idx;
-      }
-    }
-    // The splash knocks worn goggles off and breaks them — one-time use.
-    for (let w = state.worn.length - 1; w >= 0; w--) {
-      const wornId = state.worn[w]!;
-      if (isBreakableMask(wornId)) {
-        state.worn.splice(w, 1);
-        state.broken.push(wornId);
-      }
-    }
-    return 'paint';
+// Runs `fn` over every EXPOSED body cell (a body cell no worn stencil covers),
+// optionally further limited to `regionMaskId` — the shared core of colour
+// paint (region null), the alpha dip (region null) and the bubble (region
+// 'bubble-inner').
+function forEachExposed(
+  state: SimState, regionMaskId: string | null, fn: (cell: number) => void,
+): void {
+  const body = bodyBits();
+  // OR all worn masks into one protection bitset, then walk whole bytes — most
+  // bytes are fully covered or empty, so this skips the vast majority of cells.
+  protScratch.fill(0);
+  for (const id of state.worn) {
+    const bits = maskBits(id);
+    if (!bits) continue;
+    for (let b = 0; b < protScratch.length; b++) protScratch[b] = (protScratch[b] ?? 0) | (bits[b] ?? 0);
   }
+  const region = regionMaskId ? maskBits(regionMaskId) : null;
+  for (let b = 0; b < body.length; b++) {
+    let exposed = (body[b] ?? 0) & ~(protScratch[b] ?? 0);
+    if (region) exposed &= region[b] ?? 0;
+    if (exposed === 0) continue;
+    const base = b << 3;
+    for (let bit = 0; bit < 8; bit++) {
+      if (exposed & (1 << bit)) fn(base + bit);
+    }
+  }
+}
 
-  const at = state.worn.indexOf(maskId);
-  if (at >= 0) {
-    state.worn.splice(at, 1);
-    return 'remove';
+// A paint SPLASH (colour paint or alpha dip) knocks worn goggles off broken
+// and grows a worn nose one size — the bubble is gentler and does neither.
+function applySplashSideEffects(state: SimState): void {
+  for (let w = state.worn.length - 1; w >= 0; w--) {
+    const wornId = state.worn[w]!;
+    if (isBreakableMask(wornId)) {
+      state.worn.splice(w, 1);
+      state.broken.push(wornId);
+    }
   }
-  if (state.broken.includes(maskId)) return 'broken';
-  state.worn.push(maskId);
-  return 'wear';
+  const n = state.worn.findIndex(isNoseMaskId);
+  if (n >= 0) {
+    const cur = state.worn[n]!;
+    const next = NOSE_SIZES[NOSE_SIZES.indexOf(cur as typeof NOSE_SIZES[number]) + 1];
+    if (next) state.worn[n] = next;           // small→medium→big
+    else state.worn.splice(n, 1);             // big + splash → falls off (re-wearable small)
+  }
+}
+
+/**
+ * Applies one modifier to the sim state. When `ops` is passed (rendering),
+ * every colour paint records its op (colour + the stencils masking it) BEFORE
+ * its splash side effects, so the renderer can composite exactly what the
+ * player saw. Returns 'broken' for a refused tap (see ActionKind).
+ */
+export function applySimAction(state: SimState, mod: ModifierDef, ops?: PaintOp[]): ActionKind {
+  switch (mod.type) {
+    case 'paint': {
+      const color = (mod.color ?? BASE_COLOR).toUpperCase();
+      let idx = state.colors.indexOf(color);
+      if (idx === -1) { idx = state.colors.length; state.colors.push(color); }
+      ops?.push({ color, maskedBy: [...state.worn] });
+      forEachExposed(state, null, (i) => { state.grid[i] = idx; state.alpha[i] = CELL_OPAQUE; });
+      applySplashSideEffects(state);
+      return 'paint';
+    }
+    case 'alpha': {
+      // One dip per level: a second tap is refused (not logged).
+      if (state.spent.includes(mod.id)) return 'broken';
+      forEachExposed(state, null, (i) => { state.alpha[i] = CELL_DIPPED; });
+      applySplashSideEffects(state);
+      state.spent.push(mod.id);
+      return 'paint';
+    }
+    case 'bubble': {
+      // Reusable, and only the inner circle — the outer ring keeps its colour.
+      forEachExposed(state, 'bubble-inner', (i) => { state.alpha[i] = CELL_DIPPED; });
+      return 'paint';
+    }
+    case 'nose': {
+      const at = state.worn.findIndex(isNoseMaskId);
+      if (at >= 0) { state.worn.splice(at, 1); return 'remove'; } // take it off (re-wearable small)
+      state.worn.push('nose-small');
+      return 'wear';
+    }
+    default: {
+      const maskId = maskIdOf(mod);
+      if (maskId === null) return 'paint'; // unreachable: only paint-likes are null
+      const at = state.worn.indexOf(maskId);
+      if (at >= 0) { state.worn.splice(at, 1); return 'remove'; }
+      if (state.broken.includes(maskId)) return 'broken';
+      state.worn.push(maskId);
+      return 'wear';
+    }
+  }
+}
+
+// Single simulation core — both the strict validator (replaySim) and the
+// renderer's op stream (replayOps) run through here, so they can never diverge.
+function runSim(
+  palette: readonly ModifierDef[],
+  actions: readonly string[],
+  strict: boolean,
+): { state: SimState; ops: PaintOp[] } | null {
+  const state = createSimState();
+  const ops: PaintOp[] = [];
+  for (const actionId of actions) {
+    if (actionId === RESET_ACTION_ID) {
+      resetSimState(state);
+      ops.length = 0;
+      continue;
+    }
+    const mod = resolveActionDef(palette, actionId);
+    if (!mod) { if (strict) return null; else continue; }
+    if (applySimAction(state, mod, ops) === 'broken' && strict) return null;
+  }
+  return { state, ops };
 }
 
 /**
  * Replays an action-id list against a palette (plus the standard catalog).
  * Returns null when an action id resolves nowhere (a tampered or stale
- * sequence) or tries to wear broken goggles — the client never logs either.
+ * sequence) or tries a refused tap (broken goggles / spent one-shot) — the
+ * client never logs either.
  */
 export function replaySim(
   palette: readonly ModifierDef[],
   actions: readonly string[],
 ): SimState | null {
-  const state = createSimState();
-  for (const actionId of actions) {
-    if (actionId === RESET_ACTION_ID) {
-      resetSimState(state);
-      continue;
-    }
-    const mod = resolveActionDef(palette, actionId);
-    if (!mod) return null;
-    if (applySimAction(state, mod) === 'broken') return null;
-  }
-  return state;
+  const run = runSim(palette, actions, true);
+  return run ? run.state : null;
 }
 
 export function cellColor(state: SimState, i: number): string {
   return state.colors[state.grid[i] ?? 0] ?? BASE_COLOR;
 }
 
-/** True when every body cell resolves to the same color in both states. */
+/** The colour a cell actually DISPLAYS — dipped cells show their 75% version. */
+export function cellEffectiveColor(state: SimState, i: number): string {
+  const raw = cellColor(state, i);
+  return (state.alpha[i] ?? CELL_OPAQUE) === CELL_OPAQUE ? raw : dipHex(raw);
+}
+
+/** True when every body cell DISPLAYS the same color (opacity included). */
 export function patternsEqual(a: SimState, b: SimState): boolean {
   const body = bodyBits();
   for (let byteIdx = 0; byteIdx < body.length; byteIdx++) {
@@ -268,7 +397,7 @@ export function patternsEqual(a: SimState, b: SimState): boolean {
     for (let bit = 0; bit < 8; bit++) {
       if (!(byte & (1 << bit))) continue;
       const i = base + bit;
-      if (cellColor(a, i) !== cellColor(b, i)) return false;
+      if (cellEffectiveColor(a, i) !== cellEffectiveColor(b, i)) return false;
     }
   }
   return true;
@@ -279,7 +408,8 @@ export function isCleanMatch(state: SimState, goal: SimState): boolean {
   return state.worn.length === 0 && patternsEqual(state, goal);
 }
 
-/** True when any body cell has been painted away from the base color. */
+/** True when any body cell DISPLAYS something other than the bare white base
+ *  (a dip on white is still white, so it doesn't count — a goal needs colour). */
 export function isPainted(state: SimState): boolean {
   const body = bodyBits();
   for (let byteIdx = 0; byteIdx < body.length; byteIdx++) {
@@ -287,7 +417,7 @@ export function isPainted(state: SimState): boolean {
     if (byte === 0) continue;
     const base = byteIdx << 3;
     for (let bit = 0; bit < 8; bit++) {
-      if ((byte & (1 << bit)) && cellColor(state, base + bit) !== BASE_COLOR) return true;
+      if ((byte & (1 << bit)) && cellEffectiveColor(state, base + bit) !== BASE_COLOR) return true;
     }
   }
   return false;
@@ -319,7 +449,7 @@ export function structureKey(state: SimState): string {
         for (let dx = 0; dx < STRUCT_BLOCK; dx++) {
           const i = (by * STRUCT_BLOCK + dy) * MASK_GRID + bx * STRUCT_BLOCK + dx;
           if (!getBit(body, i)) continue;
-          const c = cellColor(state, i);
+          const c = cellEffectiveColor(state, i);
           counts.set(c, (counts.get(c) ?? 0) + 1);
         }
       }
@@ -355,7 +485,7 @@ export function patternKey(state: SimState): string {
     if (byte === 0) continue;
     const base = byteIdx << 3;
     for (let bit = 0; bit < 8; bit++) {
-      if (byte & (1 << bit)) parts.push(cellColor(state, base + bit));
+      if (byte & (1 << bit)) parts.push(cellEffectiveColor(state, base + bit));
     }
   }
   return parts.join('');
@@ -367,36 +497,25 @@ export function patternKey(state: SimState): string {
 
 export type PaintOp = { color: string; maskedBy: string[] };
 
-export type ReplayOps = { ops: PaintOp[]; worn: string[]; broken: string[] };
+// The renderer composites the crisp colour pattern from `ops` (each colour
+// splash with the stencils that masked it), then fades the cells the final
+// `alpha` grid marks dipped, then draws the `worn` stencils on top. Fading from
+// the FINAL alpha grid (not per-op) keeps a reusable bubble idempotent — a cell
+// re-dipped or later re-painted resolves to a single, correct opacity.
+export type ReplayOps = {
+  ops: PaintOp[];
+  worn: string[];
+  broken: string[];
+  spent: string[];
+  alpha: Uint8Array;
+};
 
 export function replayOps(
   palette: readonly ModifierDef[],
   actions: readonly string[],
 ): ReplayOps {
-  const worn: string[] = [];
-  const broken: string[] = [];
-  const ops: PaintOp[] = [];
-  for (const actionId of actions) {
-    if (actionId === RESET_ACTION_ID) {
-      worn.length = 0;
-      broken.length = 0;
-      ops.length = 0;
-      continue;
-    }
-    const mod = resolveActionDef(palette, actionId);
-    if (!mod) continue;
-    const maskId = maskIdOf(mod);
-    if (maskId === null) {
-      // The splash is masked by the goggles it lands on — THEN they break off.
-      ops.push({ color: (mod.color ?? BASE_COLOR).toUpperCase(), maskedBy: [...worn] });
-      for (let w = worn.length - 1; w >= 0; w--) {
-        if (isBreakableMask(worn[w]!)) broken.push(...worn.splice(w, 1));
-      }
-      continue;
-    }
-    const at = worn.indexOf(maskId);
-    if (at >= 0) worn.splice(at, 1);
-    else if (!broken.includes(maskId)) worn.push(maskId);
-  }
-  return { ops, worn, broken };
+  // Non-strict: unresolvable / refused taps are skipped so a stray sequence
+  // still renders something rather than throwing.
+  const { state, ops } = runSim(palette, actions, false)!;
+  return { ops, worn: state.worn, broken: state.broken, spent: state.spent, alpha: state.alpha };
 }

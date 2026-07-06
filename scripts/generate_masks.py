@@ -31,6 +31,9 @@ ASSET_DIR = os.path.join(os.path.dirname(__file__), '..', 'public', 'assets')
 OUT_PATH = os.path.join(os.path.dirname(__file__), '..', 'src', 'shared', 'maskData.ts')
 
 # Mask id -> asset path. Phaser texture key is always `mod-{id}`.
+# The three noses are baked at their fixed sizes; the sim grows a worn nose
+# small -> medium -> big on each paint splash (see slimeSim.ts). plate / cone /
+# scarf are plain toggle stencils. bubble-inner is special (see BAND_MASKS).
 MASKS = {
     'goggles-h-thick': 'modifiers/horizontal-goggles-thick.png',
     'goggles-h-thin':  'modifiers/horizontal-goggles-thin.png',
@@ -52,12 +55,29 @@ MASKS = {
     'pumpkin-50':      'modifiers/pumpkin-50.png',
     'pumpkin-75':      'modifiers/pumpkin-75.png',
     'underwear':       'modifiers/underwear.png',
+    'nose-small':      'modifiers/nose-small.png',
+    'nose-medium':     'modifiers/nose-medium.png',
+    'nose-big':        'modifiers/nose-big.png',
+    'plate':           'modifiers/plate.png',
+    'cone':            'modifiers/rainbow-cone.png',
+    # scarf-left.png is a whole scarf-wearing ball (100% body coverage — no use
+    # as a stencil); only scarf-right.png is a clean diagonal band.
+    'scarf':           'modifiers/scarf-right.png',
+}
+
+# Masks sampled from an alpha BAND instead of a floor. bubble.png is a solid
+# opaque ring (alpha ~255) around a translucent inner disc (alpha ~127); the
+# bubble only fades the INNER disc's opacity, so 'bubble-inner' is the disc
+# cells alone — those whose average alpha sits in the translucent band, never
+# the opaque ring. Keyed like MASKS: (path, lo, hi) => lo <= avg_alpha < hi.
+BAND_MASKS = {
+    'bubble-inner': ('modifiers/bubble.png', 40, 210),
 }
 
 BODY = 'slime/color.png'
 
 
-def sample_bits(path: str) -> bytearray:
+def sample_bits(path: str, lo: float = THRESHOLD, hi: float = 256.0) -> bytearray:
     im = Image.open(os.path.join(ASSET_DIR, path)).convert('RGBA')
     if im.size != (SRC, SRC):
         raise SystemExit(f'{path}: expected {SRC}x{SRC}, got {im.size}')
@@ -69,7 +89,8 @@ def sample_bits(path: str) -> bytearray:
             for py in range(gy * BLOCK, (gy + 1) * BLOCK):
                 for px in range(gx * BLOCK, (gx + 1) * BLOCK):
                     total += alpha[px, py]
-            if total / (BLOCK * BLOCK) >= THRESHOLD:
+            avg = total / (BLOCK * BLOCK)
+            if lo <= avg < hi:
                 idx = gy * GRID + gx
                 bits[idx >> 3] |= 1 << (idx & 7)
     return bits
@@ -95,6 +116,8 @@ def main() -> None:
     body = sample_bits(BODY)
     body_cells = popcount(body)
     masks = {mid: sample_bits(path) for mid, path in MASKS.items()}
+    for mid, (path, lo, hi) in BAND_MASKS.items():
+        masks[mid] = sample_bits(path, lo, hi)
 
     print(f'body: {body_cells} cells, {row_span(body)}')
     for mid, bits in masks.items():
