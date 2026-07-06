@@ -1,11 +1,12 @@
 import * as Phaser from 'phaser';
 import {
-  addBeigeButtonShell, addDarkPanel, addDepthIcon, applyRectClip, PIXEL_FONT,
+  addBeigeButtonShell, addDarkPanel, addDepthIcon, applyRectClip,
+  BODY_FONT, headingTextStyle, PIXEL_FONT,
 } from '../components/PixelUI';
 import type { LeaderboardEntry } from '../../shared/types';
 import type { LeaderboardResponse } from '../../shared/api';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 // Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
 // ambiguously) — every rank/score text run uses this instead.
 const NUM_FONT = PIXEL_FONT;
@@ -164,10 +165,8 @@ export class Leaderboard extends Phaser.Scene {
     els.push(this.buildIconButton(pad + homeSize / 2, headerY, homeSize, 'icon-arrow', () => this.goToMenu(), 180).setDepth(15));
 
     const titleFs = Math.max(20, Math.min(30, Math.round(headerH * 0.40)));
-    const title = this.add.text(0, 0, 'RANKINGS', {
-      fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_BEIGE, fontStyle: 'bold',
-      shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 0, fill: true },
-    }).setOrigin(0, 0.5);
+    const title = this.add.text(0, 0, 'RANKINGS', headingTextStyle(titleFs, C.TEXT_BEIGE))
+      .setOrigin(0, 0.5);
     const iconSz = Math.round(titleFs * 1.05);
     const totalW = iconSz + 8 + title.width;
     const icon = addDepthIcon(this, -totalW / 2 + iconSz / 2, 0, 'icon-trophy', iconSz, iconSz);

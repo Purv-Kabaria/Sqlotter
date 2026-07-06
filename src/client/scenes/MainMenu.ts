@@ -1,12 +1,12 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
 import { SplotMascot } from '../components/SplotMascot';
-import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, PIXEL_FONT } from '../components/PixelUI';
+import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 import { getCachedUserData, setCachedUserData } from '../userData';
 import { DEFERRED_IMG } from './Preloader';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 // Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
 // ambiguously) — same convention as Shop's NUM_FONT, used for the sparks count.
 const NUM_FONT = PIXEL_FONT;

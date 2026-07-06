@@ -1,11 +1,11 @@
 import * as Phaser from 'phaser';
-import { addBeigeButton, addBeigeButtonShell, addDepthIcon } from '../components/PixelUI';
+import { addBeigeButton, addBeigeButtonShell, addDepthIcon, BODY_FONT } from '../components/PixelUI';
 import { getCuratedLevels, LEVELS_PER_WORLD, WORLDS_META } from '../../shared/levelData';
 import type { WorldMeta } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 
 // The grid reserves layout space for a full world (see buildPage's grid geometry):
 // 8 rows × 2 cols portrait, 4 rows × 4 cols desktop. Worlds may hold fewer

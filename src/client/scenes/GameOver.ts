@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
-import { addBeigeButton, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
+import { addBeigeButton, addPixelPanel, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 
 export class GameOver extends Phaser.Scene {
   constructor() { super('GameOver'); }

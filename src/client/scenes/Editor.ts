@@ -8,12 +8,12 @@ import { paintOverlayShine } from '../components/overlayShine';
 import type { LevelData } from '../../shared/types';
 import type { LevelCreateResponse } from '../../shared/api';
 import {
-  PIXEL_FONT, addBeigeBadge, addBeigeButton, addBeigeButtonShell,
+  BODY_FONT, PIXEL_FONT, addBeigeBadge, addBeigeButton, addBeigeButtonShell,
   addBeigeSolidCard, addDarkPanel, addDepthIcon,
 } from '../components/PixelUI';
 import { DEFERRED_IMG } from './Preloader';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 
 // ── Modifier palette available in the editor ──────────────
 // The same 16-color rack the game's paint pot offers (slimeSim's catalog), so
@@ -365,6 +365,7 @@ export class Editor extends Phaser.Scene {
       color: C.TEXT_LIGHT,
       stroke: '#000000',
       strokeThickness: 4,
+      letterSpacing: 1,
     }).setOrigin(0, 0.5).setDepth(11);
     const iconSz = 18;
     const totalW = iconSz + 8 + title.width;

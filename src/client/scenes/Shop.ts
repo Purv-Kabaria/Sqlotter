@@ -3,7 +3,7 @@ import { showLoginPrompt } from '@devvit/web/client';
 import { SplotMascot } from '../components/SplotMascot';
 import {
   addBeigeButton, addBeigeButtonShell, addBeigeCard, addBeigeSolidCard, addDarkPanel, addDepthIcon, addPanel9,
-  applyRectClip, PIXEL_FONT,
+  applyRectClip, BODY_FONT, headingTextStyle, PIXEL_FONT,
 } from '../components/PixelUI';
 import { SHOP_ITEMS } from '../../shared/shop';
 import type { ShopCategory, ShopItem } from '../../shared/shop';
@@ -11,7 +11,7 @@ import { ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import type { BuyResponse, EquipResponse, ProfileResponse } from '../../shared/api';
 import { DEFERRED_IMG } from './Preloader';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 // Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
 // ambiguously) — used for every text run that's purely digits (prices, the
 // sparks counter). Labels/words stay in PIXELIFY.
@@ -385,10 +385,8 @@ export class Shop extends Phaser.Scene {
 
     // SHOP wordmark, centered between the buttons
     const fs = Math.max(20, Math.min(30, Math.round(headerH * 0.40)));
-    const title = this.add.text(0, 0, 'SHOP', {
-      fontFamily: PIXELIFY, fontSize: `${fs}px`, color: C.TEXT_BEIGE, fontStyle: 'bold',
-      shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 0, fill: true },
-    }).setOrigin(0, 0.5);
+    const title = this.add.text(0, 0, 'SHOP', headingTextStyle(fs, C.TEXT_BEIGE))
+      .setOrigin(0, 0.5);
     const iconSz = Math.round(fs * 1.05);
     const totalW = iconSz + 8 + title.width;
     const icon = addDepthIcon(this, -totalW / 2 + iconSz / 2, 0, 'icon-bag', iconSz, iconSz);

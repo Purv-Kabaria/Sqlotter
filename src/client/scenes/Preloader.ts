@@ -3,6 +3,7 @@ import { getLaunchLevelId } from '../launch';
 import { paintOverlayShine } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
 import { prefetchUserData } from '../userData';
+import { loadGameFonts } from '../fonts';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -187,6 +188,7 @@ export class Preloader extends Scene {
   private squishTween: Tweens.TweenChain | null = null;
   private currentProgress = 0;
   private userDataPromise: Promise<InitResponse | null> | null = null;
+  private fontsPromise: Promise<void> | null = null;
 
   constructor() { super('Preloader'); }
 
@@ -199,6 +201,9 @@ export class Preloader extends Scene {
     // bar fills, MainMenu's data is (usually) already cached, so its first
     // build shows the real username/sparks/equipment instead of placeholders.
     this.userDataPromise = prefetchUserData();
+    // Web fonts stream in parallel too, so they're ready before any scene bakes
+    // text — see fonts.ts for why an unresolved font would ship the wrong face.
+    this.fontsPromise = loadGameFonts();
 
     const BOOT_KEYS = new Set([
       'title', 'bg4-1',
@@ -402,9 +407,15 @@ export class Preloader extends Scene {
     // (mobile + cold start) must not hold the player on this screen.
     if (this.tipText) this.tipText.setText('Waking up Splot...');
     void (async () => {
+      // Hold the menu until fonts AND profile are ready, but never longer than
+      // the timeout — MainMenu refetches its own data, and text falls back to
+      // system fonts, so a slow CDN or cold server can't strand the loader.
       await Promise.race([
-        this.userDataPromise ?? Promise.resolve(null),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+        Promise.all([
+          this.fontsPromise ?? Promise.resolve(),
+          this.userDataPromise ?? Promise.resolve(null),
+        ]),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
       ]);
       if (this.tipText) this.tipText.setText('Ready!');
       this.time.delayedCall(200, () => {

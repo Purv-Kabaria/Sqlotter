@@ -2,7 +2,7 @@ import * as Phaser from 'phaser';
 import { LevelEngine, calcStars } from '../engine/LevelEngine';
 import {
   addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeSolidCard,
-  addDarkPanel, addDepthIcon, PIXEL_FONT,
+  addDarkPanel, addDepthIcon, BODY_FONT, PIXEL_FONT,
 } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
@@ -16,7 +16,7 @@ import { BASE_COLOR, standardPaints, standardPumpkins } from '../../shared/slime
 // replaying a lesson or resetting it doesn't re-interrupt the player.
 const tutorialShownThisSession = new Set<string>();
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 
 // ── Colour constants ───────────────────────────────────────────────────────
 const C = {

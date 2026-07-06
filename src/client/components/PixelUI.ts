@@ -1,6 +1,43 @@
 import * as Phaser from 'phaser';
 
+// ── Typography ────────────────────────────────────────────────────────────
+// Two families, both loaded via the Google Fonts <link> in game.html/splash.html
+// and gated by fonts.ts so text never bakes a fallback face:
+//   PIXEL_FONT — Press Start 2P. Blocky retro caps; the "display/numeric" voice.
+//                Its digits are unambiguous, so it renders every numeric readout.
+//   BODY_FONT  — Pixelify Sans. Rounder and far more legible at small sizes; the
+//                "words" voice for headings, labels, hints, and body copy.
 export const PIXEL_FONT = '"Press Start 2P", monospace';
+export const BODY_FONT  = '"Pixelify Sans", sans-serif';
+
+// Shared scene-header treatment (RANKINGS, SHOP, …). Bold Pixelify with a touch
+// of tracking, a thin dark outline for definition on busy/beige-on-dark headers,
+// and a soft drop shadow so a big header reads as chunky embossed signage rather
+// than flat text. All three accents scale with the font size so it stays crisp
+// from phone to desktop. Callers keep measuring `.width` after creation, so the
+// extra tracking self-centers.
+export function headingTextStyle(
+  fontSize: number,
+  color = '#DEC998',
+): Phaser.Types.GameObjects.Text.TextStyle {
+  return {
+    fontFamily: BODY_FONT,
+    fontSize: `${fontSize}px`,
+    color,
+    fontStyle: 'bold',
+    letterSpacing: Math.max(1, Math.round(fontSize * 0.05)),
+    stroke: '#2A1000',
+    strokeThickness: Math.max(2, Math.round(fontSize * 0.09)),
+    shadow: {
+      offsetX: 0,
+      offsetY: Math.max(2, Math.round(fontSize * 0.12)),
+      color: 'rgba(0,0,0,0.45)',
+      blur: 0,
+      fill: true,
+      stroke: true,
+    },
+  };
+}
 
 // Nine-slice constants for the NineSlice API (addPixelPanel / addBeigeSolidCard)
 const PANEL_SLICE    = 32;  // panel.png 96×96, each cell = 32px
