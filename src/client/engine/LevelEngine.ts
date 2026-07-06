@@ -50,14 +50,27 @@ export class LevelEngine {
 
   /** Whether this stencil is currently on the slime (always false for paints). */
   isWorn(mod: ModifierDef): boolean {
+    // The nose is worn at whatever size it has grown to (nose-small/medium/big).
+    if (mod.type === 'nose') return this.state.worn.some((id) => id.startsWith('nose-'));
     const maskId = maskIdOf(mod);
     return maskId !== null && this.state.worn.includes(maskId);
+  }
+
+  /** Current worn nose size, or null when no nose is on. */
+  noseSize(): 'small' | 'medium' | 'big' | null {
+    const id = this.state.worn.find((w) => w.startsWith('nose-'));
+    return id ? (id.slice(5) as 'small' | 'medium' | 'big') : null;
   }
 
   /** Whether this stencil broke this run (goggles are one-time use). */
   isBroken(mod: ModifierDef): boolean {
     const maskId = maskIdOf(mod);
     return maskId !== null && this.state.broken.includes(maskId);
+  }
+
+  /** Whether this one-shot action has been used this run (the alpha dip). */
+  isSpent(mod: ModifierDef): boolean {
+    return this.state.spent.includes(mod.id);
   }
 
   applyModifier(mod: ModifierDef): ApplyOutcome {

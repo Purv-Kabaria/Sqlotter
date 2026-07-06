@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import type { ModifierDef } from '../../shared/types';
-import { replayOps } from '../../shared/slimeSim';
+import { CELL_OPAQUE, DIP_FACTOR, replayOps } from '../../shared/slimeSim';
+import { MASK_GRID } from '../../shared/maskData';
 
 // ── Pattern renderer for the stencil-paint gameplay ─────────────────────────
 // The slime's look is a PAINT PATTERN: each paint op colors the body except
@@ -78,6 +79,11 @@ export class SlimeRenderer {
   private lastPalette: readonly ModifierDef[] = [];
   private lastActions: readonly string[] = [];
 
+  // Reused offscreen canvases for the opacity veil (only rebuilt when a level
+  // actually dips) — the 64×64 alpha grid, and its body-clipped upscale.
+  private gridCanvas: HTMLCanvasElement | null = null;
+  private veilCanvas: HTMLCanvasElement | null = null;
+
   constructor(scene: Phaser.Scene, x: number, y: number, size: number) {
     this.scene = scene;
     this.size = size;
@@ -118,7 +124,7 @@ export class SlimeRenderer {
     this.lastPalette = palette;
     this.lastActions = [...actions];
 
-    const { ops, worn } = replayOps(palette, actions);
+    const { ops, worn, alpha } = replayOps(palette, actions);
     const N = this.native;
     const body = this.scene.textures.get('slime-color').getSourceImage() as CanvasImageSource;
     const shine = this.scene.textures.exists('slime-shine')
@@ -155,6 +161,21 @@ export class SlimeRenderer {
       if (scratch) ctx.drawImage(scratch, 0, 0);
     }
 
+    // Opacity veil: fade the cells the sim marked dipped (alpha grid) toward
+    // white by (1 - DIP_FACTOR). Drawn from the FINAL grid — a later colour
+    // splash already reset its cells to opaque there — so a reusable bubble
+    // never compounds. A 25% white wash over a cell == that cell's colour
+    // composited at 75% over white, matching cellEffectiveColor exactly.
+    if (this.hasDip(alpha)) {
+      const veil = this.buildDipVeil(alpha, N, body);
+      if (veil) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1 - DIP_FACTOR;
+        ctx.drawImage(veil, 0, 0, N, N);
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // Gloss shine, overlay-blended then alpha-clamped back to the body shape.
     if (shine) {
       ctx.globalCompositeOperation = 'overlay';
@@ -179,6 +200,46 @@ export class SlimeRenderer {
       this.container.addAt(img, this.container.getIndex(this.appliedFlash));
       this.wornImgs.push(img);
     }
+  }
+
+  private hasDip(alpha: Uint8Array): boolean {
+    for (let i = 0; i < alpha.length; i++) if (alpha[i] !== CELL_OPAQUE) return true;
+    return false;
+  }
+
+  // A white silhouette (transparent elsewhere) of the dipped body cells at
+  // native size: the 64×64 alpha grid drawn one white pixel per dipped cell,
+  // upscaled blocky (pixelArt), then clipped to the body alpha so the wash can
+  // never bleed past the slime edge.
+  private buildDipVeil(alpha: Uint8Array, N: number, body: CanvasImageSource): HTMLCanvasElement | null {
+    if (!this.gridCanvas) this.gridCanvas = document.createElement('canvas');
+    const g = this.gridCanvas;
+    g.width = MASK_GRID;
+    g.height = MASK_GRID;
+    const gctx = g.getContext('2d', { willReadFrequently: true });
+    if (!gctx) return null;
+    const img = gctx.createImageData(MASK_GRID, MASK_GRID);
+    const px = img.data;
+    for (let i = 0; i < alpha.length; i++) {
+      if (alpha[i] === CELL_OPAQUE) continue;
+      const o = i * 4;
+      px[o] = 255; px[o + 1] = 255; px[o + 2] = 255; px[o + 3] = 255;
+    }
+    gctx.putImageData(img, 0, 0);
+
+    if (!this.veilCanvas) this.veilCanvas = document.createElement('canvas');
+    const veil = this.veilCanvas;
+    veil.width = N;
+    veil.height = N;
+    const vctx = veil.getContext('2d');
+    if (!vctx) return null;
+    vctx.clearRect(0, 0, N, N);
+    vctx.imageSmoothingEnabled = false;
+    vctx.drawImage(g, 0, 0, N, N);
+    vctx.globalCompositeOperation = 'destination-in';
+    vctx.drawImage(body, 0, 0, N, N);
+    vctx.globalCompositeOperation = 'source-over';
+    return veil;
   }
 
   // Squish-and-bounce when a modifier is applied

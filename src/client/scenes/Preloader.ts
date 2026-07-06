@@ -36,6 +36,15 @@ const IMG: AssetDef[] = [
   { key: 'mod-pumpkin-50', path: 'modifiers/pumpkin-50.png' },
   { key: 'mod-pumpkin-75', path: 'modifiers/pumpkin-75.png' },
   { key: 'mod-underwear',  path: 'modifiers/underwear.png' },
+  // Newer modifiers. Nose grows small→medium→big (see slimeSim); bubble is a
+  // reusable inner-circle opacity dip; plate/cone/scarf are plain stencils.
+  { key: 'mod-nose-small',  path: 'modifiers/nose-small.png' },
+  { key: 'mod-nose-medium', path: 'modifiers/nose-medium.png' },
+  { key: 'mod-nose-big',    path: 'modifiers/nose-big.png' },
+  { key: 'mod-bubble',      path: 'modifiers/bubble.png' },
+  { key: 'mod-plate',       path: 'modifiers/plate.png' },
+  { key: 'mod-cone',        path: 'modifiers/rainbow-cone.png' },
+  { key: 'mod-scarf',       path: 'modifiers/scarf-right.png' },
 
   // ── Character / Splot ─────────────────────────────
   { key: 'char-blob',    path: 'character/blob.png' },
@@ -342,8 +351,49 @@ export class Preloader extends Scene {
     this.layoutLoadingUI();
   }
 
+  // The nose art is a few percent of its 256×256 canvas, so scaled straight
+  // into a palette tile it's an unreadable speck. Bake a zoomed, centered icon
+  // once (cropped to the art's alpha bounding box) for the nose tiles to use.
+  private makeZoomIcon(srcKey: string, dstKey: string) {
+    if (this.textures.exists(dstKey) || !this.textures.exists(srcKey)) return;
+    const src = this.textures.get(srcKey).getSourceImage() as CanvasImageSource & { width: number; height: number };
+    const w = src.width, h = src.height;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    if (!cx) return;
+    cx.drawImage(src, 0, 0);
+    const px = cx.getImageData(0, 0, w, h).data;
+    let minX = w, minY = h, maxX = 0, maxY = 0, found = false;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if ((px[(y * w + x) * 4 + 3] ?? 0) > 20) {
+          found = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (!found) return;
+    const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.18);
+    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+    maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+    const bw = maxX - minX + 1, bh = maxY - minY + 1, side = Math.max(bw, bh);
+    const size = 128;
+    const out = this.textures.createCanvas(dstKey, size, size);
+    if (!out) return;
+    const octx = out.context;
+    octx.imageSmoothingEnabled = false;
+    const scale = size / side;
+    octx.drawImage(cv, minX, minY, bw, bh, (size - bw * scale) / 2, (size - bh * scale) / 2, bw * scale, bh * scale);
+    out.refresh();
+  }
+
   create() {
     this.scale.off('resize', this.onResize, this);
+    this.makeZoomIcon('mod-nose-big', 'icon-nose');
     const launchLevelId = getLaunchLevelId();
 
     // Assets are done; give the profile fetch started in preload() a moment

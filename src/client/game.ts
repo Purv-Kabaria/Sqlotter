@@ -39,5 +39,6 @@ const config: Phaser.Types.Core.GameConfig = {
 const StartGame = (parent: string) => new Game({ ...config, parent });
 
 document.addEventListener('DOMContentLoaded', () => {
-  StartGame('game-container');
+  // Handle for console debugging and automated layout checks (Playwright).
+  Object.assign(window, { __sqlotter: StartGame('game-container') });
 });
