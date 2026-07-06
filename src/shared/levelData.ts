@@ -1,7 +1,7 @@
 import type { LevelData } from './types';
-import type { GenConfig } from './curatedLevels';
+import type { GenConfig, GeneratedRecipe, Mechanic } from './curatedLevels';
 import {
-  buildGeneratedLevel, difficultyForSteps, getCuratedLevels, mulberry32,
+  buildGeneratedLevel, buildMechanicRecipe, difficultyForSteps, getCuratedLevels, mulberry32,
 } from './curatedLevels';
 
 // The curated set lives in curatedLevels.ts (hand-authored tutorial + worlds
@@ -20,11 +20,11 @@ export function getLevelById(id: string): LevelData | undefined {
 // Difficulty ramps through the week (Mon..Sun), and each tier maps onto a
 // stencil recipe roughly matching the curated worlds' curve.
 const DAILY_CONFIGS: Record<1 | 2 | 3 | 4 | 5, GenConfig> = {
-  1: { maskPool: ['belt-h-thin', 'belt-v-thin', 'pendant-h', 'underwear'], masks: [1, 1], paints: [1, 2], baseFirst: 0.6, midRemove: 0, decoys: [1, 1] },
-  2: { maskPool: ['belt-h-thick', 'belt-v-thick', 'goggles-h-thick', 'glasses-v-thin', 'underwear', 'pumpkin-25'], masks: [1, 2], paints: [2, 2], baseFirst: 0.7, midRemove: 0.1, decoys: [1, 1] },
-  3: { maskPool: ['goggles-h-thin', 'goggles-v-mono', 'glasses-h-thick', 'belt-v-thin', 'pumpkin-25', 'pumpkin-50', 'pendant-v'], masks: [2, 2], paints: [2, 3], baseFirst: 0.6, midRemove: 0.25, decoys: [1, 2] },
-  4: { maskPool: ['goggles-h-thick', 'goggles-v-thin', 'glasses-h-thin', 'belt-h-thick', 'pumpkin-50', 'pumpkin-75', 'underwear', 'pendant-h'], masks: [2, 3], paints: [3, 3], baseFirst: 0.7, midRemove: 0.3, decoys: [2, 2] },
-  5: { maskPool: ['goggles-h-mono', 'goggles-v-thick', 'glasses-v-thick', 'belt-v-thick', 'belt-h-thin', 'pumpkin-25', 'pumpkin-75', 'underwear', 'pendant-v'], masks: [3, 4], paints: [3, 4], baseFirst: 0.7, midRemove: 0.4, decoys: [2, 2] },
+  1: { maskPool: ['belt-h-thin', 'belt-v-thin', 'pendant-h', 'scarf', 'underwear'], masks: [1, 2], paints: [2, 2], baseFirst: 0.6, midRemove: 0.1, decoys: [1, 1] },
+  2: { maskPool: ['belt-h-thick', 'belt-v-thick', 'goggles-h-thick', 'glasses-v-thin', 'scarf', 'plate', 'underwear', 'pumpkin-25'], masks: [2, 2], paints: [2, 3], baseFirst: 0.7, midRemove: 0.2, decoys: [1, 2] },
+  3: { maskPool: ['goggles-h-thin', 'goggles-v-mono', 'glasses-h-thick', 'belt-v-thin', 'plate', 'cone', 'pumpkin-25', 'pumpkin-50', 'pendant-v'], masks: [2, 3], paints: [3, 3], baseFirst: 0.6, midRemove: 0.3, decoys: [2, 2] },
+  4: { maskPool: ['goggles-h-thick', 'goggles-v-thin', 'glasses-h-thin', 'belt-h-thick', 'cone', 'scarf', 'pumpkin-50', 'pumpkin-75', 'underwear', 'pendant-h'], masks: [2, 3], paints: [3, 4], baseFirst: 0.7, midRemove: 0.35, decoys: [2, 3] },
+  5: { maskPool: ['goggles-h-mono', 'goggles-v-thick', 'glasses-v-thick', 'belt-v-thick', 'belt-h-thin', 'plate', 'cone', 'scarf', 'pumpkin-25', 'pumpkin-75', 'underwear', 'pendant-v'], masks: [3, 4], paints: [4, 4], baseFirst: 0.7, midRemove: 0.45, decoys: [2, 3] },
 };
 
 // Quirky deterministic daily names — "The Grumpy Goggle Job" beats
@@ -49,9 +49,23 @@ function quirkyDailyTitle(rng: () => number): string {
   return `The ${adj} ${noun}`;
 }
 
+// Most days feature one of the new mechanics for variety; a quarter stay pure
+// generated puzzles. Consumes exactly one rng draw so the puzzle seed stays
+// stable. Weekends always feature a mechanic (the marquee dailies).
+function dailyFeature(rng: () => number, weekend: boolean): Mechanic | null {
+  const r = rng();
+  if (r < 0.30) return 'nose';
+  if (r < 0.58) return 'alpha';
+  if (r < 0.82) return 'bubble';
+  return weekend ? 'alpha' : null; // weekends never fall through to plain generated
+}
+
 /**
  * Generate a deterministic daily stencil puzzle from a date string
- * (YYYY-MM-DD). The level id is `daily-YYYY-MM-DD`.
+ * (YYYY-MM-DD). The level id is `daily-YYYY-MM-DD`. Dailies skew HARD and now
+ * rotate a featured mechanic (nose / alpha dip / bubble) for daily variety,
+ * falling back to a plain generated puzzle when a mechanic can't reach the
+ * daily's minimum challenge.
  */
 export function generateDailyLevel(date: string): LevelData {
   const seed = parseInt(date.replace(/-/g, ''), 10);
@@ -61,13 +75,26 @@ export function generateDailyLevel(date: string): LevelData {
   // Splash Course and early worlds are where easy lives). Weekdays are
   // devious, weekends diabolical. Sun-Sat.
   const dow = new Date(date).getDay(); // 0=Sun
+  const weekend = dow === 0 || dow === 6;
   const difficulties = [5, 4, 4, 4, 4, 5, 5] as const;
   const tier = difficulties[dow] ?? 4;
 
-  // Title first: it must consume a fixed number of rng draws so the puzzle
-  // itself stays stable regardless of how many attempts generation burns.
+  // Draw order is FIXED (title → feature → generation) so the puzzle stays
+  // stable no matter how many attempts a build burns.
   const title = quirkyDailyTitle(rng);
-  const recipe = buildGeneratedLevel(rng, DAILY_CONFIGS[tier]);
+  const feature = dailyFeature(rng, weekend);
+
+  // A featured mechanic must clear the daily's minimum bar (>= 4 moves) or the
+  // day falls back to a hard generated puzzle — no trivially short dailies.
+  const MIN_DAILY_STEPS = 4;
+  let recipe: GeneratedRecipe | null = null;
+  if (feature) {
+    for (let k = 0; k < 6 && !recipe; k++) {
+      const cand = buildMechanicRecipe(feature, rng, tier >= 5 ? 3 : 2);
+      recipe = cand && cand.solution.length >= MIN_DAILY_STEPS ? cand : null;
+    }
+  }
+  recipe ??= buildGeneratedLevel(rng, DAILY_CONFIGS[tier]);
   const steps = recipe.solution.length;
 
   return {

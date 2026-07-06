@@ -18,9 +18,8 @@ import {
 // Bump when the level set changes incompatibly — the app-upgrade trigger wipes
 // level progress (completions/stars/streaks/level leaderboards) on a mismatch
 // so nobody keeps stars for levels that no longer exist.
-export const LEVELS_VERSION = '4-unique-shapes';
+export const LEVELS_VERSION = '5-nose-alpha-bubble';
 
-export const WORLD_COUNT = 11;
 export const LEVELS_PER_WORLD = 16; // max per world (grid capacity)
 
 export type WorldMeta = { num: number; name: string; start: number; size: number };
@@ -37,7 +36,14 @@ export const WORLD_NAMES: readonly string[] = [
   'Trap Tundra',
   'Expert Estuary',
   'Master Marsh',
+  // Mechanic-dense finale worlds (~half the slots are nose/alpha/bubble).
+  'Bullseye Bay',
+  'Opacity Ocean',
+  "Splotter's Sanctum",
 ];
+
+// Tutorial (world 0) + one per WORLD_RAMPS entry. Kept in sync with WORLD_NAMES.
+export const WORLD_COUNT = WORLD_NAMES.length;
 
 // ── Shared generation utilities (also used by the daily puzzle) ─────────────
 
@@ -67,6 +73,9 @@ export function maskMod(maskId: string): ModifierDef {
     case 'belt':      return { id: maskId, type: 'belt', variant };
     case 'pendant':   return { id: maskId, type: 'pendant', variant };
     case 'pumpkin':   return { id: maskId, type: 'pumpkin', coverage: parseInt(variant, 10) as PumpkinCoverage };
+    case 'plate':     return { id: maskId, type: 'plate' };
+    case 'cone':      return { id: maskId, type: 'cone' };
+    case 'scarf':     return { id: maskId, type: 'scarf' };
     default:          return { id: maskId, type: 'underwear' };
   }
 }
@@ -339,7 +348,44 @@ const TUTORIAL_LEVELS: LevelData[] = [
       'pumpkin-25', 'paint-green', 'goggles-h-thick', 'paint-red', 'pumpkin-25',
     ],
     hint: 'Pumpkin, green, goggles, red — then the pumpkin off.',
-    tutorial: "Stack stencils! Pumpkin on, splash GREEN. Goggles on too, splash RED — the goggles break off on their own, so just lift the pumpkin. You're ready — go make art!",
+    tutorial: 'Stack stencils! Pumpkin on, splash GREEN. Goggles on too, splash RED — the goggles break off on their own, so just lift the pumpkin.',
+  },
+  {
+    id: 'w00-l09', title: 'Growing Nose', difficulty: 3,
+    palette: [
+      { id: 'paint-red', type: 'paint', color: '#FF4136' },
+      { id: 'nose', type: 'nose' },
+      { id: 'paint-orange', type: 'paint', color: '#FF851B' },
+      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
+      { id: 'paint-green', type: 'paint', color: '#2ECC40' },
+    ],
+    optimalSteps: 5,
+    optimalSolution: ['paint-red', 'nose', 'paint-orange', 'paint-yellow', 'paint-green'],
+    hint: 'Red, nose on, then orange, yellow, green — the nose does the rest.',
+    tutorial: "The NOSE starts small — but every splash GROWS it one size, locking a ring of the old colour underneath. After three splashes the big nose pops off on its own. Red, nose on, then orange → yellow → green for a bullseye!",
+  },
+  {
+    id: 'w00-l10', title: 'Alpha Dip', difficulty: 2,
+    palette: [
+      { id: 'paint-blue', type: 'paint', color: '#0074D9' },
+      { id: 'belt-h-thick', type: 'belt', variant: 'h-thick' },
+      { id: 'alpha-dip', type: 'alpha' },
+    ],
+    optimalSteps: 4,
+    optimalSolution: ['paint-blue', 'belt-h-thick', 'alpha-dip', 'belt-h-thick'],
+    hint: 'Blue, belt on, DIP, belt off — the band stays bold.',
+    tutorial: 'The ALPHA DIP fades everything exposed to 75% opacity — same colour, softer. It works ONCE per level, so time it. Blue, belt on, DIP (the band stays bold), belt off.',
+  },
+  {
+    id: 'w00-l11', title: 'Bubble Trouble', difficulty: 2,
+    palette: [
+      { id: 'paint-green', type: 'paint', color: '#2ECC40' },
+      { id: 'bubble', type: 'bubble' },
+    ],
+    optimalSteps: 2,
+    optimalSolution: ['paint-green', 'bubble'],
+    hint: 'Paint green, then pop the bubble.',
+    tutorial: "The BUBBLE fades only its INNER circle to 75%, leaving the rim solid — and you can reuse it as much as you like. Splash green, then bubble for a soft glowing core. Now go make art!",
   },
 ];
 
@@ -352,8 +398,164 @@ const EYE_MASKS = [
 ] as const;
 const BELT_MASKS = ['belt-h-thick', 'belt-h-thin', 'belt-v-thick', 'belt-v-thin'] as const;
 const BODY_MASKS = ['pendant-h', 'pendant-v', 'underwear'] as const;
+// Newer plain stencils — big filled shapes (plate/cone) and a diagonal band
+// (scarf). They toggle and protect like belts; nothing special.
+const NEW_STENCILS = ['plate', 'cone', 'scarf'] as const;
 const PUMPKIN_MASKS = ['pumpkin-25', 'pumpkin-50', 'pumpkin-75'] as const;
-const ALL_MASKS = [...EYE_MASKS, ...BELT_MASKS, ...BODY_MASKS, ...PUMPKIN_MASKS] as const;
+const ALL_MASKS = [...EYE_MASKS, ...BELT_MASKS, ...BODY_MASKS, ...NEW_STENCILS, ...PUMPKIN_MASKS] as const;
+
+// Non-breakable stencils safe to wear across a splash (the alpha dip is a
+// splash, so a goggle worn during it would break and refuse its removal).
+const SAFE_BAND_MASKS = [...BELT_MASKS, 'pendant-h', 'pendant-v', 'scarf', 'plate', 'cone'] as const;
+// Decoy pool for the mechanic builders — plain stencils only (no nose/alpha/
+// bubble decoys, which would muddy what the level is teaching).
+const DECOY_STENCILS = [
+  ...BELT_MASKS, ...BODY_MASKS, ...NEW_STENCILS, 'goggles-h-thin', 'glasses-v-thin', 'pumpkin-25',
+] as const;
+
+// Finishes a hand-built recipe: pads the palette with unused stencil/colour
+// decoys (so it doesn't spell out the recipe) and shuffles it.
+function finalizeRecipe(
+  rng: () => number,
+  defs: Map<string, ModifierDef>,
+  actions: string[],
+  colors: GenColor[],
+  decoyN: number,
+  peakWorn: number,
+): GeneratedRecipe {
+  const palette = [...defs.values()];
+  const decoyMasks = pickDistinct(rng, DECOY_STENCILS.filter((m) => !defs.has(m)), decoyN);
+  for (const m of decoyMasks) palette.push(maskMod(m));
+  if (decoyN > decoyMasks.length) {
+    const spare = pickDistinct(rng, GEN_COLORS.filter((c) => !colors.includes(c)), decoyN - decoyMasks.length);
+    for (const c of spare) palette.push(paintMod(c));
+  }
+  for (let i = palette.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = palette[i]!; palette[i] = palette[j]!; palette[j] = tmp;
+  }
+  return { palette, solution: actions, colors, peakWorn };
+}
+
+// ── Mechanic recipe builders ────────────────────────────────────────────────
+// Each returns a validated recipe (replays bare + painted, structurally new),
+// or null if it couldn't roll a fresh shape. They lean on the shared sim for
+// correctness, so the nose growth / one-shot alpha / bubble rules are honoured
+// automatically.
+
+// NOSE: base coat, wear the (small) nose, then 2-3 splashes grow it — each
+// splash locks in a ring of the previous colour. Three splashes pop it off; two
+// leave it on, so it's tapped off. A tight bullseye on the nose.
+function buildNoseRecipe(
+  rng: () => number, decoyN: number, usedShapes?: Set<string>,
+): GeneratedRecipe | null {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const grows = 2 + Math.floor(rng() * 2); // 2 or 3 growth splashes
+    const colors = pickDistinct(rng, GEN_COLORS, 1 + grows);
+    if (colors.length < 1 + grows) continue;
+    const defs = new Map<string, ModifierDef>();
+    const actions: string[] = [];
+    const paint = (c: GenColor) => { const d = paintMod(c); defs.set(d.id, d); actions.push(d.id); };
+    paint(colors[0]!);
+    defs.set('nose', { id: 'nose', type: 'nose' });
+    actions.push('nose');
+    for (let k = 1; k <= grows; k++) paint(colors[k]!);
+    if (grows < 3) actions.push('nose'); // remove the still-worn nose to finish bare
+    const goal = replaySim([...defs.values()], actions);
+    if (!goal || goal.worn.length !== 0 || !isPainted(goal)) continue;
+    // Dedupe on the exact recipe (colours + order), not the block-downsampled
+    // structure: a nose bullseye is only ~4% of the body, so every nose goal
+    // shares one structure key — that would collapse the whole mechanic to a
+    // single level. Still register the structure so generated levels avoid it.
+    const dkey = actions.join('>');
+    if (usedShapes?.has(dkey)) continue;
+    usedShapes?.add(dkey);
+    usedShapes?.add(structureKey(goal));
+    return finalizeRecipe(rng, defs, actions, colors, decoyN, 1);
+  }
+  return null;
+}
+
+// ALPHA: colour the body, protect a band, (optionally paint the rest a second
+// colour), then the one-shot alpha dip fades everything exposed to 75% — the
+// band stays solid. A faded body with a crisp solid stripe.
+function buildAlphaRecipe(
+  rng: () => number, decoyN: number, usedShapes?: Set<string>,
+): GeneratedRecipe | null {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const maskId = SAFE_BAND_MASKS[Math.floor(rng() * SAFE_BAND_MASKS.length)]!;
+    const two = rng() < 0.5;
+    const colors = pickDistinct(rng, GEN_COLORS, two ? 2 : 1);
+    if (colors.length < (two ? 2 : 1)) continue;
+    const defs = new Map<string, ModifierDef>();
+    const actions: string[] = [];
+    const paint = (c: GenColor) => { const d = paintMod(c); defs.set(d.id, d); actions.push(d.id); };
+    const toggle = (m: string) => { defs.set(m, maskMod(m)); actions.push(m); };
+    paint(colors[0]!);
+    toggle(maskId);
+    if (two) paint(colors[1]!);
+    defs.set('alpha-dip', { id: 'alpha-dip', type: 'alpha' });
+    actions.push('alpha-dip');
+    toggle(maskId);
+    const palette = [...defs.values()];
+    const goal = replaySim(palette, actions);
+    if (!goal || goal.worn.length !== 0 || !isPainted(goal)) continue;
+    // The dip must change the outcome (a band covering everything would be a no-op).
+    const alt = replaySim(palette, actions.filter((a) => a !== 'alpha-dip'));
+    if (alt && patternsEqual(alt, goal)) continue;
+    // Dedupe on the exact recipe (colours + order), not the block-downsampled
+    // structure: a nose bullseye is only ~4% of the body, so every nose goal
+    // shares one structure key — that would collapse the whole mechanic to a
+    // single level. Still register the structure so generated levels avoid it.
+    const dkey = actions.join('>');
+    if (usedShapes?.has(dkey)) continue;
+    usedShapes?.add(dkey);
+    usedShapes?.add(structureKey(goal));
+    return finalizeRecipe(rng, defs, actions, colors, decoyN, 1);
+  }
+  return null;
+}
+
+// BUBBLE: colour the body (optionally with a protected second-colour band),
+// then the reusable bubble fades just the inner circle to 75%. A soft faded
+// core inside a solid rim.
+function buildBubbleRecipe(
+  rng: () => number, decoyN: number, usedShapes?: Set<string>,
+): GeneratedRecipe | null {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const two = rng() < 0.6;
+    const colors = pickDistinct(rng, GEN_COLORS, two ? 2 : 1);
+    if (colors.length < (two ? 2 : 1)) continue;
+    const defs = new Map<string, ModifierDef>();
+    const actions: string[] = [];
+    const paint = (c: GenColor) => { const d = paintMod(c); defs.set(d.id, d); actions.push(d.id); };
+    const toggle = (m: string) => { defs.set(m, maskMod(m)); actions.push(m); };
+    paint(colors[0]!);
+    if (two) {
+      const maskId = SAFE_BAND_MASKS[Math.floor(rng() * SAFE_BAND_MASKS.length)]!;
+      toggle(maskId);
+      paint(colors[1]!);
+      toggle(maskId);
+    }
+    defs.set('bubble', { id: 'bubble', type: 'bubble' });
+    actions.push('bubble');
+    const palette = [...defs.values()];
+    const goal = replaySim(palette, actions);
+    if (!goal || goal.worn.length !== 0 || !isPainted(goal)) continue;
+    const alt = replaySim(palette, actions.filter((a) => a !== 'bubble'));
+    if (alt && patternsEqual(alt, goal)) continue;
+    // Dedupe on the exact recipe (colours + order), not the block-downsampled
+    // structure: a nose bullseye is only ~4% of the body, so every nose goal
+    // shares one structure key — that would collapse the whole mechanic to a
+    // single level. Still register the structure so generated levels avoid it.
+    const dkey = actions.join('>');
+    if (usedShapes?.has(dkey)) continue;
+    usedShapes?.add(dkey);
+    usedShapes?.add(structureKey(goal));
+    return finalizeRecipe(rng, defs, actions, colors, decoyN, two ? 1 : 0);
+  }
+  return null;
+}
 
 // A world is a difficulty RAMP, not a flat config: every numeric knob has a
 // world-start and world-end value, interpolated across the 16 level slots.
@@ -368,33 +570,71 @@ type WorldRamp = {
   decoys: readonly [number, number];
 };
 
+// The whole set skews harder than the original: bigger paint/stencil budgets,
+// the new plain stencils in the pools, and — from W5 on — the nose / alpha /
+// bubble mechanics woven in (see WORLD_MECHANICS + generateWorlds).
 const WORLD_RAMPS: readonly WorldRamp[] = [
-  // W1 Splat School — one simple stencil, a second arrives late in the world.
-  { maskPool: [...BELT_MASKS, ...BODY_MASKS, 'pumpkin-25'], masks: [1, 2], paints: [1, 2], baseFirst: 0.6, midRemove: [0, 0], decoys: [0, 1] },
+  // W1 Splat School — one simple stencil, a second (incl. the scarf) arrives late.
+  { maskPool: [...BELT_MASKS, ...BODY_MASKS, 'scarf', 'pumpkin-25'], masks: [1, 2], paints: [2, 2], baseFirst: 0.6, midRemove: [0, 0.1], decoys: [1, 1] },
   // W2 Dress-Up Dell — wearables as stencils, first mid-solution removals.
-  { maskPool: [...BODY_MASKS, 'belt-h-thin', 'belt-v-thin', 'pumpkin-25', 'pumpkin-50'], masks: [1, 2], paints: [1.5, 2], baseFirst: 0.7, midRemove: [0, 0.15], decoys: [0, 1] },
+  { maskPool: [...BODY_MASKS, ...BELT_MASKS, 'scarf', 'plate', 'pumpkin-25', 'pumpkin-50'], masks: [1, 2], paints: [2, 3], baseFirst: 0.7, midRemove: [0.1, 0.2], decoys: [1, 2] },
   // W3 Goggle Grove — eye stencils; goggles break after one splash, which
-  // makes each level ~1 step cheaper, so the paint budget runs a notch higher
-  // to keep the world-to-world step ramp intact.
-  { maskPool: EYE_MASKS, masks: [1, 2], paints: [3, 3], baseFirst: 0.75, midRemove: [0, 0.2], decoys: [1, 1] },
-  // W4 Pumpkin Patch — nested pumpkins make ring-shaped goals. The pool runs
-  // wider than the theme strictly needs: pumpkins nest (25 ⊂ 50 ⊂ 75), which
-  // collapses many pair-shapes into one silhouette and starves the dedupe on
-  // a narrow pool.
-  { maskPool: [...PUMPKIN_MASKS, 'underwear', 'pendant-h', 'belt-h-thin', 'belt-h-thick', 'belt-v-thin'], masks: [2, 2], paints: [2, 3], baseFirst: 0.6, midRemove: [0.15, 0.3], decoys: [0, 1] },
-  // W5 Two-Tone Tarn — two stencils, staggered bands.
-  { maskPool: [...BELT_MASKS, ...BODY_MASKS, 'pumpkin-25', 'pumpkin-50'], masks: [2, 2], paints: [2.5, 3], baseFirst: 0.6, midRemove: [0.2, 0.35], decoys: [1, 1] },
-  // W6 Layer Lagoon — overlapping stencils worn together.
-  { maskPool: [...EYE_MASKS.slice(0, 6), ...BELT_MASKS, 'pumpkin-25', 'pumpkin-50'], masks: [2, 3], paints: [3, 3], baseFirst: 0.7, midRemove: [0.3, 0.4], decoys: [0, 1] },
-  // W7 Decoy Dunes — the palette lies.
-  { maskPool: ALL_MASKS, masks: [2, 3], paints: [2, 3], baseFirst: 0.6, midRemove: [0.25, 0.35], decoys: [2, 3] },
-  // W8 Trap Tundra — more layers, more decoys.
-  { maskPool: ALL_MASKS, masks: [2, 3], paints: [3, 4], baseFirst: 0.6, midRemove: [0.3, 0.4], decoys: [2, 2] },
-  // W9 Expert Estuary — three stencils deep.
-  { maskPool: ALL_MASKS, masks: [3, 3], paints: [3, 4], baseFirst: 0.7, midRemove: [0.35, 0.45], decoys: [1, 2] },
-  // W10 Master Marsh — everything at once.
-  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 4], baseFirst: 0.7, midRemove: [0.4, 0.5], decoys: [2, 2] },
+  // makes each level ~1 step cheaper, so the paint budget runs a notch higher.
+  { maskPool: EYE_MASKS, masks: [2, 2], paints: [3, 4], baseFirst: 0.75, midRemove: [0.1, 0.25], decoys: [1, 2] },
+  // W4 Pumpkin Patch — nested pumpkins make ring-shaped goals; wide pool so the
+  // 25 ⊂ 50 ⊂ 75 nesting doesn't collapse the dedupe.
+  { maskPool: [...PUMPKIN_MASKS, 'underwear', 'pendant-h', 'plate', 'cone', ...BELT_MASKS], masks: [2, 3], paints: [2, 3], baseFirst: 0.6, midRemove: [0.2, 0.35], decoys: [1, 2] },
+  // W5 Two-Tone Tarn — two stencils, staggered bands. NOSE debuts here.
+  { maskPool: [...BELT_MASKS, ...BODY_MASKS, ...NEW_STENCILS, 'pumpkin-25', 'pumpkin-50'], masks: [2, 3], paints: [3, 3], baseFirst: 0.6, midRemove: [0.25, 0.4], decoys: [1, 2] },
+  // W6 Layer Lagoon — overlapping stencils worn together. ALPHA debuts.
+  { maskPool: [...EYE_MASKS.slice(0, 6), ...BELT_MASKS, ...NEW_STENCILS, 'pumpkin-25', 'pumpkin-50'], masks: [2, 3], paints: [3, 4], baseFirst: 0.7, midRemove: [0.3, 0.45], decoys: [1, 2] },
+  // W7 Decoy Dunes — the palette lies. BUBBLE debuts.
+  { maskPool: ALL_MASKS, masks: [2, 3], paints: [3, 4], baseFirst: 0.6, midRemove: [0.3, 0.4], decoys: [2, 3] },
+  // W8 Trap Tundra — more layers, more decoys, nose + alpha in the mix.
+  { maskPool: ALL_MASKS, masks: [3, 3], paints: [3, 4], baseFirst: 0.6, midRemove: [0.35, 0.45], decoys: [2, 3] },
+  // W9 Expert Estuary — three stencils deep, alpha + bubble in the mix.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 4], baseFirst: 0.7, midRemove: [0.4, 0.5], decoys: [2, 3] },
+  // W10 Master Marsh — everything at once, every mechanic on the table.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [2, 3] },
+  // W11 Bullseye Bay — nose + alpha, half the world (see mechanic density below).
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [3, 3] },
+  // W12 Opacity Ocean — alpha + bubble, opacity everywhere.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [3, 3] },
+  // W13 Splotter's Sanctum — the whole toybox, hardest in the game.
+  { maskPool: ALL_MASKS, masks: [4, 4], paints: [4, 6], baseFirst: 0.7, midRemove: [0.5, 0.6], decoys: [3, 4] },
 ];
+
+// The special mechanics each world weaves into ~every 4th slot (the rest are
+// plain generated puzzles). Empty worlds stay pure stencil/pumpkin puzzles.
+type Mechanic = 'nose' | 'alpha' | 'bubble';
+const WORLD_MECHANICS: readonly (readonly Mechanic[])[] = [
+  [], [], [], [],                          // W1-W4: stencils & pumpkins only
+  ['nose'],                                // W5
+  ['alpha'],                               // W6
+  ['bubble'],                              // W7
+  ['nose', 'alpha'],                       // W8
+  ['alpha', 'bubble'],                     // W9
+  ['nose', 'alpha', 'bubble'],             // W10
+  ['nose', 'alpha'],                       // W11 Bullseye Bay
+  ['alpha', 'bubble'],                     // W12 Opacity Ocean
+  ['nose', 'alpha', 'bubble'],             // W13 Splotter's Sanctum
+];
+
+// How often a mechanic showcase lands in a mechanic world: the finale worlds
+// (W11+) go dense (every other slot ≈ half the world); earlier worlds sprinkle.
+function mechInterval(worldIndex: number): number {
+  return worldIndex >= 10 ? 2 : 4;
+}
+
+export function buildMechanicRecipe(
+  mech: Mechanic, rng: () => number, decoyN: number, usedShapes?: Set<string>,
+): GeneratedRecipe | null {
+  if (mech === 'nose')  return buildNoseRecipe(rng, decoyN, usedShapes);
+  if (mech === 'alpha') return buildAlphaRecipe(rng, decoyN, usedShapes);
+  return buildBubbleRecipe(rng, decoyN, usedShapes);
+}
+
+export type { Mechanic };
 
 // The lerped counts stay RANGES (floor..ceil of the interpolated value), not
 // fixed numbers: each generation attempt re-rolls inside the band, which is
@@ -440,12 +680,25 @@ function generateWorlds(): LevelData[] {
   WORLD_RAMPS.forEach((ramp, w) => {
     const worldNum = w + 1;
 
+    const mechanics = WORLD_MECHANICS[w] ?? [];
+    const every = mechInterval(w);
     const recipes: GeneratedRecipe[] = [];
     for (let i = 0; i < LEVELS_PER_WORLD; i++) {
       // Fixed seed per slot — the set is stable across builds and identical on
       // client and server. The salt keeps it decoupled from the daily seeds.
       const rng = mulberry32(0x5711 + worldNum * 1000 + i * 7);
-      recipes.push(buildGeneratedLevel(rng, slotConfig(ramp, i / (LEVELS_PER_WORLD - 1)), usedShapes));
+      const t = i / (LEVELS_PER_WORLD - 1);
+
+      // Every `every`-th slot in a mechanic world is a nose/alpha/bubble
+      // showcase (finale worlds go dense); the rest are plain generated puzzles.
+      // Falls back to a generated level if the builder can't roll a fresh shape.
+      let recipe: GeneratedRecipe | null = null;
+      if (mechanics.length > 0 && i % every === every - 1) {
+        const mech = mechanics[Math.floor(i / every) % mechanics.length]!;
+        const mechRng = mulberry32(0x9E37 + worldNum * 1000 + i * 13);
+        recipe = buildMechanicRecipe(mech, mechRng, 1 + Math.round(t), usedShapes);
+      }
+      recipes.push(recipe ?? buildGeneratedLevel(rng, slotConfig(ramp, t), usedShapes));
     }
 
     // Slot budgets ramp up, but the rng can still hand slot 3 a longer
