@@ -20,9 +20,9 @@ const PIXELIFY = '"Pixelify Sans", sans-serif';
 // published palettes reference the canonical paint ids and colors.
 const PAINT_COLORS: readonly ModifierDef[] = standardPaints();
 
-// The FULL stencil catalog — all 20 masks the sim knows (every goggles/
-// glasses/belt orientation and thickness, both pendants, all pumpkin sizes,
-// undies). Maximum creative range for creators.
+// The FULL modifier catalog the sim knows — every stencil, plus the three
+// special mechanics (nose / bubble / alpha dip). Maximum creative range for
+// creators; grouped tiles (see GRID_SLOTS) keep it fitting any screen.
 const ALL_MODS: ModifierDef[] = [
   { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick' },
   { id: 'goggles-h-thin',  type: 'goggles', variant: 'h-thin'  },
@@ -40,6 +40,12 @@ const ALL_MODS: ModifierDef[] = [
   { id: 'belt-v-thin',     type: 'belt',    variant: 'v-thin'  },
   { id: 'pendant-h',       type: 'pendant', variant: 'h'       },
   { id: 'pendant-v',       type: 'pendant', variant: 'v'       },
+  { id: 'plate',           type: 'plate'                       },
+  { id: 'cone',            type: 'cone'                        },
+  { id: 'scarf',           type: 'scarf'                       },
+  { id: 'nose',            type: 'nose'                        },
+  { id: 'bubble',          type: 'bubble'                      },
+  { id: 'alpha-dip',       type: 'alpha'                       },
   { id: 'pumpkin-25',      type: 'pumpkin', coverage: 25       },
   { id: 'pumpkin-50',      type: 'pumpkin', coverage: 50       },
   { id: 'pumpkin-75',      type: 'pumpkin', coverage: 75       },
@@ -77,6 +83,12 @@ function modLabel(mod: ModifierDef): string {
   if (mod.type === 'pendant')   return `Pendant ${variantLabel(mod.variant)}`;
   if (mod.type === 'pumpkin')   return `Pumpkin ${mod.coverage}%`;
   if (mod.type === 'underwear') return 'Underwear';
+  if (mod.type === 'plate')     return 'Plate';
+  if (mod.type === 'cone')      return 'Cone';
+  if (mod.type === 'scarf')     return 'Scarf';
+  if (mod.type === 'nose')      return 'Nose';
+  if (mod.type === 'bubble')    return 'Bubble';
+  if (mod.type === 'alpha')     return 'Alpha Dip';
   return mod.id;
 }
 
@@ -98,6 +110,14 @@ function getIconKey(mod: ModifierDef): string | null {
   if (mod.type === 'pendant')   return 'icon-pendant';
   if (mod.type === 'pumpkin')   return 'icon-pumpkin';
   if (mod.type === 'underwear') return 'icon-underwear';
+  // Newer mods reuse their own art (mod-* textures) as the tile icon; the nose
+  // uses the Preloader's zoomed bake (its raw art is a tiny speck).
+  if (mod.type === 'nose')      return 'icon-nose';
+  if (mod.type === 'bubble')    return 'mod-bubble';
+  if (mod.type === 'plate')     return 'mod-plate';
+  if (mod.type === 'cone')      return 'mod-cone';
+  if (mod.type === 'scarf')     return 'mod-scarf';
+  if (mod.type === 'alpha')     return 'icon-paint';
   return null;
 }
 
@@ -263,7 +283,7 @@ export class Editor extends Phaser.Scene {
     this.buildControlsRow(cx, ctrlY);
 
     const stepsY = ctrlY + 18 + 8 + 14;
-    this.buildStepsPill(cx, stepsY);
+    this.buildStepsPill(cx, stepsY, width - 24);
     this.buildFeedback(cx, stepsY + 14 + 4 + 8, width - 32);
 
     const panelTop = stepsY + 14 + 22;
@@ -306,7 +326,7 @@ export class Editor extends Phaser.Scene {
     this.buildControlsRow(leftCx, ctrlY);
 
     const stepsY = ctrlY + 18 + 8 + 14;
-    this.buildStepsPill(leftCx, stepsY);
+    this.buildStepsPill(leftCx, stepsY, leftW - 8);
     this.buildFeedback(leftCx, stepsY + 14 + 4 + 8, leftW - 16);
 
     this.buildBottomButtons(leftCx, height, leftW + 24);
@@ -317,9 +337,14 @@ export class Editor extends Phaser.Scene {
       this.spawnSplot(leftCx, stepsY + 36 + slack / 2, Math.min(96, slack - 12));
     }
 
-    // Right column: the build panel gets the full height.
-    const cols = rightW >= 400 ? 4 : 3;
-    this.buildModPanel(rightCx, top, rightW, bottomZone - top, cols);
+    // Right column: the build panel gets the full height, capped on huge
+    // desktops — the grid tops out at 1.5× scale, so an uncapped panel there
+    // is mostly empty black. Centered in whatever the cap leaves over.
+    const panelW = Math.min(rightW, 780);
+    const panelH = Math.min(bottomZone - top, 700);
+    const panelTop = top + ((bottomZone - top) - panelH) / 2;
+    const cols = panelW >= 400 ? 4 : 3;
+    this.buildModPanel(rightCx, panelTop, panelW, panelH, cols);
   }
 
   // Header strip matching the Game scene: dark bar, beige icon button for
@@ -359,7 +384,7 @@ export class Editor extends Phaser.Scene {
     this.uiObjs.push(addBeigeBadge(this, cx, cy - cardH / 2, 132, 28).setDepth(4));
     this.uiObjs.push(this.add.text(cx, cy - cardH / 2, 'GOAL SLIME', {
       fontFamily: PIXEL_FONT,
-      fontSize: '8px',
+      fontSize: '9px',
       color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5).setDepth(5));
@@ -381,14 +406,26 @@ export class Editor extends Phaser.Scene {
     this.buildDecoyButton();
   }
 
-  private buildStepsPill(cx: number, cy: number) {
-    this.uiObjs.push(addBeigeBadge(this, cx, cy, 236, 28).setDepth(4));
-    this.stepsText = this.add.text(cx, cy, '', {
+  // Badge sized around the measured worst-case readout — Press Start 2P runs
+  // a full fontSize width per character, so the old fixed 236px badge was
+  // narrower than "Steps: 20/20  |  Diff: 5/5" at 10px and the text overflowed
+  // the pill on every screen. Shrinks the font first when even the badge
+  // wouldn't fit maxW (thin landscape left columns).
+  private buildStepsPill(cx: number, cy: number, maxW: number) {
+    const worst = `Steps: ${MAX_SOLUTION_STEPS}/${MAX_SOLUTION_STEPS}  |  Diff: 5/5`;
+    this.stepsText = this.add.text(cx, cy, worst, {
       fontFamily: PIXEL_FONT,
-      fontSize: '8px',
+      fontSize: '10px',
       color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5).setDepth(5);
+    let fs = 10;
+    while (fs > 7 && this.stepsText.width + 20 > maxW) {
+      fs -= 1;
+      this.stepsText.setFontSize(fs);
+    }
+    const badgeW = Math.min(maxW, Math.round(this.stepsText.width) + 20);
+    this.uiObjs.push(addBeigeBadge(this, cx, cy, badgeW, 28).setDepth(4));
     this.uiObjs.push(this.stepsText);
     this.updateMeta();
   }
@@ -396,7 +433,7 @@ export class Editor extends Phaser.Scene {
   private buildFeedback(cx: number, cy: number, wrapW: number) {
     this.feedbackText = this.add.text(cx, cy, '', {
       fontFamily: PIXEL_FONT,
-      fontSize: '8px',
+      fontSize: '10px',
       color: '#ff8888',
       stroke: '#1a0a2e',
       strokeThickness: 3,
@@ -425,7 +462,7 @@ export class Editor extends Phaser.Scene {
         this.buildDecoyButton();
         this.showFeedback(
           this.decoyCount === 0
-            ? 'No decoys — the palette shows exactly what the solve uses.'
+            ? 'No decoys. The palette shows exactly what the solve uses.'
             : `${this.decoyCount} decoy ${this.decoyCount === 1 ? 'item pads' : 'items pad'} the palette to hide the recipe.`,
           false,
         );
@@ -442,7 +479,7 @@ export class Editor extends Phaser.Scene {
 
     this.uiObjs.push(this.add.text(cx, topY + 15, 'BUILD YOUR GOAL', {
       fontFamily: PIXEL_FONT,
-      fontSize: '8px',
+      fontSize: '9px',
       color: C.TEXT_BEIGE,
       stroke: '#000000',
       strokeThickness: 3,
@@ -463,11 +500,20 @@ export class Editor extends Phaser.Scene {
       return { rows, w, h, scale: Math.min(innerW / w, innerH / h, 1.5) };
     };
     const labeled = layout(TILE_W, TILE_H, cols);
-    const compactCols = Math.max(4, Math.floor((innerW + TILE_GAP) / (TILE_SQ + TILE_GAP)));
-    const compact = layout(TILE_SQ, TILE_SQ, compactCols);
+    // Compact packs by best fit, not by width alone: when HEIGHT is the
+    // binding constraint (short phones), more columns → fewer rows → bigger
+    // tiles, so sweep the plausible column counts and keep the largest scale.
+    let compactCols = 4;
+    let compact = layout(TILE_SQ, TILE_SQ, compactCols);
+    for (let c = 5; c <= 8; c++) {
+      const cand = layout(TILE_SQ, TILE_SQ, c);
+      if (cand.scale > compact.scale) { compact = cand; compactCols = c; }
+    }
     // Only drop to compact tiles when labeled ones would have to shrink below
-    // legibility AND compact genuinely buys more room.
-    const useCompact = labeled.scale < 0.62 && compact.scale > labeled.scale + 0.08;
+    // legibility AND compact genuinely buys more room. The label's 10px design
+    // size needs to stay close to 1:1 to read at all on a phone screen — the
+    // old 0.62 threshold let it shrink past 6px before bailing to icons.
+    const useCompact = labeled.scale < 0.85 && compact.scale > labeled.scale + 0.08;
     const mode = useCompact ? compact : labeled;
     const nCols = useCompact ? compactCols : cols;
     const tw = useCompact ? TILE_SQ : TILE_W;
@@ -522,9 +568,14 @@ export class Editor extends Phaser.Scene {
       const label = slot.kind === 'paint' ? 'Paint...'
         : slot.kind === 'pumpkin' ? 'Pumpkin...'
         : modLabel(slot.mod);
+      // Pixelify, not PIXEL_FONT — Press Start 2P runs a full fontSize width
+      // per character, so "Goggles"/"Underwear" at 9px overflowed the 55px
+      // wrap width (single words don't wrap, they spill past the tile edge).
+      // Matches the words-in-Pixelify / numerals-in-PS2P convention anyway.
+      // 10px, not 11 — "Underwear" at 11px lands exactly on the border art.
       content.push(this.add.text(-w / 2 + 25, 0, label, {
-        fontFamily: PIXEL_FONT,
-        fontSize: '7px',
+        fontFamily: PIXELIFY,
+        fontSize: '10px',
         color: C.DARK_BROWN,
         wordWrap: { width: w - 31 },
       }).setOrigin(0, 0.5));
@@ -554,7 +605,7 @@ export class Editor extends Phaser.Scene {
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, Math.max(popH, 66), false).container);
     items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 6, 'Pick a color', {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.DARK_BROWN,
+      fontFamily: PIXEL_FONT, fontSize: '10px', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -605,7 +656,7 @@ export class Editor extends Phaser.Scene {
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, popH, false).container);
     items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pumpkin size', {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.DARK_BROWN,
+      fontFamily: PIXEL_FONT, fontSize: '10px', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -633,7 +684,7 @@ export class Editor extends Phaser.Scene {
       const lbl = this.add.text(0, slotSz * 0.30, isWorn ? `${cov}% ON` : `${cov}%`, {
         // #1E3D08, not the lighter #2E5C0A — this sits on the beige button
         // shell, where the lighter green was too close to it to read.
-        fontFamily: PIXEL_FONT, fontSize: '8px', color: isWorn ? '#1E3D08' : C.DARK_BROWN,
+        fontFamily: PIXEL_FONT, fontSize: '9px', color: isWorn ? '#1E3D08' : C.DARK_BROWN,
       }).setOrigin(0.5);
       shell.addContent([sh, sli, brd, pum, lbl]);
       if (isWorn) {
@@ -712,30 +763,41 @@ export class Editor extends Phaser.Scene {
     // The publish cap, enforced while recording: every level ships with a
     // proof it's beatable in at most MAX_SOLUTION_STEPS moves.
     if (this.actions.length >= MAX_SOLUTION_STEPS) {
-      this.showFeedback(`Max ${MAX_SOLUTION_STEPS} moves — levels must stay beatable! Undo or Reset.`, true);
+      this.showFeedback(`Max ${MAX_SOLUTION_STEPS} moves. Levels must stay beatable! Undo or Reset.`, true);
       return;
     }
     const before = replayOps(EDITOR_DEFS, this.actions);
     // Same rule as in play: goggles a splash landed on are broken for the run.
-    if (mod.type !== 'paint' && before.broken.includes(mod.id)) {
-      this.showFeedback(`${modLabel(mod)} broke — goggles are one-time use! (Undo or Reset restores them.)`, true);
+    if (before.broken.includes(mod.id)) {
+      this.showFeedback(`${modLabel(mod)} broke. Goggles are one-time use! (Undo or Reset restores them.)`, true);
       return;
     }
+    // The alpha dip is one per level.
+    if (mod.type === 'alpha' && before.spent.includes(mod.id)) {
+      this.showFeedback('Alpha dip already used — one per level! (Undo or Reset.)', true);
+      return;
+    }
+    const brokeGoggles = before.worn.some(isBreakableMask);
+    const noseWorn = before.worn.some((id) => id.startsWith('nose-'));
     const wasWorn = before.worn.includes(mod.id);
     this.actions.push(mod.id);
     this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.goalRenderer?.playApplyAnim(this);
     this.updateMeta();
+
     if (mod.type === 'paint') {
-      this.showFeedback(
-        before.worn.some(isBreakableMask) ? 'Splash! The goggles snapped off — one-time use.' : '',
-        false,
-      );
+      this.showFeedback(brokeGoggles ? 'Splash! The goggles snapped off, one-time use.' : '', false);
+    } else if (mod.type === 'alpha') {
+      this.showFeedback(`Alpha dip! Everything exposed fades to 75%.${brokeGoggles ? ' Goggles snapped off.' : ''}`, false);
+    } else if (mod.type === 'bubble') {
+      this.showFeedback('Bubble! The inner circle fades to 75% — reuse it freely.', false);
+    } else if (mod.type === 'nose') {
+      this.showFeedback(noseWorn ? 'Nose off.' : 'Nose on (small). Each paint grows it; big + a splash pops it off!', false);
     } else if (mod.type === 'goggles' && !wasWorn) {
-      this.showFeedback(`${modLabel(mod)} on — breaks off after one splash!`, false);
+      this.showFeedback(`${modLabel(mod)} on. Breaks off after one splash!`, false);
     } else {
       this.showFeedback(
-        wasWorn ? `${modLabel(mod)} off.` : `${modLabel(mod)} on — it protects what it covers.`,
+        wasWorn ? `${modLabel(mod)} off.` : `${modLabel(mod)} on, protects what it covers.`,
         false,
       );
     }
@@ -779,7 +841,7 @@ export class Editor extends Phaser.Scene {
     if (this.actions.length === 0) return 'Paint something to build a goal first!';
     if (!this.actions.some((id) => id.startsWith('paint-'))) return 'Goals need at least one splash of paint!';
     const { worn } = replayOps(EDITOR_DEFS, this.actions);
-    if (worn.length > 0) return 'Take every stencil off — goals are bare slimes!';
+    if (worn.length > 0) return 'Take every stencil off, goals are bare slimes!';
     return null;
   }
 
@@ -847,7 +909,7 @@ export class Editor extends Phaser.Scene {
         this.goToScene('Game', { levelId: data.levelId });
       });
     } catch {
-      if (!this.navigating) this.showFeedback('Network error — try again', true);
+      if (!this.navigating) this.showFeedback('Network error, try again', true);
     }
   }
 

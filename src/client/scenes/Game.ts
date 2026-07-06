@@ -62,13 +62,29 @@ function groupPalette(palette: ModifierDef[]): PaletteSlot[] {
 
 function modIconKey(mod: ModifierDef): string {
   if (mod.type === 'paint')     return 'icon-paint';
+  if (mod.type === 'alpha')     return 'icon-paint';
   if (mod.type === 'pumpkin')   return 'icon-pumpkin';
   if (mod.type === 'underwear') return 'icon-underwear';
   if (mod.type === 'pendant')   return 'icon-pendant';
   if (mod.type === 'goggles')   return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
   if (mod.type === 'glasses')   return mod.variant?.includes('thin') ? 'icon-glasses-thin' : 'icon-glasses-thick';
   if (mod.type === 'belt')      return mod.variant?.includes('thin') ? 'icon-belt-thin' : 'icon-belt-thick';
+  // No dedicated puzzle icons for the newer mods — draw their own art (the
+  // `mod-*` textures the renderer already loads) as the tile icon. The nose
+  // uses a zoomed icon baked in the Preloader (its raw art is a tiny speck).
+  if (mod.type === 'nose')      return 'icon-nose';
+  if (mod.type === 'bubble')    return 'mod-bubble';
+  if (mod.type === 'plate')     return 'mod-plate';
+  if (mod.type === 'cone')      return 'mod-cone';
+  if (mod.type === 'scarf')     return 'mod-scarf';
   return 'icon-sparkle';
+}
+
+// Short tile caption for tiles whose icon alone doesn't say what they do.
+function singleTileLabel(mod: ModifierDef): string {
+  if (mod.type === 'alpha')  return 'DIP';
+  if (mod.type === 'bubble') return '75%';
+  return '';
 }
 
 function isHorizontalVariant(mod: ModifierDef): boolean {
@@ -521,8 +537,13 @@ export class Game extends Phaser.Scene {
         this.applyModifier(slot.mod);
       }
     };
-    const broken = slot.kind === 'single' && (this.engine?.isBroken(slot.mod) ?? false);
-    const shell = addBeigeButtonShell(this, cx, cy, cell, cell, broken, broken ? undefined : onClick, true);
+    // A tile is disabled when its stencil broke (goggles) OR its one-shot was
+    // spent (the alpha dip) — both refuse taps and show a cross.
+    const single  = slot.kind === 'single' ? slot.mod : null;
+    const broken  = single ? (this.engine?.isBroken(single) ?? false) : false;
+    const spent   = single ? (this.engine?.isSpent(single) ?? false) : false;
+    const disabled = broken || spent;
+    const shell = addBeigeButtonShell(this, cx, cy, cell, cell, disabled, disabled ? undefined : onClick, true);
     const content: Phaser.GameObjects.GameObject[] = [];
     const iconSz = Math.round(cell * 0.5);
     let worn = false;
@@ -542,11 +563,19 @@ export class Game extends Phaser.Scene {
     } else {
       const mod = slot.mod;
       worn = this.engine?.isWorn(mod) ?? false;
-      const icon = addDepthIcon(this, 0, 0, modIconKey(mod), iconSz, iconSz);
-      if (broken) icon.setAlpha(0.35);
+      const label = singleTileLabel(mod);
+      const icon = addDepthIcon(this, 0, label ? -cell * 0.08 : 0, modIconKey(mod), iconSz, iconSz);
+      if (disabled) icon.setAlpha(0.35);
       content.push(icon);
 
-      if (!broken && (isHorizontalVariant(mod) || isVerticalVariant(mod))) {
+      if (label) {
+        content.push(this.add.text(0, cell * 0.30, label, {
+          fontFamily: PIXEL_FONT, fontSize: `${Math.max(6, Math.round(cell * 0.11))}px`,
+          color: disabled ? '#9A7A5A' : C.DARK_BROWN,
+        }).setOrigin(0.5));
+      }
+
+      if (!disabled && (isHorizontalVariant(mod) || isVerticalVariant(mod))) {
         const arrowSz = Math.round(cell * 0.20);
         const arrow = addDepthIcon(this, cell * 0.28, cell * 0.28, 'icon-arrow', arrowSz, arrowSz, 1, 0.4);
         (arrow.list[1] as Phaser.GameObjects.Image | undefined)?.setTint(0xFF5500);
@@ -559,8 +588,16 @@ export class Game extends Phaser.Scene {
       content.push(this.add.rectangle(0, 0, cell - 8, cell - 8).setStrokeStyle(3, C.WORN_RING, 1));
       const badgeSz = Math.round(cell * 0.22);
       content.push(addDepthIcon(this, -cell * 0.30, -cell * 0.30, 'icon-check', badgeSz, badgeSz));
+      // The nose shows the size it has grown to (S / M / L).
+      const nose = single && single.type === 'nose' ? this.engine?.noseSize() : null;
+      if (nose) {
+        content.push(this.add.text(cell * 0.30, -cell * 0.30, nose[0]!.toUpperCase(), {
+          fontFamily: PIXEL_FONT, fontSize: `${Math.max(7, Math.round(cell * 0.16))}px`,
+          color: '#1E3D08',
+        }).setOrigin(0.5));
+      }
     }
-    if (broken) {
+    if (disabled) {
       const badgeSz = Math.round(cell * 0.26);
       content.push(addDepthIcon(this, 0, 0, 'icon-cross', badgeSz, badgeSz));
     }
@@ -842,10 +879,12 @@ export class Game extends Phaser.Scene {
     if (!this.engine || !this.currentRenderer || !this.level) return;
     const result = this.engine.applyModifier(mod);
 
-    // Broken goggles refuse the tap — nothing was logged, no step spent.
-    // The tile is disabled too; this guards the pickers and races.
+    // A refused tap (broken goggles / a spent one-shot) logs nothing, spends no
+    // step. The tile is disabled too; this guards the pickers and races.
     if (result.kind === 'broken') {
-      this.showConflictPopup('Those goggles are broken — one splash was all they had!');
+      this.showConflictPopup(mod.type === 'alpha'
+        ? 'The alpha dip is used up. One dip per level!'
+        : 'Those goggles are broken. One splash was all they had!');
       this.splot?.setExpression('pain', 900);
       return;
     }
@@ -856,7 +895,7 @@ export class Game extends Phaser.Scene {
       this.playModifierBurst(mod);
       this.splot?.playAppliedFlash();
       if (result.broke.length > 0 && !result.isWin) {
-        this.showConflictPopup('The goggles snapped off — goggles break after one splash!');
+        this.showConflictPopup('The goggles snapped off. Goggles break after one splash!');
         this.splot?.setExpression('shocked', 1200);
       }
     } else {
