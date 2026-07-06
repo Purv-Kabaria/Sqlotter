@@ -113,7 +113,15 @@ function isValidModifier(modifier: unknown): modifier is ModifierDef {
     case 'belt': return typeof modifier.variant === 'string' && FOUR_WAY_VARIANTS.has(modifier.variant);
     case 'pendant': return modifier.variant === 'h' || modifier.variant === 'v';
     case 'pumpkin': return modifier.coverage === 25 || modifier.coverage === 50 || modifier.coverage === 75;
-    case 'underwear': return true;
+    // Fixed-geometry singles + the special mechanics (nose/alpha/bubble) carry
+    // no variant/coverage to validate — a valid id + known type is enough.
+    case 'underwear':
+    case 'plate':
+    case 'cone':
+    case 'scarf':
+    case 'nose':
+    case 'alpha':
+    case 'bubble': return true;
     default: return false;
   }
 }
@@ -391,8 +399,19 @@ api.post('/complete', async (c) => {
   return c.json<CompleteResponse>({ sparksEarned, newTotal: newSparks, stars, isFirstCompletion, streakDays, firstSplat });
 });
 
+// Shared by both share endpoints below — the client posts a PNG data URI
+// snapshot of an in-game card (Splat Card or First Splat Crown); this is the
+// one validation both routes need before handing it to media.upload().
+const CARD_IMAGE_PREFIX = 'data:image/png;base64,';
+// 'iVBORw0KGgo' is the base64 form of the 8-byte PNG signature — any real
+// PNG data URI starts exactly this way.
+const CARD_PNG_SIGNATURE = `${CARD_IMAGE_PREFIX}iVBORw0KGgo`;
+// ~1.5M base64 chars ≈ 1.1 MB PNG — far above any plausible card snapshot.
+const CARD_IMAGE_MAX_CHARS = 1_500_000;
+
 // ── /api/share/card ───────────────────────────────────────────
-// One-tap "Splat Card": posts a spoiler-tagged result comment on the post the
+// One-tap "Splat Card": posts a spoiler-tagged result comment (with an
+// in-game rendered card image, when the client supplies one) on the post the
 // player is playing in. Strictly user-triggered (never automatic), once per
 // level per user plus a short cooldown, and always posted by the app account
 // crediting the player — never impersonating them.
@@ -404,6 +423,12 @@ const MOD_EMOJI: Record<ModifierType, string> = {
   pendant: '📿',
   pumpkin: '🎃',
   underwear: '🩲',
+  plate: '🍽️',
+  cone: '🍦',
+  scarf: '🧣',
+  nose: '👃',
+  alpha: '🌫️',
+  bubble: '🫧',
 };
 
 const MOD_NAME: Record<Exclude<ModifierType, 'paint'>, string> = {
@@ -413,6 +438,12 @@ const MOD_NAME: Record<Exclude<ModifierType, 'paint'>, string> = {
   pendant: 'Pendant',
   pumpkin: 'Pumpkin',
   underwear: 'Undies',
+  plate: 'Plate',
+  cone: 'Cone',
+  scarf: 'Scarf',
+  nose: 'Nose',
+  alpha: 'Alpha dip',
+  bubble: 'Bubble',
 };
 
 function formatCardTime(timeMs: number): string {
@@ -467,6 +498,14 @@ function describeMoves(palette: readonly ModifierDef[], actions: readonly string
       parts.push(`${MOD_EMOJI.paint} ${colorNameOf(mod.color)} splash${burst}`);
       continue;
     }
+    // The alpha dip and the bubble are one-shot splashes, not worn toggles.
+    // The alpha dip is a paint splash, so it also pops any worn goggles.
+    if (mod.type === 'alpha' || mod.type === 'bubble') {
+      const burst = mod.type === 'alpha' && [...worn].some(isBreakableMask) ? ' 💥' : '';
+      if (mod.type === 'alpha') for (const wornId of [...worn]) if (isBreakableMask(wornId)) worn.delete(wornId);
+      parts.push(`${MOD_EMOJI[mod.type]} ${MOD_NAME[mod.type]}${burst}`);
+      continue;
+    }
     const maskId = maskIdOf(mod) ?? mod.id;
     const name = mod.type === 'pumpkin' ? `Pumpkin ${mod.coverage ?? 50}%` : MOD_NAME[mod.type];
     if (worn.has(maskId)) {
@@ -500,7 +539,7 @@ api.post('/share/card', async (c) => {
 
   const body = await readJsonBody<ShareCardRequest>(c);
   if (!body) return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
-  const { levelId, timeMs, actions } = body;
+  const { levelId, timeMs, actions, imageDataUrl } = body;
   if (typeof levelId !== 'string' || levelId.length < 1 || levelId.length > 120) {
     return c.json<Err>({ status: 'error', message: 'Invalid level id' }, 400);
   }
@@ -510,6 +549,12 @@ api.post('/share/card', async (c) => {
   }
   if (!Number.isInteger(timeMs) || timeMs < 100 || timeMs > 86_400_000) {
     return c.json<Err>({ status: 'error', message: 'Invalid completion time' }, 400);
+  }
+  if (imageDataUrl !== undefined
+    && (typeof imageDataUrl !== 'string'
+      || !imageDataUrl.startsWith(CARD_PNG_SIGNATURE)
+      || imageDataUrl.length > CARD_IMAGE_MAX_CHARS)) {
+    return c.json<Err>({ status: 'error', message: 'Invalid card image' }, 400);
   }
 
   const level = await getLevel(levelId);
@@ -522,7 +567,7 @@ api.post('/share/card', async (c) => {
   // Anti-spam: a short global per-user cooldown, and one card per level per user.
   const cooldownKey = `carded:cooldown:${username}`;
   if (await redis.get(cooldownKey)) {
-    return c.json<Err>({ status: 'error', message: 'Sharing too fast — wait a moment' }, 429);
+    return c.json<Err>({ status: 'error', message: 'Sharing too fast, wait a moment' }, 429);
   }
   const claimed = await redis.hSetNX(`carded:${levelId}`, username, '1');
   if (claimed !== 1) {
@@ -549,7 +594,7 @@ api.post('/share/card', async (c) => {
   // past instead of replied to.
   const par = level.optimalSteps;
   const headline = stars === 3
-    ? `🏆 **FLAWLESS SPLAT — u/${username} painted “${safeTitle}” move-perfect!**`
+    ? `🏆 **FLAWLESS SPLAT: u/${username} painted “${safeTitle}” move-perfect!**`
     : stars === 2
       ? `🎯 **u/${username} splatted “${safeTitle}”!**`
       : `🫠 **u/${username} wrestled “${safeTitle}” into submission!**`;
@@ -561,8 +606,8 @@ api.post('/share/card', async (c) => {
     formatCardTime(timeMs),
   ].join(' · ') + streakLine;
   const footer = stars === 3
-    ? '^(Splat Card — that recipe can\'t be beaten, only matched. Play this post and prove you can.)'
-    : `^(Splat Card — par is ${par}. Play this post and out-splat this card.)`;
+    ? '^(Splat Card: that recipe can\'t be beaten, only matched. Play this post and prove you can.)'
+    : `^(Splat Card: par is ${par}. Play this post and out-splat this card.)`;
   const text = [
     headline,
     ...(caption ? [`💬 *“${caption}”*`] : []),
@@ -572,7 +617,37 @@ api.post('/share/card', async (c) => {
   ].join('\n\n');
 
   try {
-    await reddit.submitComment({ id: postId, text });
+    let postedWithImage = false;
+    if (imageDataUrl) {
+      try {
+        const asset = await media.upload({ url: imageDataUrl, type: 'image' });
+        // Same richtext document shape as /api/share/first-splat below, plus
+        // the caption/stats/footer lines the plain-text card also carries —
+        // the recipe stays wrapped in a real spoilertext node so the image
+        // path doesn't leak the solution any more than the text path does.
+        await reddit.submitComment({
+          id: postId,
+          richtext: {
+            document: [
+              { e: 'img', mediaUrl: asset.mediaUrl, c: headline },
+              ...(caption ? [{ e: 'par', c: [{ e: 'text', t: `💬 “${caption}”` }] }] : []),
+              { e: 'par', c: [{ e: 'text', t: statsLine }] },
+              { e: 'par', c: [
+                { e: 'text', t: 'Recipe: ' },
+                { e: 'spoilertext', c: [{ e: 'text', t: recipe }] },
+              ] },
+              { e: 'par', c: [{ e: 'text', t: footer }] },
+            ],
+          },
+        });
+        postedWithImage = true;
+      } catch {
+        // Upload or richtext rejected — degrade to the text-only card below.
+      }
+    }
+    if (!postedWithImage) {
+      await reddit.submitComment({ id: postId, text });
+    }
   } catch {
     // Hand the card back so the player can retry after a transient failure.
     await redis.hDel(`carded:${levelId}`, [username]);
@@ -590,13 +665,6 @@ api.post('/share/card', async (c) => {
 // by /api/complete, so the endpoint never trusts the client's claim, and the
 // comment is posted by the app account crediting the player. Falls back to a
 // text-only crown when the image is missing or Reddit rejects the upload.
-const CROWN_IMAGE_PREFIX = 'data:image/png;base64,';
-// 'iVBORw0KGgo' is the base64 form of the 8-byte PNG signature — any real
-// PNG data URI starts exactly this way.
-const CROWN_PNG_SIGNATURE = `${CROWN_IMAGE_PREFIX}iVBORw0KGgo`;
-// ~1.5M base64 chars ≈ 1.1 MB PNG — far above any plausible card snapshot.
-const CROWN_IMAGE_MAX_CHARS = 1_500_000;
-
 api.post('/share/first-splat', async (c) => {
   const { postId } = context;
   if (!postId) return c.json<Err>({ status: 'error', message: 'postId missing' }, 400);
@@ -611,8 +679,8 @@ api.post('/share/first-splat', async (c) => {
   }
   if (imageDataUrl !== undefined
     && (typeof imageDataUrl !== 'string'
-      || !imageDataUrl.startsWith(CROWN_PNG_SIGNATURE)
-      || imageDataUrl.length > CROWN_IMAGE_MAX_CHARS)) {
+      || !imageDataUrl.startsWith(CARD_PNG_SIGNATURE)
+      || imageDataUrl.length > CARD_IMAGE_MAX_CHARS)) {
     return c.json<Err>({ status: 'error', message: 'Invalid card image' }, 400);
   }
 
@@ -633,7 +701,7 @@ api.post('/share/first-splat', async (c) => {
   // crown comment per level, ever.
   const cooldownKey = `crown:cooldown:${username}`;
   if (await redis.get(cooldownKey)) {
-    return c.json<Err>({ status: 'error', message: 'Sharing too fast — wait a moment' }, 429);
+    return c.json<Err>({ status: 'error', message: 'Sharing too fast, wait a moment' }, 429);
   }
   const claimed = await redis.hSetNX('level:crowned', levelId, username);
   if (claimed !== 1) {
@@ -649,10 +717,10 @@ api.post('/share/first-splat', async (c) => {
   const [fsSteps, fsTimeMs] = ((await redis.hGet('level:first-stats', levelId)) ?? '')
     .split('|').map((n) => parseInt(n, 10));
   const statsBit = fsSteps && fsTimeMs
-    ? ` — ${fsSteps} ${fsSteps === 1 ? 'move' : 'moves'}, ${formatCardTime(fsTimeMs)}, before anyone else on Reddit`
+    ? ` (${fsSteps} ${fsSteps === 1 ? 'move' : 'moves'}, ${formatCardTime(fsTimeMs)}, before anyone else on Reddit)`
     : '';
   const headline = `👑 FIRST SPLAT! u/${username} drew first paint on "${safeTitle}"${statsBit}.`;
-  const footer = 'This crown is claimed forever. The leaderboard is not — play this post and take the top spot.';
+  const footer = 'This crown is claimed forever, but the leaderboard isn\'t. Play this post and take the top spot.';
 
   try {
     let postedWithImage = false;
@@ -723,7 +791,7 @@ api.post('/share/fit', async (c) => {
   // Anti-spam: a short per-user cooldown plus one fit per player per thread.
   const cooldownKey = `fit:cooldown:${username}`;
   if (await redis.get(cooldownKey)) {
-    return c.json<Err>({ status: 'error', message: 'Sharing too fast — wait a moment' }, 429);
+    return c.json<Err>({ status: 'error', message: 'Sharing too fast, wait a moment' }, 429);
   }
   const claimed = await redis.hSetNX(`fitcheck:carded:${fitPostId}`, username, '1');
   if (claimed !== 1) {
@@ -749,7 +817,7 @@ api.post('/share/fit', async (c) => {
   if (streak > 1) statsBits.push(`🔥 ${streak}-day streak`);
   const text = [
     `📸 **u/${username}'s Splot walked in wearing:** ${describeFit(equipped)}`,
-    `^(${statsBits.join(' · ')} — upvote the drip. Top fit takes 500 Sparks and the crown on Sunday.)`,
+    `^(${statsBits.join(' · ')}. Upvote the drip! Top fit takes 500 Sparks and the crown on Sunday.)`,
   ].join('\n\n');
 
   let commentId: string;
@@ -908,6 +976,9 @@ api.post('/user/equip', async (c) => {
   equipped[item.slot] = item.id;
 
   await redis.hSet(userKey, { equipped: JSON.stringify(equipped) });
+  // The flair pill's background mirrors the equipped Splot color — re-sync
+  // immediately so switching colors doesn't wait for the next level clear.
+  if (item.slot === 'color') await syncUserFlair(username);
   return c.json<EquipResponse>({ equippedItems: equipped });
 });
 
@@ -1074,7 +1145,7 @@ api.post('/level/create', async (c) => {
     const moves = `${level.optimalSteps} ${level.optimalSteps === 1 ? 'move' : 'moves'}`;
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: `⚔️ u/${username} built “${level.title}” in ${moves} — beat that.`,
+      title: `⚔️ u/${username} built “${level.title}” in ${moves}. Beat that.`,
       entry: 'default',
       postData: { levelId },
       styles: {

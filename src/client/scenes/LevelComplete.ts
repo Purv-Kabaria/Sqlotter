@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
-import { addBeigeButton, addBeigeButtonShell, addDarkPanel, addPixelPanel, PIXEL_FONT } from '../components/PixelUI';
+import { addBeigeButton, addDarkPanel, addPixelPanel, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import { SplotMascot } from '../components/SplotMascot';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { getCachedUserData } from '../userData';
@@ -8,7 +8,7 @@ import { getCuratedLevels } from '../../shared/levelData';
 import type { FirstSplatRequest, ShareCardRequest } from '../../shared/api';
 import type { ModifierDef } from '../../shared/types';
 
-const PIXELIFY = '"Pixelify Sans", sans-serif';
+const PIXELIFY = BODY_FONT;
 
 const C = {
   BG:     0x1a0a2e,
@@ -24,6 +24,11 @@ type CompleteData = {
   sparks: number; streakDays?: number; actions?: string[]; firstSplat?: boolean;
   goalPalette?: ModifierDef[]; goalActions?: readonly string[];
 };
+
+// What the Splat Card preview needs to render itself — a subset of the win
+// data, plus the palette the player's own `actions` (ShareCardRequest) replay
+// against to draw the solved slime.
+type SplatCardVisual = { title: string; stars: number; steps: number; palette: ModifierDef[] };
 
 export class LevelComplete extends Phaser.Scene {
   private splot: SplotMascot | null = null;
@@ -103,10 +108,12 @@ export class LevelComplete extends Phaser.Scene {
     // "LEVEL CLEAR!" title
     const titleTxt = this.add.text(cx, panelY - panelH / 2 + 40, 'LEVEL CLEAR!', {
       fontFamily: PIXEL_FONT,
-      fontSize: '16px',
+      fontSize: '20px',
       color: '#6DD400',
       stroke: '#1a0a2e',
-      strokeThickness: 4,
+      strokeThickness: 5,
+      letterSpacing: 2,
+      shadow: { offsetX: 0, offsetY: 3, color: 'rgba(0,0,0,0.4)', blur: 0, fill: true, stroke: true },
     }).setOrigin(0.5).setAlpha(0);
     this.tweens.add({ targets: titleTxt, alpha: 1, y: panelY - panelH / 2 + 34, duration: 500, ease: 'Back.easeOut' });
 
@@ -137,49 +144,51 @@ export class LevelComplete extends Phaser.Scene {
       }
     }
 
-    // Stats
+    // Stats — a 3-column scoreboard (icon over big value over small label)
+    // instead of a flat label/value list. The old rows topped out at 10px
+    // with no icon of their own; a stat block this central to the win screen
+    // shouldn't read smaller than the buttons below it.
     const secs = Math.floor(timeMs / 1000);
     const timeStr = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
-    const statsY = panelY - panelH / 2 + 145;
-    const statItems: [string, string][] = [
-      ['Steps', `${steps}`],
-      ['Time', timeStr],
-      ['Sparks', `+${sparks}`],
+    const statsY = panelY - panelH / 2 + 152;
+    const statDefs: { key: string; label: string; value: string; icon: string }[] = [
+      { key: 'steps',  label: 'STEPS',  value: `${steps}`,  icon: 'icon-check' },
+      { key: 'time',   label: 'TIME',   value: timeStr,     icon: 'icon-timer' },
+      { key: 'sparks', label: 'SPARKS', value: `+${sparks}`, icon: 'icon-spark' },
     ];
-    statItems.forEach(([label, value], i) => {
-      const sy = statsY + i * 32;
+    const colGap = Math.min(118, (panelW - 40) / 3);
+    statDefs.forEach((stat, i) => {
+      const sx = cx + (i - 1) * colGap;
+      const isSparks = stat.key === 'sparks';
 
-      const lbl = this.add.text(cx - panelW / 2 + 30, sy, label, {
+      const icon = this.add.image(sx, statsY - 22, stat.icon).setDisplaySize(20, 20).setAlpha(0);
+      const val = this.add.text(sx, statsY + 2, stat.value, {
         fontFamily: PIXEL_FONT,
-        fontSize: '9px',
-        color: '#4A2A10',
-      }).setAlpha(0);
-      const val = this.add.text(cx + panelW / 2 - 30, sy, value, {
-        fontFamily: PIXEL_FONT,
-        fontSize: '10px',
-        color: label === 'Sparks' ? '#B8860B' : '#3A1A08',
+        fontSize: '17px',
+        color: isSparks ? '#B8860B' : '#3A1A08',
         // The darkgoldenrod Sparks value is close in luminance to the panel's
         // terracotta background — an outline keeps it legible without losing
-        // the gold color that sets it apart from the plain stat rows.
-        ...(label === 'Sparks' ? { stroke: '#2B1400', strokeThickness: 2 } : {}),
-      }).setOrigin(1, 0).setAlpha(0);
+        // the gold color that sets it apart from the plain stat columns.
+        ...(isSparks
+          ? { stroke: '#2B1400', strokeThickness: 3 }
+          : { shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true } }),
+      }).setOrigin(0.5).setAlpha(0);
+      const lbl = this.add.text(sx, statsY + 24, stat.label, {
+        fontFamily: PIXEL_FONT,
+        fontSize: '8px',
+        color: '#5A3A1A',
+      }).setOrigin(0.5).setAlpha(0);
 
-      if (label === 'Sparks') {
-        const sparkIcon = this.add.image(cx + panelW / 2 - 14, sy + 5, 'icon-spark')
-          .setDisplaySize(14, 14).setAlpha(0);
-        this.tweens.add({ targets: sparkIcon, alpha: 1, duration: 300, delay: 900 + i * 100 });
-      }
-
-      this.tweens.add({ targets: [lbl, val], alpha: 1, duration: 300, delay: 900 + i * 100 });
+      this.tweens.add({ targets: [icon, val, lbl], alpha: 1, duration: 300, delay: 900 + i * 120 });
     });
     this.playRewardBurst(cx, panelY - panelH / 2 + 90, stars);
 
     if (streakDays !== undefined) {
-      const streakY = statsY + statItems.length * 32 + 4;
-      this.add.image(cx - 72, streakY + 7, 'icon-fire').setDisplaySize(16, 16);
+      const streakY = statsY + 46;
+      this.add.image(cx - 72, streakY + 7, 'icon-fire').setDisplaySize(18, 18);
       const streak = this.add.text(cx + 4, streakY, `${streakDays} day streak!`, {
         fontFamily: PIXEL_FONT,
-        fontSize: '9px',
+        fontSize: '10px',
         color: '#ffb347',
         stroke: '#1a0a2e',
         strokeThickness: 3,
@@ -207,7 +216,8 @@ export class LevelComplete extends Phaser.Scene {
     const canShare = Array.isArray(actions) && actions.length > 0;
     if (canShare) {
       this.buildShareButton(cx, panelBottom + Math.min(44, room * 0.30), Math.min(panelW - 24, 250),
-        { levelId, timeMs, actions });
+        { levelId, timeMs, actions },
+        { title: data?.title ?? '', stars, steps, palette: data?.goalPalette ?? [] });
     }
 
     // Buttons — three in a row
@@ -218,13 +228,13 @@ export class LevelComplete extends Phaser.Scene {
     const nextId = this.getNextLevelId(levelId);
     const hasNext = nextId !== null;
 
-    this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', () => {
+    this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
       this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
     });
-    this.buildBtn(cx, btnY, btnW, 44, 'Ranks', () => {
+    this.buildBtn(cx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
       this.goToScene('Leaderboard', { levelId });
     });
-    this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', () => {
+    this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
       this.goToScene('LevelSelect');
     });
 
@@ -285,13 +295,14 @@ export class LevelComplete extends Phaser.Scene {
     this.time.removeAllEvents();
   }
 
-  private buildBtn(x: number, y: number, w: number, h: number, label: string, cb: () => void) {
+  private buildBtn(x: number, y: number, w: number, h: number, label: string, iconKey: string, cb: () => void) {
     addBeigeButton(this, {
       x,
       y,
       width: w,
       height: h,
       label,
+      iconKey,
       fontSize: Math.max(12, Math.round(h * 0.28)),
       fontFamily: PIXELIFY,
       onClick: cb,
@@ -299,12 +310,14 @@ export class LevelComplete extends Phaser.Scene {
   }
 
   // ── Splat Card sharing ────────────────────────────────────────────────────
-  private buildShareButton(x: number, y: number, w: number, payload: ShareCardRequest) {
+  private buildShareButton(
+    x: number, y: number, w: number, payload: ShareCardRequest, visual: SplatCardVisual,
+  ) {
     this.shareBtn = addBeigeButton(this, {
       x, y, width: w, height: 44,
       label: 'Splat Card', iconKey: 'icon-share',
       fontSize: 13, fontFamily: PIXELIFY,
-      onClick: () => this.showCardPrompt(payload, x, y, w),
+      onClick: () => this.showCardPrompt(payload, x, y, w, visual),
     });
 
     // Entrance pop after the stats settle, then a golden shimmer to draw the eye
@@ -329,43 +342,114 @@ export class LevelComplete extends Phaser.Scene {
     }
   }
 
-  // Caption prompt: the player can title their card before it posts. DOM
-  // <input> overlay (same pattern as the Editor's title field) so the mobile
-  // keyboard works; posting with it empty is fine — the caption is optional.
-  private showCardPrompt(payload: ShareCardRequest, x: number, y: number, w: number) {
+  // Caption prompt: shows a live preview of the actual card that gets posted
+  // (title/stars/solved slime/stats), with a DOM <input> overlay below it for
+  // the optional caption (same pattern as the Editor's title field, so the
+  // mobile keyboard works) — typing echoes into a Phaser text line inside the
+  // card so the caption is part of what gets snapshotted and posted.
+  private showCardPrompt(payload: ShareCardRequest, x: number, y: number, w: number, visual: SplatCardVisual) {
     if (this.cardPromptLayer || this.shareBusy || this.shareDone || this.navigating) return;
     const { width, height } = this.scale;
     const cx = width / 2;
-    const cy = height / 2;
-    const popW = Math.min(width - 40, 320);
-    const popH = 196;
+
+    const cardW = Math.min(width - 48, 300);
+    const cardH = 262;
+    const cardY = Math.max(cardH / 2 + 16, height / 2 - 42);
 
     const layer = this.add.container(0, 0).setDepth(70);
     this.cardPromptLayer = layer;
 
-    const dim = this.add.rectangle(cx, cy, width, height, 0x000000, 0.6).setInteractive();
+    const dim = this.add.rectangle(cx, height / 2, width, height, 0x000000, 0.6).setInteractive();
     dim.on('pointerup', () => this.closeCardPrompt());
     layer.add(dim);
 
-    layer.add(addBeigeButtonShell(this, cx, cy, popW, popH, false).container);
-    layer.add(this.add.text(cx, cy - popH / 2 + 30, 'Drop a Splat Card', {
-      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#3A1A08',
-      shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
-    }).setOrigin(0.5));
-    layer.add(this.add.text(cx, cy - popH / 2 + 56, 'Add your own caption (optional):', {
-      fontFamily: PIXELIFY, fontSize: '13px', color: '#40301F',
+    // The card itself — everything inside this container lands in the PNG.
+    const card = this.add.container(cx, cardY);
+    // Opaque backing so the snapshot has no see-through panel corners
+    // (addPixelPanel's source art isn't a solid rect outside its rounded face).
+    card.add(this.add.rectangle(0, 0, cardW - 8, cardH - 8, C.BG));
+    card.add(addPixelPanel(this, 0, 0, cardW, cardH));
+
+    const heading = this.add.text(0, -cardH / 2 + 22, 'SPLAT CARD', {
+      fontFamily: PIXEL_FONT, fontSize: '14px', color: '#FFD700',
+      stroke: '#1a0a2e', strokeThickness: 4,
+    }).setOrigin(0.5);
+    const iconL = this.add.image(-heading.width / 2 - 18, -cardH / 2 + 22, 'icon-paint').setDisplaySize(20, 20);
+    const iconR = this.add.image(heading.width / 2 + 18, -cardH / 2 + 22, 'icon-paint').setDisplaySize(20, 20);
+    card.add([heading, iconL, iconR]);
+
+    const levelName = visual.title.length > 24 ? `${visual.title.slice(0, 23)}...` : visual.title;
+    if (levelName) {
+      card.add(this.add.text(0, -cardH / 2 + 43, `"${levelName}"`, {
+        fontFamily: PIXEL_FONT, fontSize: '11px', color: '#241C33',
+      }).setOrigin(0.5));
+    }
+
+    for (let s = 0; s < 3; s++) {
+      card.add(this.add.image(-26 + s * 26, -cardH / 2 + 64, 'icon-star')
+        .setDisplaySize(18, 18).setTint(s < visual.stars ? 0xFFD700 : 0x8a6a52));
+    }
+
+    const slimeSz = 60;
+    const slime = new SlimeRenderer(this, 0, -cardH / 2 + 64 + 12 + slimeSz / 2, slimeSz);
+    slime.setPattern(visual.palette, payload.actions);
+    card.add(slime.container);
+
+    const secs = Math.floor(payload.timeMs / 1000);
+    const timeStr = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
+    const statY = cardH / 2 - 60;
+    const statLabel = `${visual.steps} ${visual.steps === 1 ? 'move' : 'moves'} · ${timeStr}`;
+    const statTxt = this.add.text(0, statY, statLabel, {
+      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#2B1400',
+    }).setOrigin(0, 0.5);
+    const statIconSz = 13, statGap = 6;
+    const statGroupW = statIconSz + statGap + statTxt.width;
+    const statIcon = this.add.image(-statGroupW / 2 + statIconSz / 2, statY, 'icon-timer')
+      .setDisplaySize(statIconSz, statIconSz);
+    statTxt.setX(-statGroupW / 2 + statIconSz + statGap);
+    card.add([statIcon, statTxt]);
+
+    // Live caption echo — hidden until the player types something, so an
+    // uncaptioned card doesn't leave an empty quote line. Anchored top-down
+    // (not centered) so a wrapped 2-line caption grows toward the brand strip
+    // instead of away from the stats line above it.
+    const captionText = this.add.text(0, cardH / 2 - 42, '', {
+      fontFamily: PIXELIFY, fontSize: '10px', color: '#2B1400', fontStyle: 'italic',
+      align: 'center', wordWrap: { width: cardW - 44 },
+    }).setOrigin(0.5, 0).setVisible(false);
+    card.add(captionText);
+
+    const brand = this.add.text(0, cardH / 2 - 10, 'SQLOTTER · SPLAT CARD', {
+      fontFamily: PIXEL_FONT, fontSize: '9px', color: '#2B1400',
+    }).setOrigin(0.5);
+    const sparkL = this.add.image(-brand.width / 2 - 12, cardH / 2 - 10, 'icon-spark').setDisplaySize(10, 10);
+    const sparkR = this.add.image(brand.width / 2 + 12, cardH / 2 - 10, 'icon-spark').setDisplaySize(10, 10);
+    card.add([brand, sparkL, sparkR]);
+
+    layer.add(card);
+    const cardRect = { x: cx - cardW / 2, y: cardY - cardH / 2, w: cardW, h: cardH };
+
+    // Caption input + Post button live below the card, outside the snapshot rect.
+    const labelY = cardY + cardH / 2 + 18;
+    layer.add(this.add.text(cx, labelY, 'Caption (optional):', {
+      fontFamily: PIXELIFY, fontSize: '12px', color: '#DEC998',
+      shadow: { offsetX: 1, offsetY: 1, color: '#000000', blur: 0, fill: true },
     }).setOrigin(0.5));
 
-    this.cardInput = this.createCardInput(cx, cy - 6, popW - 48);
+    const inputY = labelY + 22;
+    this.cardInput = this.createCardInput(cx, inputY, Math.min(cardW, width - 64));
+    this.cardInput.addEventListener('input', () => {
+      const v = (this.cardInput?.value ?? '').trim();
+      captionText.setText(v ? `"${v}"` : '').setVisible(v.length > 0);
+    });
 
     layer.add(addBeigeButton(this, {
-      x: cx, y: cy + popH / 2 - 36, width: Math.min(popW - 60, 200), height: 44,
+      x: cx, y: inputY + 42, width: Math.min(cardW - 40, 200), height: 44,
       label: 'Post It!', iconKey: 'icon-share',
       fontSize: 13, fontFamily: PIXELIFY,
       onClick: () => {
         const caption = (this.cardInput?.value ?? '').trim();
-        this.closeCardPrompt();
-        void this.postSplatCard(caption ? { ...payload, cardTitle: caption } : payload, x, y, w);
+        void this.postSplatCard(caption ? { ...payload, cardTitle: caption } : payload, x, y, w, cardRect);
       },
     }));
 
@@ -423,16 +507,30 @@ export class LevelComplete extends Phaser.Scene {
     return input;
   }
 
-  private async postSplatCard(payload: ShareCardRequest, x: number, y: number, w: number) {
+  private async postSplatCard(
+    payload: ShareCardRequest, x: number, y: number, w: number,
+    cardRect: { x: number; y: number; w: number; h: number },
+  ) {
     if (this.shareBusy || this.shareDone || this.navigating) return;
     this.shareBusy = true;
     this.shareBtn?.setAlpha(0.6);
+
+    // Snapshot the card preview while it's still on screen — best-effort,
+    // same as the crown flow: a null result still posts, just as plain text.
+    let imageDataUrl: string | undefined;
+    const src = await this.snapshotCard(cardRect.x, cardRect.y, cardRect.w, cardRect.h);
+    // Stay under the server's 1.5M-char cap with margin to spare
+    if (src !== null && src.length <= 1_400_000) imageDataUrl = src;
+    if (!this.sys.isActive() || this.navigating) { this.shareBusy = false; return; }
+    this.closeCardPrompt();
+
+    const body: ShareCardRequest = imageDataUrl ? { ...payload, imageDataUrl } : payload;
 
     let status = 0;
     try {
       const res = await fetch('/api/share/card', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload), signal: AbortSignal.timeout(6000),
+        body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
       });
       status = res.status;
     } catch { /* network failure → generic retry toast below */ }
@@ -455,10 +553,10 @@ export class LevelComplete extends Phaser.Scene {
       this.showToast('Your card is already on this post!', '#ffb347');
     } else if (status === 429) {
       this.shareBtn?.setAlpha(1);
-      this.showToast('Easy there — try again in a moment!', '#ffb347');
+      this.showToast('Easy there, try again in a moment!', '#ffb347');
     } else {
       this.shareBtn?.setAlpha(1);
-      this.showToast('Could not post — try again!', '#ff6b6b');
+      this.showToast('Could not post, try again!', '#ff6b6b');
     }
   }
 
@@ -514,9 +612,10 @@ export class LevelComplete extends Phaser.Scene {
     // '#c9b8e8' was a light lavender tuned for a dark backdrop; the card's
     // actual panel (addPixelPanel) is a warm terracotta, so darken while
     // keeping the purple hue rather than switching to a brown/gold already
-    // used elsewhere on this card.
+    // used elsewhere on this card. Reaches ~5.9:1 against the terracotta —
+    // this card is the exact image the scene exports and posts to Reddit.
     card.add(this.add.text(0, -cardH / 2 + 62, `"${levelName}"`, {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#362D4D',
+      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#241C33',
     }).setOrigin(0.5));
 
     // Splot presents the solved slime
@@ -542,19 +641,26 @@ export class LevelComplete extends Phaser.Scene {
     // C.DIM ('#7a8a9a') and the branding strip's original '#9a8a5a' were both
     // tuned for a near-black background — against this card's terracotta
     // panel (addPixelPanel) they sat at ~1.2:1 contrast, invisible on the
-    // very image this scene exports and posts to Reddit. '#40301F' matches
-    // the muted-brown fix used elsewhere on this same panel texture.
-    card.add(this.add.text(0, cardH / 2 - 60,
-      `${info.steps} ${info.steps === 1 ? 'move' : 'moves'} · ${timeStr}`, {
-        fontFamily: PIXEL_FONT, fontSize: '8px', color: '#40301F',
-      }).setOrigin(0.5));
+    // very image this scene exports and posts to Reddit. '#2B1400' (already
+    // used as the Sparks stroke on the main win panel) reaches ~6.3:1 here.
+    const crownStatY = cardH / 2 - 60;
+    const crownStatLabel = `${info.steps} ${info.steps === 1 ? 'move' : 'moves'} · ${timeStr}`;
+    const crownStatTxt = this.add.text(0, crownStatY, crownStatLabel, {
+      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#2B1400',
+    }).setOrigin(0, 0.5);
+    const crownStatIconSz = 13, crownStatGap = 6;
+    const crownStatGroupW = crownStatIconSz + crownStatGap + crownStatTxt.width;
+    const crownStatIcon = this.add.image(-crownStatGroupW / 2 + crownStatIconSz / 2, crownStatY, 'icon-timer')
+      .setDisplaySize(crownStatIconSz, crownStatIconSz);
+    crownStatTxt.setX(-crownStatGroupW / 2 + crownStatIconSz + crownStatGap);
+    card.add([crownStatIcon, crownStatTxt]);
 
     // Branding strip — this card IS the shared image, so sign it
     const brand = this.add.text(0, cardH / 2 - 26, 'SQLOTTER · FIRST SPLAT CROWN', {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: '#40301F',
+      fontFamily: PIXEL_FONT, fontSize: '9px', color: '#2B1400',
     }).setOrigin(0.5);
-    const sparkL = this.add.image(-brand.width / 2 - 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(11, 11);
-    const sparkR = this.add.image(brand.width / 2 + 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(11, 11);
+    const sparkL = this.add.image(-brand.width / 2 - 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(12, 12);
+    const sparkR = this.add.image(brand.width / 2 + 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(12, 12);
     card.add([brand, sparkL, sparkR]);
 
     layer.add(card);
@@ -642,10 +748,10 @@ export class LevelComplete extends Phaser.Scene {
       this.showToast('Only the first solver can claim this!', '#ff6b6b');
     } else if (status === 429) {
       this.crownClaimBtn?.setAlpha(1);
-      this.showToast('Easy there — try again in a moment!', '#ffb347');
+      this.showToast('Easy there, try again in a moment!', '#ffb347');
     } else {
       this.crownClaimBtn?.setAlpha(1);
-      this.showToast('Could not post — try again!', '#ff6b6b');
+      this.showToast('Could not post, try again!', '#ff6b6b');
     }
   }
 

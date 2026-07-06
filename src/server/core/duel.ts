@@ -25,7 +25,7 @@ function duelCommentText(level: LevelData, stats: DuelStats): string {
   const author = level.authorName ? `u/${level.authorName}` : 'the creator';
   if (stats.attempts === 0) {
     return `⚔️ **THE DUEL IS OPEN.** ${author} painted this slime in ${moves} and left it here as a dare. `
-      + 'Nobody has answered yet — the first challenger gets their name on this scoreboard. Splot believes in you.';
+      + 'Nobody has answered yet. Be the first challenger and put your name on this scoreboard. Splot believes in you.';
   }
   const parts = [
     `${stats.attempts} ${stats.attempts === 1 ? 'challenger' : 'challengers'}`,

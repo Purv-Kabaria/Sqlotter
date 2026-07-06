@@ -67,6 +67,9 @@ export type ShareCardRequest = {
   actions: string[];
   // Player's own title for the card (≤ 60 chars; the server sanitizes it).
   cardTitle?: string;
+  // PNG data URI snapshot of the in-game card preview — same validation and
+  // media.upload() path as FirstSplatRequest's image below.
+  imageDataUrl?: string;
 };
 
 export type ShareCardResponse = { posted: boolean };
