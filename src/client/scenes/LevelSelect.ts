@@ -233,15 +233,23 @@ export class LevelSelect extends Phaser.Scene {
     const gridBottom = isPortrait ? height - 20 - arrowSize - 16 : height - 24;
     const availH     = Math.max(0, gridBottom - gridTop);
 
-    // Fit designRows rows (+ gaps) into availH, preferring a comfortable gap but
-    // shrinking it before letting button height drop below the 66px asset floor.
+    // Fit designRows rows (+ gaps) into availH. Prefer a comfortable gap and a
+    // full-size button, but progressively tighten the gap — and then shrink the
+    // button toward the small-corner variant's floor — so short screens never
+    // clip the last row into the pagination arrows. addBeigeButton auto-swaps to
+    // the 16px-corner art below 65px, so heights under the 66px full-size floor
+    // still render cleanly (the previous Math.max(66, …) forced overflow instead).
     let rowGap = isPortrait ? 12 : 20;
     let btnH   = (availH - rowGap * (designRows - 1)) / designRows;
     if (btnH < 66) {
-      rowGap = isPortrait ? 6 : 10;
+      rowGap = isPortrait ? 8 : 12;
       btnH   = (availH - rowGap * (designRows - 1)) / designRows;
     }
-    btnH = Math.max(66, Math.min(isPortrait ? 74 : 80, btnH));
+    if (btnH < 54) {
+      rowGap = 5;
+      btnH   = (availH - rowGap * (designRows - 1)) / designRows;
+    }
+    btnH = Math.max(40, Math.min(isPortrait ? 74 : 80, btnH));
 
     const btnW = (gridW - colGap * (cols - 1)) / cols;
     const fs   = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
