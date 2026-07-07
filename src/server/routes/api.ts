@@ -325,18 +325,27 @@ api.post('/complete', async (c) => {
   let streakDays: number | undefined;
   const dailyDate = dailyDateFromLevel(level);
   if (isFirstCompletion && dailyDate) {
-    const previousDate = previousUtcDate(dailyDate);
     const lastDailyDate = await redis.hGet(userKey, 'daily:lastDate');
     const previousStreak = parseInt((await redis.hGet(userKey, 'daily:streak')) ?? '0', 10);
 
-    streakDays = lastDailyDate === previousDate
-      ? previousStreak + 1
-      : 1;
-
-    await redis.hSet(userKey, {
-      'daily:lastDate': dailyDate,
-      'daily:streak': String(streakDays),
-    });
+    // Only a daily at least as recent as the last one counts toward the streak.
+    // Back-filling an OLD daily (an earlier post solved late) must NOT reset the
+    // streak or rewind daily:lastDate — otherwise catching up on a past puzzle
+    // would silently break an active streak. Dates are 'YYYY-MM-DD', so a lexical
+    // compare is chronological.
+    if (!lastDailyDate || dailyDate > lastDailyDate) {
+      streakDays = lastDailyDate === previousUtcDate(dailyDate)
+        ? previousStreak + 1
+        : 1;
+      await redis.hSet(userKey, {
+        'daily:lastDate': dailyDate,
+        'daily:streak': String(streakDays),
+      });
+    } else {
+      // Old back-fill (or a same-date replay slipping past the first-completion
+      // guard): report the streak unchanged, don't mutate it.
+      streakDays = previousStreak;
+    }
   }
 
   let sparksEarned = 0;
