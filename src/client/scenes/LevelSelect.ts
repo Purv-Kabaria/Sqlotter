@@ -81,7 +81,10 @@ export class LevelSelect extends Phaser.Scene {
 
   private async loadProgress() {
     try {
-      const res = await fetch('/api/user/profile');
+      // create() blocks its first render on this — cap it so a hung connection
+      // costs at most 2.5s of bare background, then the grid renders with the
+      // no-progress fallback instead of never.
+      const res = await fetch('/api/user/profile', { signal: AbortSignal.timeout(2500) });
       if (res.ok) {
         const profile = await res.json();
         for (const id of (profile.completedLevels ?? [])) {
@@ -99,7 +102,8 @@ export class LevelSelect extends Phaser.Scene {
       const url = q
         ? `/api/levels/community?limit=20&q=${encodeURIComponent(q)}`
         : '/api/levels/community?limit=20';
-      const res = await fetch(url);
+      // Also awaited by create()'s first render — same 2.5s cap as loadProgress.
+      const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
       if (res.ok) {
         const data: CommunityLevelsResponse = await res.json();
         if (token === this.searchToken) this.communityLevels = data.levels ?? [];

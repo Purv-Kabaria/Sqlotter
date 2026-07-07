@@ -270,7 +270,11 @@ export class Leaderboard extends Phaser.Scene {
     const token = ++this.loadToken;
 
     try {
-      const res = await fetch(`/api/leaderboard/global?type=${this.activeBoard}`);
+      // Cap so a hung connection resolves to the empty-board state instead of
+      // leaving the panel spinning forever.
+      const res = await fetch(`/api/leaderboard/global?type=${this.activeBoard}`, {
+        signal: AbortSignal.timeout(4000),
+      });
       const data: LeaderboardResponse = res.ok ? await res.json() : { entries: [] };
       if (token !== this.loadToken || this.navigating) return;
       this.renderEntries(data.entries ?? []);

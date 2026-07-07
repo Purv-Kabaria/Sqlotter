@@ -173,7 +173,9 @@ export class Shop extends Phaser.Scene {
 
   private async loadProfile() {
     try {
-      const res = await fetch('/api/user/profile');
+      // create() blocks the Shop's first render on this — cap it so a hung
+      // connection opens the Shop with offline defaults after 2.5s, not never.
+      const res = await fetch('/api/user/profile', { signal: AbortSignal.timeout(2500) });
       if (res.ok) {
         const data: ProfileResponse = await res.json();
         this.sparks = data.sparks ?? 0;
