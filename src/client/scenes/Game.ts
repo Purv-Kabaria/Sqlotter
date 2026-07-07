@@ -882,7 +882,10 @@ export class Game extends Phaser.Scene {
   // stencil tiles toggle on/off — except goggles, which snap off broken after
   // one splash lands on them. Every logged tap is a step.
   private applyModifier(mod: ModifierDef) {
-    if (!this.engine || !this.currentRenderer || !this.level) return;
+    // Once the level is won (or the scene is leaving), the win animation is
+    // playing and the completion payload is already captured — a late tap during
+    // that window would only glitch the slime mid-celebration, so ignore it.
+    if (!this.engine || !this.currentRenderer || !this.level || this.winHandled || this.navigating) return;
     const result = this.engine.applyModifier(mod);
 
     // A refused tap (broken goggles / a spent one-shot) logs nothing, spends no
