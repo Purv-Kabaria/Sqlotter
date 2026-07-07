@@ -362,7 +362,7 @@ const TUTORIAL_LEVELS: LevelData[] = [
     optimalSteps: 5,
     optimalSolution: ['paint-red', 'nose', 'paint-orange', 'paint-yellow', 'paint-green'],
     hint: 'Red, nose on, then orange, yellow, green — the nose does the rest.',
-    tutorial: "The NOSE starts small — but every splash GROWS it one size, locking a ring of the old colour underneath. After three splashes the big nose pops off on its own. Red, nose on, then orange → yellow → green for a bullseye!",
+    tutorial: "The NOSE starts small — but every splash GROWS it one size, locking a ring of the old colour underneath. After three splashes the big nose pops off on its own. Red, nose on, then orange, yellow and green for a bullseye!",
   },
   {
     id: 'w00-l10', title: 'Alpha Dip', difficulty: 2,

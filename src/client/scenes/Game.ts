@@ -319,8 +319,11 @@ export class Game extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(16));
     const context = this.levelContextLabel();
     if (context) {
-      elements.push(this.add.text(width / 2, HEADER_H / 2 + 12, context, {
-        fontFamily: PIXEL_FONT, fontSize: '6px', color: '#9A8A6A',
+      // Secondary context line ("World 1 · Level 1"). Pixelify at 9px reads far
+      // cleaner than the 6px display face it replaced, and self-centers so there's
+      // no width budget to blow.
+      elements.push(this.add.text(width / 2, HEADER_H / 2 + 13, context, {
+        fontFamily: PIXELIFY, fontSize: '9px', color: '#B7A585',
       }).setOrigin(0.5).setDepth(16));
     }
 
@@ -782,10 +785,13 @@ export class Game extends Phaser.Scene {
     const { width, height } = this.scale;
     const popW = Math.min(width - 28, 330);
 
-    // Measure the wrapped lesson text first so the card height fits it.
+    // Measure the wrapped lesson text first so the card height fits it. A lesson
+    // is body copy the player actually reads, so it uses Pixelify (rounder, far
+    // more legible at size) rather than the blocky display face — the card height
+    // is derived from txt.height below, so the taller lines fit automatically.
     const txt = this.add.text(0, 0, text, {
-      fontFamily: PIXEL_FONT, fontSize: '8px', color: C.DARK_BROWN,
-      align: 'center', lineSpacing: 6,
+      fontFamily: PIXELIFY, fontSize: '12px', color: C.DARK_BROWN,
+      align: 'center', lineSpacing: 4,
       wordWrap: { width: popW - 36 },
     }).setOrigin(0.5, 0);
 
