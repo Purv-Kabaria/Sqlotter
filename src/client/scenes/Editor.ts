@@ -192,6 +192,11 @@ export class Editor extends Phaser.Scene {
     // A Test Play round-trip hands the draft back — restore it so the creator
     // returns to exactly the recording they left, not an empty editor.
     const draft = data?.draft;
+    // Phaser re-delivers the LAST scene data whenever the scene is started
+    // without any — consume the draft here so it restores exactly once, and a
+    // later fresh open (menu → Create, or after publishing) starts clean
+    // instead of resurrecting a stale recording.
+    this.sys.settings.data = {};
     this.actions    = draft ? [...draft.actions] : [];
     this.titleValue = draft?.title ?? 'My Custom Level';
     this.hintValue  = draft?.hint ?? '';
