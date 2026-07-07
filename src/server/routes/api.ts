@@ -28,7 +28,7 @@ import type {
   LevelResponse,
 } from '../../shared/api';
 import type { LevelData, ModifierDef, ModifierType, Stars } from '../../shared/types';
-import { getCuratedLevels } from '../../shared/levelData';
+import { generateDailyLevel, getCuratedLevels } from '../../shared/levelData';
 import {
   isBreakableMask, maskIdOf, PAINT_COLORS_16, resolveActionDef, RESET_ACTION_ID,
 } from '../../shared/slimeSim';
@@ -175,6 +175,16 @@ const GLOBAL_BOARD_KEYS = {
   played: 'lb:global:played',
 } as const;
 
+// Credits Sparks to a player other than the requester (creator royalties,
+// contest prizes): balance, negated leaderboard score, and the lifetime tier
+// counter move together — the same trio /api/complete maintains for the
+// player's own awards.
+async function creditSparks(username: string, amount: number): Promise<void> {
+  const total = await redis.incrBy(`sparks:${username}`, amount);
+  await redis.zAdd('lb:global:sparks', { score: -total, member: username });
+  await redis.hIncrBy(`user:${username}`, 'sparks:lifetime', amount);
+}
+
 // Puts a player on all three global boards at 0 ("no activity yet") so every
 // logged-in player has a leaderboard presence before their first completion.
 // Devvit's zAdd has no NX flag, so a one-shot flag on the user hash skips the
@@ -202,16 +212,20 @@ api.get('/init', async (c) => {
     let flairEnabled = true;
 
     if (username) {
-      // Permanent player registry — lets mod tools (e.g. the full-reset menu
-      // action) enumerate every player, not just those on a leaderboard.
-      await redis.zAdd('users:all', { score: Date.now(), member: username });
-      await seedGlobalBoards(username);
-
-      sparks = parseInt((await redis.get(`sparks:${username}`)) ?? '0', 10);
-      const [streakRaw, equippedRaw, flairOptOut] = await redis.hMGet(
-        `user:${username}`,
-        ['daily:streak', 'equipped', 'flair:optOut'],
-      );
+      // Registry write, board seeding, and the two profile reads are all
+      // independent — run them in one parallel batch. init gates the game's
+      // first interactive frame, so every sequential Redis round-trip here
+      // was paid on every single open.
+      const [, , sparksRaw, profileFields] = await Promise.all([
+        // Permanent player registry — lets mod tools (e.g. the full-reset menu
+        // action) enumerate every player, not just those on a leaderboard.
+        redis.zAdd('users:all', { score: Date.now(), member: username }),
+        seedGlobalBoards(username),
+        redis.get(`sparks:${username}`),
+        redis.hMGet(`user:${username}`, ['daily:streak', 'equipped', 'flair:optOut']),
+      ]);
+      const [streakRaw, equippedRaw, flairOptOut] = profileFields;
+      sparks = parseInt(sparksRaw ?? '0', 10);
       streakDays = parseInt(streakRaw ?? '0', 10);
       equippedItems = parseStringRecord(equippedRaw ?? undefined);
       flairEnabled = flairOptOut !== '1';
@@ -246,14 +260,31 @@ api.get('/daily', async (c) => {
     }
   }
 
-  // Fall back to rotating curated levels by day-of-year
-  const dayOfYear = Math.floor(
-    (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,
-  );
-  const curated = getCuratedLevels();
-  const fallback = curated[dayOfYear % curated.length] ?? curated[0];
-  if (!fallback) return c.json<Err>({ status: 'error', message: 'No daily fallback available' }, 404);
-  return c.json<DailyResponse>({ levelId: fallback.id, level: fallback, date: today });
+  // The hourly cron hasn't stored today's level yet (fresh install, or the
+  // window right after UTC midnight). The generator is date-seeded and
+  // deterministic, so generating here yields the IDENTICAL level the cron
+  // would — store it exactly like the scheduler does and serve it. Without
+  // this, early players got a curated stand-in that wasn't `isDaily`: no
+  // streak credit, no daily bonus, and "the daily" silently swapped to the
+  // real one an hour later.
+  try {
+    const level = generateDailyLevel(today);
+    await redis.set(`level:${level.id}`, JSON.stringify(level));
+    await redis.set(`daily:${today}`, level.id);
+    await redis.expire(`level:${level.id}`, 60 * 60 * 24 * 30);
+    await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
+    return c.json<DailyResponse>({ levelId: level.id, level, date: today });
+  } catch {
+    // Last resort: rotate curated levels by day-of-year (no streak credit,
+    // but the button always leads to a puzzle).
+    const dayOfYear = Math.floor(
+      (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000,
+    );
+    const curated = getCuratedLevels();
+    const fallback = curated[dayOfYear % curated.length] ?? curated[0];
+    if (!fallback) return c.json<Err>({ status: 'error', message: 'No daily fallback available' }, 404);
+    return c.json<DailyResponse>({ levelId: fallback.id, level: fallback, date: today });
+  }
 });
 
 // ── /api/levels/list ─────────────────────────────────────────
@@ -399,6 +430,20 @@ api.post('/complete', async (c) => {
   // refresh the scoreboard comment on its post. Best-effort inside.
   if (levelId.startsWith('ugc-')) {
     await recordDuelResult(level, username, steps, timeMs);
+
+    // Creator royalty (see the Sparks economy): every 10th DISTINCT player to
+    // clear a community level earns its creator +5 passive Sparks. Counting
+    // first completions only means replaying can't farm it, and the creator's
+    // own clear can at most contribute one play.
+    if (isFirstCompletion && level.authorName && level.authorName !== username) {
+      const plays = await redis.hIncrBy('ugc:plays', levelId, 1);
+      if (plays % 10 === 0) {
+        await creditSparks(level.authorName, 5);
+        // Lifetime Sparks feed the flair tier ladder — refresh the creator's
+        // flair too (self-throttling + best-effort inside).
+        await syncUserFlair(level.authorName);
+      }
+    }
   }
 
   // Splotter Flair: self-throttling (only writes to Reddit when the flair
@@ -1186,11 +1231,19 @@ api.get('/levels/community', async (c) => {
   const raw = await redis.zRange('ugc:index', 0, total - 1, { by: 'rank', reverse: true });
   let ids = raw.map((r) => r.member);
 
+  // Which of the page's ids already have a search-registry entry — so the
+  // backfill below only writes the missing ones, instead of re-writing every
+  // entry on every list request (an awaited Redis write per level per view).
+  let inRegistry: Set<string>;
   if (q) {
     const registry: Record<string, string> = (await redis.hGetAll('ugc:titles')) ?? {};
-    ids = ids.filter((id) => (registry[id] ?? '').toLowerCase().includes(q));
+    ids = ids.filter((id) => (registry[id] ?? '').toLowerCase().includes(q)).slice(0, limit);
+    inRegistry = new Set(ids.filter((id) => registry[id] !== undefined));
+  } else {
+    ids = ids.slice(0, limit);
+    const values = ids.length > 0 ? await redis.hMGet('ugc:titles', ids) : [];
+    inRegistry = new Set(ids.filter((_, i) => typeof values[i] === 'string'));
   }
-  ids = ids.slice(0, limit);
 
   const levels = (
     await Promise.all(
@@ -1205,8 +1258,10 @@ api.get('/levels/community', async (c) => {
         }
         const level = parseStoredLevel(json);
         if (!level) return null;
-        // Backfill the search registry for levels created before it existed.
-        await redis.hSet('ugc:titles', { [id]: `${level.title}\u0001${level.authorName ?? ''}` });
+        if (!inRegistry.has(id)) {
+          // Backfill the search registry for levels created before it existed.
+          await redis.hSet('ugc:titles', { [id]: `${level.title}\u0001${level.authorName ?? ''}` });
+        }
         return {
           id: level.id,
           title: level.title,
