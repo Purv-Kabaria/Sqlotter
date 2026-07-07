@@ -23,3 +23,11 @@ html, body {
 canvas {
   display: block;
 }
+
+/* The DOM overlay inputs (editor title/hint, splat-card caption, community
+   search) render in Pixelify Sans, whose fi/fl ligatures collapse into an
+   unreadable blob ("first" → "Arst"). The Phaser canvas disables them per-glyph;
+   these inputs do it in CSS. */
+input {
+  font-variant-ligatures: none;
+}

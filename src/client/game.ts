@@ -10,6 +10,11 @@ import { Leaderboard } from './scenes/Leaderboard';
 import { Shop } from './scenes/Shop';
 import { Editor } from './scenes/Editor';
 import { GameOver } from './scenes/GameOver';
+import { patchPixelifyLigatures } from './fonts';
+
+// Must run before any scene builds text — Pixelify's fi/fl ligatures otherwise
+// render body copy unreadably (see patchPixelifyLigatures).
+patchPixelifyLigatures();
 
 const config: Phaser.Types.Core.GameConfig = {
   type: AUTO,

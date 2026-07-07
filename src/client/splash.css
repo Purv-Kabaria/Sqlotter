@@ -5,6 +5,9 @@
   margin: 0;
   padding: 0;
   font-family: 'Pixelify Sans', sans-serif;
+  /* Pixelify's fi/fl ligatures collapse into an unreadable blob ("first" → "Arst").
+     The Phaser client disables them per-glyph; the DOM splash does it in CSS. */
+  font-variant-ligatures: none;
 }
 
 :root {
