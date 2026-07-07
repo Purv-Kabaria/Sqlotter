@@ -7,6 +7,7 @@ import {
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
 import { paintOverlayShine } from '../components/overlayShine';
+import type { EditorDraft } from './Editor';
 import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { getCuratedLevels } from '../../shared/levelData';
@@ -99,6 +100,9 @@ export class Game extends Phaser.Scene {
   private level:  LevelData  | null = null;
   private levelId = 'L01';
   private isPreview = false;
+  // The creator's in-progress recording, carried through a Test Play preview so
+  // both exits (win or back) restore the Editor instead of wiping it.
+  private editorDraft: EditorDraft | null = null;
   private winHandled = false;
   private loadToken = 0;
   // Guards every scene.start(...) call site — without it, a button clicked while
@@ -129,11 +133,12 @@ export class Game extends Phaser.Scene {
   constructor() { super('Game'); }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
-  init(data: { levelId?: string; previewData?: LevelData }) {
+  init(data: { levelId?: string; previewData?: LevelData; editorDraft?: EditorDraft }) {
     this.engine        = null;
     this.level         = data?.previewData ?? null;
     this.levelId       = data?.levelId ?? 'L01';
     this.isPreview     = !!data?.previewData;
+    this.editorDraft   = data?.editorDraft ?? null;
     this.winHandled    = false;
     this.navigating    = false;
     this.hudLayer      = null;
@@ -301,7 +306,11 @@ export class Game extends Phaser.Scene {
     // so back rotates it 180° (same as Leaderboard's back button).
     elements.push(this.hudIconButton(10 + HUD_BTN / 2, HEADER_H / 2, 'icon-arrow', 180, () => {
       this.closeActivePopup();
-      this.goToScene(this.isPreview ? 'Editor' : 'LevelSelect');
+      if (this.isPreview) {
+        this.goToScene('Editor', this.editorDraft ? { draft: this.editorDraft } : undefined);
+      } else {
+        this.goToScene('LevelSelect');
+      }
     }));
 
     // Level title + context line, centered. In-game the header identifies the
@@ -951,7 +960,8 @@ export class Game extends Phaser.Scene {
     this.splot?.playWin();
 
     if (this.isPreview) {
-      this.time.delayedCall(900, () => this.goToScene('Editor', undefined, 300, 320));
+      this.time.delayedCall(900, () => this.goToScene(
+        'Editor', this.editorDraft ? { draft: this.editorDraft } : undefined, 300, 320));
       return;
     }
 

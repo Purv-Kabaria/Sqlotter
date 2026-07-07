@@ -133,6 +133,15 @@ const C = {
 
 const HEADER_H = 64;
 
+// The creator's in-progress work, carried through a Test Play round-trip
+// (Editor → Game preview → back) so returning never wipes the recording.
+export type EditorDraft = {
+  title: string;
+  hint: string;
+  actions: string[];
+  decoyCount: number;
+};
+
 // Tile design sizes — the grid is laid out at these sizes then scaled as a
 // block to fit whatever space the screen leaves (see buildModPanel), so no
 // screen size ever gets a broken grid, just a proportionally smaller one.
@@ -179,11 +188,14 @@ export class Editor extends Phaser.Scene {
 
   constructor() { super('Editor'); }
 
-  init() {
-    this.actions    = [];
-    this.titleValue = 'My Custom Level';
-    this.hintValue  = '';
-    this.decoyCount = 2;
+  init(data?: { draft?: EditorDraft }) {
+    // A Test Play round-trip hands the draft back — restore it so the creator
+    // returns to exactly the recording they left, not an empty editor.
+    const draft = data?.draft;
+    this.actions    = draft ? [...draft.actions] : [];
+    this.titleValue = draft?.title ?? 'My Custom Level';
+    this.hintValue  = draft?.hint ?? '';
+    this.decoyCount = draft?.decoyCount ?? 2;
     this.uiObjs     = [];
     this.decoyBtn   = null;
     this.splot      = null;
@@ -854,7 +866,15 @@ export class Editor extends Phaser.Scene {
       return;
     }
     const level = this.buildLevelData('__preview__');
-    this.goToScene('Game', { levelId: '__preview__', previewData: level });
+    // The draft rides along so the preview's exits (win or back) can hand the
+    // recording back to a fresh Editor instead of wiping it.
+    const draft: EditorDraft = {
+      title: (this.titleInput?.value ?? this.titleValue).trim() || 'My Custom Level',
+      hint: this.hintInput?.value ?? this.hintValue,
+      actions: [...this.actions],
+      decoyCount: this.decoyCount,
+    };
+    this.goToScene('Game', { levelId: '__preview__', previewData: level, editorDraft: draft });
   }
 
   // Centralizes every scene.start(...) call — see `navigating` field comment.
