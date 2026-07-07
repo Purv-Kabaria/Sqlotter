@@ -97,10 +97,17 @@ export function generateDailyLevel(date: string): LevelData {
   recipe ??= buildGeneratedLevel(rng, DAILY_CONFIGS[tier]);
   const steps = recipe.solution.length;
 
+  // The displayed difficulty honours the daily's HARD tier. A mechanic feature
+  // (nose/alpha/bubble) is only ~4-5 moves but is still that day's headline
+  // brain-teaser, so a daily never grades below its weekday/weekend tier; a long
+  // generated fallback that lands harder than the tier keeps its step-based grade.
+  const stepDifficulty = difficultyForSteps(steps);
+  const difficulty = stepDifficulty > tier ? stepDifficulty : tier;
+
   return {
     id: `daily-${date}`,
     title,
-    difficulty: difficultyForSteps(steps),
+    difficulty,
     palette: recipe.palette,
     optimalSteps: steps,
     optimalSolution: recipe.solution,
