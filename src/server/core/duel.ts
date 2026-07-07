@@ -74,6 +74,10 @@ export async function recordDuelResult(
   timeMs: number,
 ): Promise<void> {
   try {
+    // The duel is challengers vs the creator — the creator replaying their own
+    // level (they land on it right after publishing) must not become
+    // "challenger #1" on their own scoreboard or claim its fastest-splat line.
+    if (level.authorName === username) return;
     const statsKey = `duel:${level.id}:stats`;
     const attempts = await redis.hIncrBy(statsKey, 'attempts', 1);
     if (attempts === 1) await redis.expire(statsKey, DUEL_TTL_SECONDS);

@@ -239,16 +239,28 @@ export class Game extends Phaser.Scene {
     this.showLoading();
     const token = this.loadToken;
     void (async () => {
+      // A missing level (404 — expired UGC, or a stale link) must say so, not
+      // silently swap in the first tutorial level: the player arrived from a
+      // "Beat u/x's level" post and would get a level that matches nothing on
+      // it. Network failures get the same honest error, with a way onward.
+      let fetched: LevelData | null = null;
+      let gone = false;
       try {
-        const res = await fetch(`/api/level/${id}`);
-        this.level = res.ok ? (await res.json() as { level: LevelData }).level : getCuratedLevels()[0] ?? null;
-      } catch {
-        this.level = getCuratedLevels()[0] ?? null;
-      }
+        const res = await fetch(`/api/level/${id}`, { signal: AbortSignal.timeout(6000) });
+        if (res.ok) fetched = (await res.json() as { level: LevelData }).level;
+        else gone = res.status === 404;
+      } catch { /* fetched stays null → load error below */ }
       if (token !== this.loadToken) return;
       this.loadingText?.destroy();
+      this.level = fetched;
       if (!this.level) {
-        this.showLoadError('Could not load this level.', () => this.scene.start('LevelSelect'));
+        if (gone) {
+          this.showLoadError('This level is gone — community levels retire after 90 days.',
+            () => this.scene.start('LevelSelect'), 'Browse Levels');
+        } else {
+          this.showLoadError('Could not load this level.',
+            () => this.scene.restart({ levelId: id }));
+        }
         return;
       }
       this.beginLevel();
@@ -868,7 +880,7 @@ export class Game extends Phaser.Scene {
   }
 
   // ── Load error ─────────────────────────────────────────────────────────────
-  private showLoadError(message: string, retry: () => void) {
+  private showLoadError(message: string, retry: () => void, buttonLabel = 'Try Again') {
     const { width, height } = this.scale;
     const panelW = Math.min(width - 40, 320);
     const bg   = addDarkPanel(this, 0, 0, panelW, 160).setDepth(80);
@@ -878,7 +890,7 @@ export class Game extends Phaser.Scene {
       align: 'center', wordWrap: { width: panelW - 36 },
     }).setOrigin(0.5).setDepth(81);
     const btn  = addBeigeButton(this, {
-      x: 0, y: 59, width: 148, height: 44, label: 'Try Again',
+      x: 0, y: 59, width: 148, height: 44, label: buttonLabel,
       fontSize: 13, fontFamily: PIXELIFY, onClick: retry,
     }).setDepth(81);
     const panel = this.add.container(width / 2, height / 2, [bg, icon, txt, btn])
