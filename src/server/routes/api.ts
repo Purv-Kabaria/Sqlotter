@@ -387,17 +387,19 @@ api.post('/complete', async (c) => {
     // The crown comment cites the first solve's stats (steps are replay-
     // verified above; time is client-claimed but bounded by validation).
     // Crown-eligible levels only — see the firstSplat gate below.
-    if (isFirstOverall && (level.isDaily || levelId.startsWith('ugc-'))) {
+    if (isFirstOverall && level.isDaily) {
       await redis.hSet('level:first-stats', { [levelId]: `${steps}|${timeMs}` });
     }
   }
 
   // First Splat Crown: offer the claimable trophy to the level's first-ever
-  // solver. Daily/UGC levels only — every curated level resolves to the same
-  // main post, which 160 crown comments would flood. Replays keep re-offering
-  // until the crown comment is actually posted (see /api/share/first-splat).
+  // solver. DAILY levels only — curated levels all resolve to the same main
+  // post (160 crown comments would flood it), and on UGC levels the crown
+  // stepped on the duel: the "first splat" there is just the first challenger,
+  // already celebrated on the duel scoreboard. Replays keep re-offering until
+  // the crown comment is actually posted (see /api/share/first-splat).
   let firstSplat = false;
-  if (level.isDaily || levelId.startsWith('ugc-')) {
+  if (level.isDaily) {
     const holder = isFirstOverall ? username : await redis.hGet('level:first-completer', levelId);
     if (holder === username) {
       firstSplat = (await redis.hGet('level:crowned', levelId)) === undefined;
@@ -712,7 +714,7 @@ api.post('/share/card', async (c) => {
 });
 
 // ── /api/share/first-splat ────────────────────────────────────
-// First Splat Crown: the first-ever solver of a daily/UGC level claims a
+// First Splat Crown: the first-ever solver of a DAILY level claims a
 // one-time trophy comment — the in-game rendered card (Splot wearing the
 // crown) uploaded through the media plugin and embedded as a richtext image.
 // The claimant is verified against the level:first-completer record written
@@ -740,7 +742,8 @@ api.post('/share/first-splat', async (c) => {
 
   const level = await getLevel(levelId);
   if (!level) return c.json<Err>({ status: 'error', message: 'Level not found' }, 404);
-  if (!level.isDaily && !levelId.startsWith('ugc-')) {
+  // Crowns are a daily-puzzle ritual only (UGC firsts belong to the duel).
+  if (!level.isDaily) {
     return c.json<Err>({ status: 'error', message: 'This level has no crown' }, 400);
   }
 
@@ -915,25 +918,35 @@ api.get('/leaderboard/global', async (c) => {
   const lbKey    = GLOBAL_BOARD_KEYS[type as keyof typeof GLOBAL_BOARD_KEYS] ?? GLOBAL_BOARD_KEYS.sparks;
   const username = (await reddit.getCurrentUsername()) ?? '';
 
-  const board    = await zRangeAll(lbKey);
-  const registry = await zRangeAll('users:all');
-
   // Every player who has ever logged in belongs on the board. Init seeds new
-  // players (see seedGlobalBoards), but players registered before seeding
-  // existed only live in users:all — merge them in at 0 and backfill the
-  // sorted set so this diff is a one-time cost per board.
-  const onBoard = new Set(board.map((r) => r.member));
-  const missing = registry.filter((r) => !onBoard.has(r.member)).map((r) => r.member);
-  if (missing.length > 0) {
-    await redis.zAdd(lbKey, ...missing.map((member) => ({ score: 0, member })));
+  // players (see seedGlobalBoards), so the board can only be missing players
+  // registered before seeding existed — and since every board member is a
+  // registered player, board ⊆ registry: a bare COUNT comparison detects the
+  // gap. The full-set reads (previously paid on EVERY request) now run only
+  // on that one-time backfill pass.
+  const [boardCount, registryCount] = await Promise.all([
+    redis.zCard(lbKey),
+    redis.zCard('users:all'),
+  ]);
+  if (registryCount > boardCount) {
+    const [board, registry] = await Promise.all([zRangeAll(lbKey), zRangeAll('users:all')]);
+    const onBoard = new Set(board.map((r) => r.member));
+    const missing = registry.filter((r) => !onBoard.has(r.member)).map((r) => r.member);
+    if (missing.length > 0) {
+      await redis.zAdd(lbKey, ...missing.map((member) => ({ score: 0, member })));
+    }
   }
 
-  // Merged in-memory rather than re-fetched: replicate Redis's canonical
-  // order (score ascending, then member byte-order ascending on ties).
-  const merged = [...board, ...missing.map((member) => ({ member, score: 0 }))]
-    .sort((a, b) => a.score - b.score || (a.member < b.member ? -1 : a.member > b.member ? 1 : 0));
+  // Top rows + the requester's own placement — three cheap reads instead of
+  // the whole sorted set. Scores are negated (see GLOBAL_BOARD_KEYS), so the
+  // ascending canonical order IS the display order and zRank IS the rank.
+  const [top, selfRank, selfScore] = await Promise.all([
+    redis.zRange(lbKey, 0, MAX_BOARD_ROWS - 1, { by: 'rank' }),
+    username ? redis.zRank(lbKey, username) : Promise.resolve(undefined),
+    username ? redis.zScore(lbKey, username) : Promise.resolve(undefined),
+  ]);
 
-  const entries = merged.slice(0, MAX_BOARD_ROWS).map((r, i) => ({
+  const entries = top.map((r, i) => ({
     rank:          i + 1,
     username:      r.member,
     score:         -r.score,
@@ -942,12 +955,9 @@ api.get('/leaderboard/global', async (c) => {
 
   // The player should always find themselves — if they rank below the row
   // cap, append their own row (with true rank) as the final entry.
-  if (username && !entries.some((entry) => entry.isCurrentUser)) {
-    const rankIndex = merged.findIndex((r) => r.member === username);
-    const row = rankIndex >= 0 ? merged[rankIndex] : undefined;
-    if (row) {
-      entries.push({ rank: rankIndex + 1, username, score: -row.score, isCurrentUser: true });
-    }
+  if (username && !entries.some((entry) => entry.isCurrentUser)
+    && selfRank !== undefined && selfScore !== undefined) {
+    entries.push({ rank: selfRank + 1, username, score: -selfScore, isCurrentUser: true });
   }
 
   return c.json<LeaderboardResponse>({ entries });

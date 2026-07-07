@@ -43,6 +43,10 @@ export class Leaderboard extends Phaser.Scene {
   // requested — without this, rapidly switching tabs can let a slow, stale
   // response render on top of (or instead of) the tab the player is now on.
   private loadToken = 0;
+  // Last-known rows per board, painted instantly on a tab switch (or scene
+  // revisit) while the fresh fetch runs underneath. Never reset: staleness is
+  // at most one refresh behind, and the background fetch corrects it.
+  private boardCache = new Map<BoardType, LeaderboardEntry[]>();
   // Guards every scene.start(...) call — prevents double-tapping back, and
   // gates the in-flight fetch from touching a scene that's already shut down.
   private navigating = false;
@@ -268,19 +272,29 @@ export class Leaderboard extends Phaser.Scene {
 
   private async loadAndRender() {
     const token = ++this.loadToken;
+    const board = this.activeBoard;
+
+    // Paint the last-known rows immediately — tab switches and revisits feel
+    // instant, and the fresh response re-renders underneath when it lands.
+    const cached = this.boardCache.get(board);
+    if (cached) this.renderEntries(cached);
 
     try {
       // Cap so a hung connection resolves to the empty-board state instead of
       // leaving the panel spinning forever.
-      const res = await fetch(`/api/leaderboard/global?type=${this.activeBoard}`, {
+      const res = await fetch(`/api/leaderboard/global?type=${board}`, {
         signal: AbortSignal.timeout(4000),
       });
       const data: LeaderboardResponse = res.ok ? await res.json() : { entries: [] };
       if (token !== this.loadToken || this.navigating) return;
-      this.renderEntries(data.entries ?? []);
+      const entries = data.entries ?? [];
+      this.boardCache.set(board, entries);
+      this.renderEntries(entries);
     } catch {
       if (token !== this.loadToken || this.navigating) return;
-      this.renderEntries([]);
+      // A failed refresh keeps the cached rows on screen rather than blanking
+      // them; only a board we've never seen falls back to the empty state.
+      if (!cached) this.renderEntries([]);
     }
   }
 
