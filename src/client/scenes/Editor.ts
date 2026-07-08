@@ -318,19 +318,19 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildLandscape(width: number, height: number) {
-    this.buildHeader(width, false);
+    // Inputs stacked in the header's right half — sized before the header so
+    // the wordmark knows where it must stop (they collided at 568w).
+    this.inputW = Math.min(width - 240, 330);
+    this.inputCx = width - 12 - this.inputW / 2;
+    this.titleInputY = 22;
+    this.hintInputY = 50;
+    this.buildHeader(width, false, width - 12 - this.inputW - 10);
 
     const leftW  = Math.min(Math.round(width * 0.42), 340);
     const leftCx = 12 + leftW / 2;
     const rightX0 = leftW + 24;
     const rightW  = width - rightX0 - 12;
     const rightCx = rightX0 + rightW / 2;
-
-    // Inputs stacked in the header's right half.
-    this.inputW = Math.min(width - 240, 330);
-    this.inputCx = width - 12 - this.inputW / 2;
-    this.titleInputY = 22;
-    this.hintInputY = 50;
 
     const top = HEADER_H + 12;
     const bottomZone = height - 62;
@@ -370,7 +370,7 @@ export class Editor extends Phaser.Scene {
   // Header strip matching the Game scene: dark bar, beige icon button for
   // back, pencil-badged title. In landscape the title hugs the left so the
   // DOM inputs can occupy the right half.
-  private buildHeader(width: number, centered: boolean) {
+  private buildHeader(width: number, centered: boolean, maxRight = width) {
     this.uiObjs.push(this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(10));
 
     const back = addBeigeButtonShell(this, 10 + 24, HEADER_H / 2, 48, 48, false,
@@ -390,6 +390,10 @@ export class Editor extends Phaser.Scene {
     const iconSz = 18;
     const totalW = iconSz + 8 + title.width;
     const startX = centered ? width / 2 - totalW / 2 : 68;
+    // In landscape the DOM inputs occupy the header's right half — the
+    // wordmark shrinks rather than running underneath them (maxRight).
+    const maxTextW = maxRight - (startX + iconSz + 8);
+    if (title.width > maxTextW && maxTextW > 0) title.setScale(maxTextW / title.width);
     const icon = addDepthIcon(this, startX + iconSz / 2, HEADER_H / 2 - 1, 'icon-pencil', iconSz, iconSz).setDepth(11);
     title.setX(startX + iconSz + 8);
     this.uiObjs.push(title, icon);

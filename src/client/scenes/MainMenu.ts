@@ -179,17 +179,25 @@ export class MainMenu extends Phaser.Scene {
         () => this.showSettingsPopup()).setDepth(12));
     }
 
-    // SQLOTTER logo centered in strip — capped so it can never run into the pill. Bobs gently.
+    // SQLOTTER logo centered in the gap the gear and pill actually leave —
+    // the old symmetric 2×pillW reservation shrank it to a ~34px speck on
+    // 280px-wide screens even though ~95px of real gap existed. Skipped
+    // entirely when even that gap can't fit a legible wordmark.
     if (this.textures.exists('title')) {
-      const logoW = Math.max(0, Math.min(w * 0.58, 260, w - 2 * pill.width - 36));
-      const logoH = Math.round(logoW * 112 / 512);
-      const logo = this.add.image(cx, titleH / 2, 'title')
-        .setDisplaySize(logoW, logoH).setDepth(11);
-      els.push(logo);
-      this.tweens.add({
-        targets: logo, y: titleH / 2 + 4,
-        duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-      });
+      const gearW = this.userData?.username ? pillH : 0;
+      const gapL = 8 + gearW + (gearW ? 10 : 0);
+      const gapR = w - 8 - pill.width - 10;
+      const logoW = Math.max(0, Math.min(w * 0.58, 260, gapR - gapL));
+      if (logoW >= 72) {
+        const logoH = Math.round(logoW * 112 / 512);
+        const logo = this.add.image((gapL + gapR) / 2, titleH / 2, 'title')
+          .setDisplaySize(logoW, logoH).setDepth(11);
+        els.push(logo);
+        this.tweens.add({
+          targets: logo, y: titleH / 2 + 4,
+          duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+      }
     }
 
     // Sky area: 36% of height, but never so tall that 5×66px buttons can't fit below.

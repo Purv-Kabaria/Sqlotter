@@ -102,8 +102,10 @@ export class LevelComplete extends Phaser.Scene {
     // Panel — centered when the rows below it (~108px with the Splat Card
     // row, ~60px without) still fit; otherwise slid up toward the top edge so
     // a short landscape viewport doesn't push the nav buttons off-screen.
+    // Below ~376px of height even that isn't enough — the panel itself gives
+    // up height (floor 240: title 40 + stars + stats block 200 stay intact).
     const panelW = Math.min(width - 32, 380);
-    const panelH = 320;
+    const panelH = Math.max(240, Math.min(320, height - 56));
     const rowsH = Array.isArray(actions) && actions.length > 0 ? 108 : 60;
     const panelY = height / 2 + panelH / 2 + rowsH > height
       ? Math.max(panelH / 2 + 8, height - rowsH - panelH / 2)
@@ -218,9 +220,13 @@ export class LevelComplete extends Phaser.Scene {
       });
     }
 
-    // Splot mascot
-    this.splot = new SplotMascot(this, cx, panelY + panelH / 2 - 50, 80);
-    this.time.delayedCall(400, () => this.splot?.playWin());
+    // Splot mascot — only when the panel kept enough height that he doesn't
+    // sit on the streak row (everything above him uses fixed top offsets, so
+    // a shrunken panel eats his slot first).
+    if (panelH >= 300) {
+      this.splot = new SplotMascot(this, cx, panelY + panelH / 2 - 50, 80);
+      this.time.delayedCall(400, () => this.splot?.playWin());
+    }
 
     // "Splat Card" share row — a one-tap brag comment on this post. Only shown
     // when the win flow handed us the action sequence (the server re-verifies it).

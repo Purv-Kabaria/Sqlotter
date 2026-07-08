@@ -361,6 +361,11 @@ export function addBeigeButton(
     color: disabled ? '#9A7A5A' : '#3A1A08',
     shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
   }).setOrigin(hasIcon ? 0 : 0.5, 0.5);
+  // Measured clamp: callers estimate font sizes from character counts, which
+  // under-measures wide labels ("Crimson Belt... · par 4" on a 120px button).
+  // Downscale to the button face so no label can spill past the corner art.
+  const maxTextW = hasIcon ? W / 2 - 12 - textX : W - 24;
+  if (maxTextW > 0 && txt.width > maxTextW) txt.setScale(maxTextW / txt.width);
   content.push(txt);
 
   shell.addContent(content);

@@ -184,20 +184,26 @@ export class LevelSelect extends Phaser.Scene {
 
     // Title panel — width leaves clearance for the back button on the left, kept
     // symmetric on both sides so the panel still reads as centered on screen.
+    // Below ~140px of symmetric budget (280px-class screens) that symmetry
+    // starves the title while the right half of the strip sits empty — there
+    // the panel centers in the real gap right of the back button instead.
     const titleClearance = leftPad + arrowSize + 12;
-    const titleW  = Math.min(width - titleClearance * 2, isPortrait ? 300 : 360);
+    const symmetricW = width - titleClearance * 2;
+    const useGap = symmetricW < 140;
+    const titleW  = Math.min(useGap ? width - titleClearance - 14 : symmetricW, isPortrait ? 300 : 360);
+    const titleX  = useGap ? titleClearance + titleW / 2 : width / 2;
     const titleH  = Math.max(66, Math.min(96, Math.round(height * (isPortrait ? 0.11 : 0.135))));
     const titleY  = Math.max(titleH / 2 + 16, height * (isPortrait ? 0.09 : 0.11));
     const titleFs = Math.max(20, Math.min(34, Math.round(titleH * 0.36)));
     // World pages show "World N — Name" (the tutorial world shows just its
-    // name); the font shrinks to fit the longest names inside titleW rather
-    // than overflowing the button on narrow screens.
+    // name); the font shrinks to fit the longest names inside the button's
+    // FACE (titleW minus the 2×14px corner bevels) rather than overflowing.
     const titleLabel = page.kind === 'world'
       ? (page.meta.num === 0 ? page.meta.name : `World ${page.meta.num} — ${page.meta.name}`)
       : 'Community Levels';
-    const fittedFs = Math.max(12, Math.min(titleFs, Math.floor(titleW / (titleLabel.length * 0.62))));
+    const fittedFs = Math.max(12, Math.min(titleFs, Math.floor((titleW - 28) / (titleLabel.length * 0.62))));
     const titleBtn = addBeigeButton(this, {
-      x: width / 2, y: titleY, width: titleW, height: titleH,
+      x: titleX, y: titleY, width: titleW, height: titleH,
       label: titleLabel,
       fontSize: fittedFs,
       fontFamily: PIXELIFY,
