@@ -4,6 +4,7 @@ import { SplotMascot } from '../components/SplotMascot';
 import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
 import { getCachedUserData, setCachedUserData } from '../userData';
+import { warmLevelsDuringIdle } from '../levelWarmup';
 import { DEFERRED_IMG } from './Preloader';
 
 const PIXELIFY = BODY_FONT;
@@ -61,6 +62,9 @@ export class MainMenu extends Phaser.Scene {
 
     void this.loadUserData();
     this.warmDeferredAssets();
+    // Continue the curated-level build Preloader started — by the time the
+    // player taps Play, LevelSelect should get the full set for free.
+    warmLevelsDuringIdle(this);
   }
 
   // Streams the assets only Shop/Editor need while the player reads the menu —

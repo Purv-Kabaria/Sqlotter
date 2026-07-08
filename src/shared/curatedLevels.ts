@@ -715,78 +715,108 @@ const LEVEL_NOUNS = [
   'Blot', 'Swirl', 'Dip', 'Print', 'Sash', 'Crown', 'Veil', 'Shade',
 ] as const;
 
-function generateWorlds(): LevelData[] {
-  const levels: LevelData[] = [];
+// Builds one world's 16 levels. Must be called for worlds in ascending order
+// with the same shared `usedShapes` set — the structural dedupe accumulates
+// across worlds, so the sequence (not just the seeds) is what keeps the set
+// deterministic and identical on client and server.
+function buildOneWorld(w: number, usedShapes: Set<string>): LevelData[] {
+  const ramp = WORLD_RAMPS[w]!;
+  const worldNum = w + 1;
 
-  // Every generated goal must have a shape no other level has — including the
-  // hand-authored tutorials, whose shapes seed the set.
-  const usedShapes = new Set<string>();
-  for (const lvl of TUTORIAL_LEVELS) {
-    const goal = replaySim(lvl.palette, lvl.optimalSolution);
-    if (goal) usedShapes.add(structureKey(goal));
+  const mechanics = WORLD_MECHANICS[w] ?? [];
+  const every = mechInterval(w);
+  const recipes: GeneratedRecipe[] = [];
+  for (let i = 0; i < LEVELS_PER_WORLD; i++) {
+    // Fixed seed per slot — the set is stable across builds and identical on
+    // client and server. The salt keeps it decoupled from the daily seeds.
+    const rng = mulberry32(0x5711 + worldNum * 1000 + i * 7);
+    const t = i / (LEVELS_PER_WORLD - 1);
+
+    // Every `every`-th slot in a mechanic world is a nose/alpha/bubble
+    // showcase (dense worlds every other slot); the rest are plain generated
+    // puzzles. A showcase must clear the world's minimum challenge (a 1-color
+    // bubble recipe is 2 moves — an insult in an endgame world), so short
+    // rolls are retried and the slot falls back to a generated level if the
+    // builder can't roll a fresh shape at par.
+    let recipe: GeneratedRecipe | null = null;
+    if (mechanics.length > 0 && i % every === every - 1) {
+      const mech = mechanics[Math.floor(i / every) % mechanics.length]!;
+      const mechRng = mulberry32(0x9E37 + worldNum * 1000 + i * 13);
+      const minSteps = worldNum >= 8 ? 5 : 4;
+      for (let k = 0; k < 6 && !recipe; k++) {
+        const cand = buildMechanicRecipe(mech, mechRng, 1 + Math.round(t), usedShapes);
+        recipe = cand && cand.solution.length >= minSteps ? cand : null;
+      }
+    }
+    recipes.push(recipe ?? buildGeneratedLevel(rng, slotConfig(ramp, t), usedShapes));
   }
 
-  WORLD_RAMPS.forEach((ramp, w) => {
-    const worldNum = w + 1;
+  // Slot budgets ramp up, but the rng can still hand slot 3 a longer
+  // solution than slot 5 — sorting by score guarantees the ramp the player
+  // actually feels. Deterministic: stable score with index tiebreak.
+  const ordered = recipes
+    .map((recipe, i) => ({ recipe, i }))
+    .sort((a, b) => recipeScore(a.recipe) - recipeScore(b.recipe) || a.i - b.i);
 
-    const mechanics = WORLD_MECHANICS[w] ?? [];
-    const every = mechInterval(w);
-    const recipes: GeneratedRecipe[] = [];
-    for (let i = 0; i < LEVELS_PER_WORLD; i++) {
-      // Fixed seed per slot — the set is stable across builds and identical on
-      // client and server. The salt keeps it decoupled from the daily seeds.
-      const rng = mulberry32(0x5711 + worldNum * 1000 + i * 7);
-      const t = i / (LEVELS_PER_WORLD - 1);
-
-      // Every `every`-th slot in a mechanic world is a nose/alpha/bubble
-      // showcase (dense worlds every other slot); the rest are plain generated
-      // puzzles. A showcase must clear the world's minimum challenge (a 1-color
-      // bubble recipe is 2 moves — an insult in an endgame world), so short
-      // rolls are retried and the slot falls back to a generated level if the
-      // builder can't roll a fresh shape at par.
-      let recipe: GeneratedRecipe | null = null;
-      if (mechanics.length > 0 && i % every === every - 1) {
-        const mech = mechanics[Math.floor(i / every) % mechanics.length]!;
-        const mechRng = mulberry32(0x9E37 + worldNum * 1000 + i * 13);
-        const minSteps = worldNum >= 8 ? 5 : 4;
-        for (let k = 0; k < 6 && !recipe; k++) {
-          const cand = buildMechanicRecipe(mech, mechRng, 1 + Math.round(t), usedShapes);
-          recipe = cand && cand.solution.length >= minSteps ? cand : null;
-        }
-      }
-      recipes.push(recipe ?? buildGeneratedLevel(rng, slotConfig(ramp, t), usedShapes));
-    }
-
-    // Slot budgets ramp up, but the rng can still hand slot 3 a longer
-    // solution than slot 5 — sorting by score guarantees the ramp the player
-    // actually feels. Deterministic: stable score with index tiebreak.
-    const ordered = recipes
-      .map((recipe, i) => ({ recipe, i }))
-      .sort((a, b) => recipeScore(a.recipe) - recipeScore(b.recipe) || a.i - b.i);
-
-    ordered.forEach(({ recipe }, i) => {
-      const steps = recipe.solution.length;
-      const colorName = recipe.colors[recipe.colors.length - 1]?.name ?? 'Slime';
-      levels.push({
-        id: `w${String(worldNum).padStart(2, '0')}-l${String(i + 1).padStart(2, '0')}`,
-        title: `${colorName} ${LEVEL_NOUNS[i % LEVEL_NOUNS.length]}`,
-        difficulty: difficultyForSteps(steps),
-        palette: recipe.palette,
-        optimalSteps: steps,
-        optimalSolution: recipe.solution,
-        hint: hintFor(recipe),
-      });
-    });
+  return ordered.map(({ recipe }, i) => {
+    const steps = recipe.solution.length;
+    const colorName = recipe.colors[recipe.colors.length - 1]?.name ?? 'Slime';
+    return {
+      id: `w${String(worldNum).padStart(2, '0')}-l${String(i + 1).padStart(2, '0')}`,
+      title: `${colorName} ${LEVEL_NOUNS[i % LEVEL_NOUNS.length]}`,
+      difficulty: difficultyForSteps(steps),
+      palette: recipe.palette,
+      optimalSteps: steps,
+      optimalSolution: recipe.solution,
+      hint: hintFor(recipe),
+    };
   });
-
-  return levels;
 }
 
+// ── Incremental build ────────────────────────────────────────────────────
+// Generating all 24 worlds costs hundreds of ms of pure CPU (seconds on a
+// low-end phone) — done in one synchronous gulp it freezes whichever frame
+// first asks for levels, which used to be the tap on Play. The build is
+// resumable instead: warmCuratedLevels() generates ONE world (~15-40ms), so
+// the client spreads the work across idle frames right after the menu paints
+// (see MainMenu), and getCuratedLevels() only pays synchronously for whatever
+// is still missing.
 let curatedCache: LevelData[] | null = null;
+let buildPartial: LevelData[] | null = null;
+let buildShapes: Set<string> | null = null;
+let buildCursor = 0;
+
+/**
+ * Advances the curated build by one world; returns true once the full set
+ * exists. Safe to call after completion (no-op) and safe to interleave with
+ * getCuratedLevels(), which finishes any remainder synchronously.
+ */
+export function warmCuratedLevels(): boolean {
+  if (curatedCache) return true;
+  if (buildShapes === null || buildPartial === null) {
+    // Every generated goal must have a shape no other level has — including
+    // the hand-authored tutorials, whose shapes seed the set.
+    buildShapes = new Set<string>();
+    for (const lvl of TUTORIAL_LEVELS) {
+      const goal = replaySim(lvl.palette, lvl.optimalSolution);
+      if (goal) buildShapes.add(structureKey(goal));
+    }
+    buildPartial = [...TUTORIAL_LEVELS];
+  }
+  if (buildCursor < WORLD_RAMPS.length) {
+    buildPartial.push(...buildOneWorld(buildCursor, buildShapes));
+    buildCursor++;
+  }
+  if (buildCursor >= WORLD_RAMPS.length) {
+    curatedCache = buildPartial;
+    return true;
+  }
+  return false;
+}
 
 /** The full curated set (tutorial + generated worlds), built once on demand. */
 export function getCuratedLevels(): LevelData[] {
-  curatedCache ??= [...TUTORIAL_LEVELS, ...generateWorlds()];
+  while (!curatedCache) warmCuratedLevels();
   return curatedCache;
 }
 

@@ -4,8 +4,14 @@ import { getCuratedLevels, LEVELS_PER_WORLD, WORLDS_META } from '../../shared/le
 import type { WorldMeta } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
+import { getCachedProgress, setCachedProgress } from '../levelProgress';
 
 const PIXELIFY = BODY_FONT;
+
+// Session cache of the default community listing (no query) — with the
+// progress cache it lets repeat visits render the whole screen instantly
+// while a background refetch corrects both.
+let communityCache: CommunityLevelSummary[] | null = null;
 
 // The grid reserves layout space for a full world (see buildPage's grid geometry):
 // 8 rows × 2 cols portrait, 4 rows × 4 cols desktop. Worlds may hold fewer
@@ -78,17 +84,25 @@ export class LevelSelect extends Phaser.Scene {
 
     this.buildBackground();
 
-    // Load progress/community data before the first render so level buttons never
-    // flash an incorrect locked state. The wait is capped at 2.5s (see the
-    // fetches) — a pulsing label keeps it from reading as a hang.
-    const loading = this.add.text(this.scale.width / 2, this.scale.height / 2, 'Loading levels...', {
-      fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
-      stroke: '#3A1A08', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(30);
-    this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
-    await Promise.all([this.loadProgress(), this.loadCommunityLevels()]);
-    this.tweens.killTweensOf(loading);
-    loading.destroy();
+    // Repeat visits render instantly from the session caches (a background
+    // refetch corrects them). Only the very first visit blocks its render on
+    // the fetches — level buttons must not flash an incorrect locked state —
+    // and shows a pulsing label for that capped (2.5s) wait.
+    const cachedProgress = getCachedProgress();
+    if (cachedProgress) {
+      this.completedLevels = { ...cachedProgress };
+      this.communityLevels = communityCache ? [...communityCache] : [];
+      void this.refreshInBackground();
+    } else {
+      const loading = this.add.text(this.scale.width / 2, this.scale.height / 2, 'Loading levels...', {
+        fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
+        stroke: '#3A1A08', strokeThickness: 4,
+      }).setOrigin(0.5).setDepth(30);
+      this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
+      await Promise.all([this.loadProgress(), this.loadCommunityLevels()]);
+      this.tweens.killTweensOf(loading);
+      loading.destroy();
+    }
 
     this.buildPages();
     if (this.openFinder) this.pageIndex = this.pages.length - 1;
@@ -97,6 +111,19 @@ export class LevelSelect extends Phaser.Scene {
     // so hand the search box the caret right away.
     if (this.openFinder) this.searchInput?.focus();
     this.scale.on('resize', this.onResize, this);
+  }
+
+  // Cached render path: refetch both datasets behind the visible screen and
+  // rebuild only if something actually changed (new stars, new splats).
+  private async refreshInBackground() {
+    const before = JSON.stringify([this.completedLevels, this.communityLevels]);
+    await Promise.all([this.loadProgress(), this.loadCommunityLevels(this.searchQuery.trim())]);
+    if (this.navigating || !this.sys.isActive()) return;
+    const after = JSON.stringify([this.completedLevels, this.communityLevels]);
+    if (after !== before) {
+      this.buildPages();
+      this.buildPage();
+    }
   }
 
   private async loadProgress() {
@@ -110,6 +137,7 @@ export class LevelSelect extends Phaser.Scene {
         for (const id of (profile.completedLevels ?? [])) {
           this.completedLevels[id] = { stars: profile.levelStars?.[id] ?? 1 };
         }
+        setCachedProgress({ ...this.completedLevels });
       }
     } catch { /* fallback: no progress */ }
   }
@@ -127,6 +155,9 @@ export class LevelSelect extends Phaser.Scene {
       if (res.ok) {
         const data: CommunityLevelsResponse = await res.json();
         if (token === this.searchToken) this.communityLevels = data.levels ?? [];
+        // Only the default (query-less) listing is worth keeping for the
+        // next visit — search results are transient.
+        if (!q) communityCache = data.levels ?? [];
       }
     } catch { /* fallback: empty */ }
   }

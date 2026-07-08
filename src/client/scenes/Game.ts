@@ -11,6 +11,7 @@ import type { EditorDraft } from './Editor';
 import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { getCuratedLevels } from '../../shared/levelData';
+import { recordCompletion } from '../levelProgress';
 import { BASE_COLOR, standardPaints, standardPumpkins } from '../../shared/slimeSim';
 
 // Tutorial modals ("Splash Course" levels) show once per page load per level —
@@ -985,6 +986,9 @@ export class Game extends Phaser.Scene {
     const elapsed = this.engine.elapsedMs();
     const steps   = this.engine.steps;
     const stars   = calcStars(steps, this.level.optimalSteps);
+    // Into the session progress cache immediately — LevelSelect renders from
+    // it, and the next level must show unlocked without waiting on a refetch.
+    recordCompletion(this.levelId, stars);
 
     this.currentRenderer?.playWinAnim(this);
     this.splot?.playWin();

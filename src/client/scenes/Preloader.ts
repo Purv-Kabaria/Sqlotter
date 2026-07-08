@@ -1,5 +1,6 @@
 import { GameObjects, Scene, Structs, TintModes, Tweens } from 'phaser';
 import { getLaunchLevelId } from '../launch';
+import { warmLevelsDuringIdle } from '../levelWarmup';
 import { paintOverlayShine } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
 import { prefetchUserData } from '../userData';
@@ -400,6 +401,11 @@ export class Preloader extends Scene {
     this.scale.off('resize', this.onResize, this);
     this.makeZoomIcon('mod-nose-big', 'icon-nose');
     const launchLevelId = getLaunchLevelId();
+
+    // Start chewing through the curated-level build while we wait on the
+    // profile/fonts below — otherwise the first scene to ask for levels
+    // (a Play tap, or a deep-linked level) pays the whole build in one frame.
+    warmLevelsDuringIdle(this);
 
     // Assets are done; give the profile fetch started in preload() a moment
     // to land so the menu opens with real data — but race it against a short

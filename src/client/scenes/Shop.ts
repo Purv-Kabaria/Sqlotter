@@ -63,6 +63,15 @@ type DragState = {
   downRecord: CardRecord | null;
 };
 
+// Session cache of the profile fetch — repeat Shop visits render instantly
+// with last-known sparks/inventory while a background refetch corrects them;
+// only the very first visit blocks its render on the network.
+let profileCache: {
+  sparks: number;
+  unlockedItems: string[];
+  equippedItems: Record<string, string>;
+} | null = null;
+
 export class Shop extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
   private uiLayer: Phaser.GameObjects.Container | null = null;
@@ -165,16 +174,25 @@ export class Shop extends Phaser.Scene {
     this.input.on('wheel', this.onWheelBound);
 
     this.buildBackground();
-    // The first render blocks on the profile (capped at 2.5s) — a pulsing
-    // label keeps the bare clouds from reading as a hang.
-    const loading = this.add.text(this.scale.width / 2, this.scale.height / 2, 'Loading shop...', {
-      fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
-      stroke: '#3A1A08', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(30);
-    this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
-    await this.loadProfile();
-    this.tweens.killTweensOf(loading);
-    loading.destroy();
+    // Repeat visits render instantly from the session cache (a background
+    // refetch corrects it). Only the very first visit blocks its render on
+    // the profile (capped at 2.5s), with a pulsing label so the bare clouds
+    // don't read as a hang.
+    if (profileCache) {
+      this.sparks = profileCache.sparks;
+      this.unlockedItems = new Set(profileCache.unlockedItems);
+      this.equippedItems = { ...profileCache.equippedItems };
+      void this.refreshProfileInBackground();
+    } else {
+      const loading = this.add.text(this.scale.width / 2, this.scale.height / 2, 'Loading shop...', {
+        fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
+        stroke: '#3A1A08', strokeThickness: 4,
+      }).setOrigin(0.5).setDepth(30);
+      this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
+      await this.loadProfile();
+      this.tweens.killTweensOf(loading);
+      loading.destroy();
+    }
 
     this.buildUI();
     this.scale.on('resize', this.onResize, this);
@@ -190,8 +208,26 @@ export class Shop extends Phaser.Scene {
         this.sparks = data.sparks ?? 0;
         this.unlockedItems = new Set(data.unlockedItems ?? []);
         this.equippedItems = data.equippedItems ?? {};
+        this.storeProfileCache();
       }
     } catch { /* offline fallback */ }
+  }
+
+  // Cached render path: refetch behind the visible screen; rebuild only when
+  // something changed AND no popup is up (a rebuild would yank it away).
+  private async refreshProfileInBackground() {
+    const before = JSON.stringify(profileCache);
+    await this.loadProfile();
+    if (this.navigating || !this.sys.isActive()) return;
+    if (JSON.stringify(profileCache) !== before && !this.activePopup) this.buildUI();
+  }
+
+  private storeProfileCache() {
+    profileCache = {
+      sparks: this.sparks,
+      unlockedItems: [...this.unlockedItems],
+      equippedItems: { ...this.equippedItems },
+    };
   }
 
   // ── Background — full-canvas drifting pink-cloud layers, same technique as
@@ -540,6 +576,18 @@ export class Shop extends Phaser.Scene {
   // control) — the full-size 32px corners were eating proportionally more
   // of the button than that much text needs, reading as oversized. ────────
   private buildCategoryTabs(rects: Rect[], els: Phaser.GameObjects.GameObject[]) {
+    // Below ~11px-fittable width (280px-class screens: five tabs of ~50px) no
+    // scale of text reads — squeezed labels sat ON the corner bevels. The tabs
+    // drop the words entirely there and show each category's own art instead;
+    // decided for the whole row at once (the widths are uniform) so text and
+    // icon tabs never mix.
+    const iconTabs = rects.length > 0 && CATEGORIES.some((cat) =>
+      Math.floor((rects[0]!.w * 0.78) / (CAT_LABELS[cat].length * 0.62)) < 11);
+    const iconKeys: Record<ShopCategory, string> = {
+      brows: 'char-brow-normal', eyes: 'char-eye-normal', mouth: 'char-mouth-smile',
+      accessories: 'char-acc-cap', colors: 'icon-paint',
+    };
+
     CATEGORIES.forEach((cat, i) => {
       const r = rects[i];
       if (!r) return;
@@ -555,6 +603,21 @@ export class Shop extends Phaser.Scene {
         this.buildUI();
       }, true);
       shell.container.setDepth(6);
+
+      if (iconTabs) {
+        // Trimmed to the art's alpha bbox — the raw character parts sit at
+        // their on-face position inside a 128px canvas, so untrimmed they
+        // render as an off-center speck.
+        const t = this.getTrimmedIconTexture(iconKeys[cat]);
+        const box = Math.min(r.h * 0.6, r.w * 0.62, 34);
+        const s = Math.min(box / t.w, box / t.h, 2.4);
+        const icon = this.add.image(0, 0, t.key)
+          .setDisplaySize(t.w * s, t.h * s)
+          .setAlpha(active ? 1 : 0.55);
+        shell.addContent([icon]);
+        els.push(shell.container);
+        return;
+      }
 
       const label = this.add.text(0, 0, labelText, {
         fontFamily: PIXELIFY,
@@ -1082,6 +1145,7 @@ export class Shop extends Phaser.Scene {
       }
       const data: EquipResponse = await res.json();
       this.equippedItems = data.equippedItems;
+      this.storeProfileCache();
       if (!quiet) this.showToast(`Equipped ${item.label}!`, C.GREEN);
       this.splot?.refresh(this.previewedEquipment());
       this.splot?.setExpression('excited', 1500);
@@ -1116,6 +1180,7 @@ export class Shop extends Phaser.Scene {
       const data: BuyResponse = await res.json();
       this.sparks = data.sparks;
       this.unlockedItems = new Set(data.unlockedItems);
+      this.storeProfileCache();
       this.showToast(`Got ${item.label}!`, C.GREEN);
       this.buildUI();
     } catch {

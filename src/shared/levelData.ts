@@ -7,7 +7,8 @@ import {
 // The curated set lives in curatedLevels.ts (hand-authored tutorial + worlds
 // generated deterministically on first access — no build step involved).
 export {
-  getCuratedLevels, LEVELS_PER_WORLD, LEVELS_VERSION, WORLD_COUNT, WORLD_NAMES, WORLDS_META,
+  getCuratedLevels, LEVELS_PER_WORLD, LEVELS_VERSION, warmCuratedLevels, WORLD_COUNT,
+  WORLD_NAMES, WORLDS_META,
 } from './curatedLevels';
 export type { WorldMeta } from './curatedLevels';
 
