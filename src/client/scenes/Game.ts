@@ -129,6 +129,12 @@ export class Game extends Phaser.Scene {
   private areaObjs: Phaser.GameObjects.GameObject[] = [];
 
   private activePopup: Phaser.GameObjects.Container | null = null;
+  // Set while the tutorial modal is up. Unlike the pickers (transient, safe
+  // to close on resize), the tutorial must survive rotation — its dismissal
+  // starts the attempt clock, so closing it on rotate would silently start
+  // the timer while the player is still reading. onResize re-shows it at the
+  // new size instead.
+  private activeTutorial: { text: string; onDismiss: () => void } | null = null;
   private bgImages: Phaser.GameObjects.Image[] = [];
 
   constructor() { super('Game'); }
@@ -146,6 +152,7 @@ export class Game extends Phaser.Scene {
     this.loadToken    += 1;
     this.paletteSlots  = [];
     this.areaObjs      = [];
+    this.activeTutorial = null;
     this.bgImages = [];
   }
 
@@ -822,6 +829,7 @@ export class Game extends Phaser.Scene {
   // string). The attempt timer is held until dismissal — see beginLevel().
   private showTutorialModal(text: string, onDismiss: () => void) {
     this.closeActivePopup();
+    this.activeTutorial = { text, onDismiss };
     const { width, height } = this.scale;
     const popW = Math.min(width - 28, 330);
 
@@ -845,6 +853,7 @@ export class Game extends Phaser.Scene {
     const dismiss = () => {
       if (dismissed) return;
       dismissed = true;
+      this.activeTutorial = null;
       this.closeActivePopup();
       onDismiss();
     };
@@ -1099,6 +1108,14 @@ export class Game extends Phaser.Scene {
       this.buildHUD();
       this.buildGameArea();
       this.buildPalette();
+    }
+    // Popups are laid out for the old viewport: re-show the tutorial modal at
+    // the new size (closing it would start the attempt clock mid-read); the
+    // pickers just close — they're a transient choice, same as MainMenu/Shop.
+    if (this.activeTutorial) {
+      this.showTutorialModal(this.activeTutorial.text, this.activeTutorial.onDismiss);
+    } else {
+      this.closeActivePopup();
     }
   }
 

@@ -1220,39 +1220,62 @@ export class Shop extends Phaser.Scene {
     const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
     const content: Phaser.GameObjects.GameObject[] = [];
 
+    // The button row is sized FIRST — it anchors the popup's bottom, and the
+    // price/label rows stack upward off its measured top edge. The old layout
+    // placed every row proportionally to popH while the buttons kept a
+    // near-fixed height, so on height-clamped popups (280px-class portrait,
+    // 320px-tall landscape) the price row landed underneath the buttons. Now
+    // only the item art absorbs the squeeze.
+    const btnGap = 12;
+    const btnPad = Math.max(20, popW * 0.07);
+    const btnW = (popW - btnPad * 2 - btnGap) / 2;
+    const btnH = Math.max(46, Math.min(64, Math.round(popH * 0.20)));
+    const btnFs = Math.max(13, Math.round(btnH * 0.30));
+    const btnY = cy + popH / 2 - btnH * 0.9;
+
     const titleFs = Math.max(14, Math.min(20, Math.round(popW * 0.065)));
-    content.push(this.add.text(0, -popH * 0.36, 'Buy this item?', {
+    const labelFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
+    const priceFs = Math.max(13, Math.min(18, Math.round(popW * 0.055)));
+    const priceIconSz = priceFs * 1.1;
+
+    const titleY = -popH / 2 + Math.max(22, popH * 0.10);
+    const btnTopRel = popH / 2 - btnH * 1.4; // buttons' top edge, popup-relative
+    const priceY = btnTopRel - 10 - priceIconSz / 2;
+    const labelY = priceY - priceIconSz / 2 - 8 - labelFs * 0.6;
+
+    content.push(this.add.text(0, titleY, 'Buy this item?', {
       fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
-    const iconSize = Math.max(48, Math.min(popW * 0.28, popH * 0.30, 96));
+    // Item art centered in whatever space the title and label rows leave.
+    const areaTop = titleY + titleFs * 0.9;
+    const areaBottom = labelY - labelFs * 0.9;
+    const iconSize = Math.max(30, Math.min(popW * 0.28, areaBottom - areaTop - 10, 96));
+    const iconY = (areaTop + areaBottom) / 2;
     if (item.category === 'colors') {
-      content.push(this.add.image(0, -popH * 0.11, this.getColorSwatchTexture(item)).setDisplaySize(iconSize, iconSize));
+      content.push(this.add.image(0, iconY, this.getColorSwatchTexture(item)).setDisplaySize(iconSize, iconSize));
     } else {
       // Same trimmed contain-fit the grid cards use — the raw frame is mostly
       // transparent margin (see buildItemCard).
       const t = this.getTrimmedIconTexture(item.iconKey);
       const s = Math.min(iconSize / t.w, iconSize / t.h, 2.4);
-      content.push(this.add.image(0, -popH * 0.11, t.key).setDisplaySize(t.w * s, t.h * s));
+      content.push(this.add.image(0, iconY, t.key).setDisplaySize(t.w * s, t.h * s));
     }
 
-    const labelFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
-    content.push(this.add.text(0, popH * 0.13, item.label, {
+    content.push(this.add.text(0, labelY, item.label, {
       fontFamily: PIXELIFY, fontSize: `${labelFs}px`, color: C.TEXT_DARK,
     }).setOrigin(0.5));
 
     // Price row measured and centered as a group — the old fixed -18/-2
     // offsets assumed a 2-digit price and drifted off-center for 3 digits.
-    const priceFs = Math.max(13, Math.min(18, Math.round(popW * 0.055)));
-    const priceIconSz = priceFs * 1.1;
-    const priceTxt = this.add.text(0, popH * 0.25, `${item.price}`, {
+    const priceTxt = this.add.text(0, priceY, `${item.price}`, {
       fontFamily: NUM_FONT, fontSize: `${priceFs}px`, color: C.GOLD,
       stroke: '#2B1400', strokeThickness: 3,
       shadow: { offsetX: 1, offsetY: 1, color: '#3A1A08', blur: 0, fill: true },
     }).setOrigin(0, 0.5);
     const priceRowW = priceIconSz + 6 + priceTxt.width;
-    const priceIcon = addDepthIcon(this, -priceRowW / 2 + priceIconSz / 2, popH * 0.25, 'icon-spark', priceIconSz, priceIconSz);
+    const priceIcon = addDepthIcon(this, -priceRowW / 2 + priceIconSz / 2, priceY, 'icon-spark', priceIconSz, priceIconSz);
     priceTxt.setX(-priceRowW / 2 + priceIconSz + 6);
     content.push(priceIcon, priceTxt);
 
@@ -1260,12 +1283,6 @@ export class Shop extends Phaser.Scene {
     items.push(shell.container);
 
     const canAfford = this.sparks >= item.price;
-    const btnGap = 12;
-    const btnPad = Math.max(20, popW * 0.07);
-    const btnW = (popW - btnPad * 2 - btnGap) / 2;
-    const btnH = Math.max(46, Math.min(64, Math.round(popH * 0.20)));
-    const btnFs = Math.max(13, Math.round(btnH * 0.30));
-    const btnY = cy + popH / 2 - btnH * 0.9;
     items.push(addBeigeButton(this, {
       x: cx - btnW / 2 - btnGap / 2, y: btnY, width: btnW, height: btnH,
       label: 'Cancel', fontSize: btnFs, fontFamily: PIXELIFY,
