@@ -266,7 +266,16 @@ export class LevelSelect extends Phaser.Scene {
     // Community levels aren't capped by the API to a page-sized batch (up to 20), and
     // this screen has no scrolling — cap to the same WORLD_CAPACITY every world page
     // reserves space for, so buttons never overflow past the arrows/screen edge.
-    const items = this.buildGridItems(page, cols * designRows);
+    // The finder page is capped further, to the rows that genuinely fit above the
+    // 40px button floor: its search bar eats exactly the slack that lets a full
+    // 16-button world grid squeeze onto short phones, so an uncapped result list
+    // ran under the pagination arrows (portrait) or off the bottom (landscape).
+    let maxItems = cols * designRows;
+    if (page.kind === 'community') {
+      const rowsFit = Math.max(1, Math.floor((availH + 5) / (40 + 5)));
+      maxItems = Math.min(maxItems, cols * rowsFit);
+    }
+    const items = this.buildGridItems(page, maxItems);
 
     // Size rows to the page's actual content (the tutorial world and community
     // pages run short of capacity) so sparse pages grow their buttons into the
