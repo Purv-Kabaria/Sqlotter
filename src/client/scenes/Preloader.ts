@@ -174,6 +174,23 @@ export const DEFERRED_IMG: AssetDef[] = [
   { key: 'bg2-4', path: 'background/background 2/4.png' },
 ];
 
+// ── Reserved slots: dedicated puzzle icons for the newer modifiers ──────────
+// The art is incoming — these load OPTIONALLY: a missing file logs a loader
+// warning and the texture stays absent, and every tile then falls back to the
+// modifier's own mask art (modIconKey / getIconKey check textures.exists).
+// Drop the PNGs into icons/puzzle/ under these names and they light up with
+// no code changes. The scarf ships ONE direction-neutral icon — tiles add the
+// same orientation arrow the h/v stencils use, angled along the diagonal.
+// icon-nose also has a baked fallback: Preloader zooms mod-nose-big into the
+// key only when the real file didn't load (makeZoomIcon yields to it).
+export const OPTIONAL_PUZZLE_ICONS: AssetDef[] = [
+  { key: 'icon-scarf',  path: 'icons/puzzle/scarf.png' },
+  { key: 'icon-cone',   path: 'icons/puzzle/cone.png' },
+  { key: 'icon-bubble', path: 'icons/puzzle/bubble.png' },
+  { key: 'icon-nose',   path: 'icons/puzzle/nose.png' },
+  { key: 'icon-plate',  path: 'icons/puzzle/plate.png' },
+];
+
 export class Preloader extends Scene {
   // Loading UI object refs — created once, repositioned on resize
   private logo: GameObjects.Image | null = null;
@@ -217,6 +234,7 @@ export class Preloader extends Scene {
       if (BOOT_KEYS.has(key)) continue; // already loaded by Boot
       this.load.image(key, path);
     }
+    for (const { key, path } of OPTIONAL_PUZZLE_ICONS) this.load.image(key, path);
 
     // Pre-sliced panel + button cells (moved out of Boot so they stream in
     // behind the progress bar instead of delaying the first paint)

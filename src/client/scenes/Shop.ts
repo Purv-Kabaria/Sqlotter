@@ -614,6 +614,7 @@ export class Shop extends Phaser.Scene {
         const icon = this.add.image(0, 0, t.key)
           .setDisplaySize(t.w * s, t.h * s)
           .setAlpha(active ? 1 : 0.55);
+        this.popActiveTab(icon, active);
         shell.addContent([icon]);
         els.push(shell.container);
         return;
@@ -631,10 +632,22 @@ export class Shop extends Phaser.Scene {
       // the label stays inside the button face.
       const maxLabelW = r.w - 12;
       if (label.width > maxLabelW) label.setScale(maxLabelW / label.width);
+      this.popActiveTab(label, active);
       shell.addContent([label]);
 
       els.push(shell.container);
     });
+  }
+
+  // Settle-pop on the selected tab's content. buildUI reruns on every tab
+  // switch, so the pop plays exactly when a tab becomes active (and, subtly,
+  // on resize/equip rebuilds — 160ms, harmless). Scales are captured AFTER
+  // setDisplaySize/measured clamps, which store their result in scaleX/Y.
+  private popActiveTab(obj: Phaser.GameObjects.Image | Phaser.GameObjects.Text, active: boolean) {
+    if (!active) return;
+    const fx = obj.scaleX, fy = obj.scaleY;
+    obj.setScale(fx * 0.7, fy * 0.7);
+    this.tweens.add({ targets: obj, scaleX: fx, scaleY: fy, duration: 160, ease: 'Back.easeOut' });
   }
 
   // Sized around the measured sparks text rather than a fixed proportional

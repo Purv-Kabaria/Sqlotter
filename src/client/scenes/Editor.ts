@@ -100,7 +100,7 @@ function computeDifficulty(steps: number): 1 | 2 | 3 | 4 | 5 {
   return 5;
 }
 
-function getIconKey(mod: ModifierDef): string | null {
+function getIconKey(scene: Phaser.Scene, mod: ModifierDef): string | null {
   if (mod.type === 'goggles') {
     if (mod.variant?.includes('mono')) return 'icon-goggle';
     return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
@@ -110,13 +110,16 @@ function getIconKey(mod: ModifierDef): string | null {
   if (mod.type === 'pendant')   return 'icon-pendant';
   if (mod.type === 'pumpkin')   return 'icon-pumpkin';
   if (mod.type === 'underwear') return 'icon-underwear';
-  // Newer mods reuse their own art (mod-* textures) as the tile icon; the nose
-  // uses the Preloader's zoomed bake (its raw art is a tiny speck).
+  // Newer mods: dedicated puzzle icons when the art has landed (reserved
+  // slots — see Preloader's OPTIONAL_PUZZLE_ICONS), else the mod's own mask
+  // art. icon-nose always resolves (real file, or the Preloader's zoomed bake
+  // of mod-nose-big — the raw art is a tiny speck).
+  const pick = (icon: string, art: string) => (scene.textures.exists(icon) ? icon : art);
   if (mod.type === 'nose')      return 'icon-nose';
-  if (mod.type === 'bubble')    return 'mod-bubble';
-  if (mod.type === 'plate')     return 'mod-plate';
-  if (mod.type === 'cone')      return 'mod-cone';
-  if (mod.type === 'scarf')     return 'mod-scarf';
+  if (mod.type === 'bubble')    return pick('icon-bubble', 'mod-bubble');
+  if (mod.type === 'plate')     return pick('icon-plate', 'mod-plate');
+  if (mod.type === 'cone')      return pick('icon-cone', 'mod-cone');
+  if (mod.type === 'scarf')     return pick('icon-scarf', 'mod-scarf');
   if (mod.type === 'alpha')     return 'icon-paint';
   return null;
 }
@@ -594,7 +597,7 @@ export class Editor extends Phaser.Scene {
 
     const iconKey = slot.kind === 'paint' ? 'icon-paint'
       : slot.kind === 'pumpkin' ? 'icon-pumpkin'
-      : getIconKey(slot.mod);
+      : getIconKey(this, slot.mod);
     const content: Phaser.GameObjects.GameObject[] = [];
 
     if (compact) {
@@ -603,10 +606,15 @@ export class Editor extends Phaser.Scene {
       }
       // Orientation arrow, bottom-right — the same disambiguation the Game
       // palette tiles use (thickness is already carried by the icon art).
+      // The scarf joins in once its direction-neutral icon is in use: one
+      // icon serves both diagonals, the arrow says which one.
       const variant = slot.kind === 'stencil' ? slot.mod.variant : undefined;
-      if (variant?.startsWith('h') || variant?.startsWith('v')) {
+      const scarfArrow = slot.kind === 'stencil' && slot.mod.type === 'scarf'
+        && this.textures.exists('icon-scarf');
+      if (variant?.startsWith('h') || variant?.startsWith('v') || scarfArrow) {
         const arrow = addDepthIcon(this, w * 0.28, h * 0.28, 'icon-arrow', 11, 11, 1, 0.4);
-        if (variant.startsWith('v')) arrow.setAngle(90);
+        if (scarfArrow) arrow.setAngle(variant === 'left' ? 135 : -45);
+        else if (variant?.startsWith('v')) arrow.setAngle(90);
         content.push(arrow);
       }
     } else {

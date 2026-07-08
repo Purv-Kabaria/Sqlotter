@@ -187,6 +187,25 @@ export class LevelComplete extends Phaser.Scene {
       }).setOrigin(0.5).setAlpha(0);
 
       this.tweens.add({ targets: [icon, val, lbl], alpha: 1, duration: 300, delay: 900 + i * 120 });
+
+      // The Sparks payout rolls up from 0 as it fades in, with a settle-pop —
+      // earning is the win screen's headline moment, not a static caption.
+      if (isSparks && sparks > 0) {
+        val.setText('+0');
+        const counter = { v: 0 };
+        this.tweens.add({
+          targets: counter, v: sparks,
+          duration: 650, delay: 900 + i * 120, ease: 'Cubic.easeOut',
+          onUpdate: () => val.setText(`+${Math.round(counter.v)}`),
+          onComplete: () => {
+            val.setText(`+${sparks}`);
+            this.tweens.add({
+              targets: val, scaleX: 1.25, scaleY: 1.25,
+              duration: 110, yoyo: true, ease: 'Quad.easeOut',
+            });
+          },
+        });
+      }
     });
     this.playRewardBurst(cx, panelY - panelH / 2 + 90, stars);
 

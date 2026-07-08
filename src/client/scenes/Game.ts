@@ -62,7 +62,7 @@ function groupPalette(palette: ModifierDef[]): PaletteSlot[] {
   return slots;
 }
 
-function modIconKey(mod: ModifierDef): string {
+function modIconKey(scene: Phaser.Scene, mod: ModifierDef): string {
   if (mod.type === 'paint')     return 'icon-paint';
   if (mod.type === 'alpha')     return 'icon-paint';
   if (mod.type === 'pumpkin')   return 'icon-pumpkin';
@@ -71,14 +71,16 @@ function modIconKey(mod: ModifierDef): string {
   if (mod.type === 'goggles')   return mod.variant?.includes('thin') ? 'icon-goggles-thin' : 'icon-goggles-thick';
   if (mod.type === 'glasses')   return mod.variant?.includes('thin') ? 'icon-glasses-thin' : 'icon-glasses-thick';
   if (mod.type === 'belt')      return mod.variant?.includes('thin') ? 'icon-belt-thin' : 'icon-belt-thick';
-  // No dedicated puzzle icons for the newer mods — draw their own art (the
-  // `mod-*` textures the renderer already loads) as the tile icon. The nose
-  // uses a zoomed icon baked in the Preloader (its raw art is a tiny speck).
+  // Newer mods: dedicated puzzle icons when the art has landed (reserved
+  // slots — see Preloader's OPTIONAL_PUZZLE_ICONS), else the mod's own mask
+  // art. icon-nose always resolves: a real file wins, otherwise the Preloader
+  // bakes a zoomed mod-nose-big into the key (the raw art is a tiny speck).
+  const pick = (icon: string, art: string) => (scene.textures.exists(icon) ? icon : art);
   if (mod.type === 'nose')      return 'icon-nose';
-  if (mod.type === 'bubble')    return 'mod-bubble';
-  if (mod.type === 'plate')     return 'mod-plate';
-  if (mod.type === 'cone')      return 'mod-cone';
-  if (mod.type === 'scarf')     return 'mod-scarf';
+  if (mod.type === 'bubble')    return pick('icon-bubble', 'mod-bubble');
+  if (mod.type === 'plate')     return pick('icon-plate', 'mod-plate');
+  if (mod.type === 'cone')      return pick('icon-cone', 'mod-cone');
+  if (mod.type === 'scarf')     return pick('icon-scarf', 'mod-scarf');
   return 'icon-sparkle';
 }
 
@@ -515,7 +517,17 @@ export class Game extends Phaser.Scene {
   }
 
   private updateStepsDisplay() {
-    this.stepsText?.setText(`Moves: ${this.stepsLabel(this.engine?.steps ?? 0)}`);
+    if (!this.stepsText) return;
+    const label = `Moves: ${this.stepsLabel(this.engine?.steps ?? 0)}`;
+    if (this.stepsText.text === label) return;
+    this.stepsText.setText(label);
+    // Micro-pop so the spent move registers without reading the number.
+    this.tweens.killTweensOf(this.stepsText);
+    this.stepsText.setScale(1);
+    this.tweens.add({
+      targets: this.stepsText, scaleX: 1.18, scaleY: 1.18,
+      duration: 90, yoyo: true, ease: 'Quad.easeOut',
+    });
   }
 
   // ── Modifier palette — dark panel (right column in landscape, bottom sheet
@@ -614,7 +626,7 @@ export class Game extends Phaser.Scene {
       const mod = slot.mod;
       worn = this.engine?.isWorn(mod) ?? false;
       const label = singleTileLabel(mod);
-      const icon = addDepthIcon(this, 0, label ? -cell * 0.08 : 0, modIconKey(mod), iconSz, iconSz);
+      const icon = addDepthIcon(this, 0, label ? -cell * 0.08 : 0, modIconKey(this, mod), iconSz, iconSz);
       if (disabled) icon.setAlpha(0.35);
       content.push(icon);
 
@@ -625,11 +637,18 @@ export class Game extends Phaser.Scene {
         }).setOrigin(0.5));
       }
 
-      if (!disabled && (isHorizontalVariant(mod) || isVerticalVariant(mod))) {
+      // Orientation arrow — h/v stencils, plus the scarf once its dedicated
+      // (direction-neutral) icon is in use: one scarf icon serves both
+      // diagonals, the arrow says which one. Current scarf art runs the
+      // "right" diagonal; a future left variant flips the angle.
+      const scarfArrow = mod.type === 'scarf' && this.textures.exists('icon-scarf');
+      if (!disabled && (isHorizontalVariant(mod) || isVerticalVariant(mod) || scarfArrow)) {
         const arrowSz = Math.round(cell * 0.20);
         const arrow = addDepthIcon(this, cell * 0.28, cell * 0.28, 'icon-arrow', arrowSz, arrowSz, 1, 0.4);
         (arrow.list[1] as Phaser.GameObjects.Image | undefined)?.setTint(0xFF5500);
-        arrow.setAngle(isHorizontalVariant(mod) ? 0 : 90);
+        arrow.setAngle(scarfArrow
+          ? (mod.variant === 'left' ? 135 : -45)
+          : (isHorizontalVariant(mod) ? 0 : 90));
         content.push(arrow);
       }
     }
@@ -953,6 +972,10 @@ export class Game extends Phaser.Scene {
       this.playModifierBurst(mod);
       this.splot?.playAppliedFlash();
       if (result.broke.length > 0 && !result.isWin) {
+        // The snap-off gets physical feedback, not just words: the slime
+        // recoils and the broken goggles visibly tumble off it.
+        this.currentRenderer.playShakeAnim(this);
+        this.playGoggleDropAnim(result.broke);
         this.showConflictPopup('The goggles snapped off. Goggles break after one splash!');
         this.splot?.setExpression('shocked', 1200);
       }
@@ -966,11 +989,34 @@ export class Game extends Phaser.Scene {
     if (result.isWin) void this.handleWin();
   }
 
+  // Broken goggles tumble off the slime — they fall, spin, shrink and fade.
+  // Purely presentational: the sim already moved them to `broken`.
+  private playGoggleDropAnim(broken: readonly string[]) {
+    if (!this.currentRenderer) return;
+    const { x, y } = this.currentRenderer.container;
+    const sz = this.currentRenderer.displaySize;
+    for (const maskId of broken) {
+      const key = `mod-${maskId}`;
+      if (!this.textures.exists(key)) continue;
+      const img = this.add.image(x, y, key).setDisplaySize(sz, sz).setDepth(31).setAlpha(0.95);
+      this.tweens.add({
+        targets: img,
+        y: y + sz * 0.55,
+        angle: Phaser.Math.Between(-32, 32),
+        alpha: 0,
+        scaleX: img.scaleX * 0.82,
+        scaleY: img.scaleY * 0.82,
+        duration: 460, ease: 'Quad.easeIn',
+        onComplete: () => img.destroy(),
+      });
+    }
+  }
+
   // ── Win logic ─────────────────────────────────────────────────────────────
   private playModifierBurst(mod: ModifierDef) {
     if (!this.currentRenderer) return;
     const origin = this.currentRenderer.container;
-    const iconKey = modIconKey(mod);
+    const iconKey = modIconKey(this, mod);
     const tint    = mod.type === 'paint' && mod.color ? parseInt(mod.color.replace('#', ''), 16) : C.GOLD;
     for (let i = 0; i < 7; i++) {
       const angle = Phaser.Math.DegToRad(-120 + i * 40 + Phaser.Math.Between(-8, 8));

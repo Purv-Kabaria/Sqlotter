@@ -522,6 +522,14 @@ export class LevelSelect extends Phaser.Scene {
     if (next === this.pageIndex) return;
     this.pageIndex = next;
     this.buildPage();
+    // Directional micro-slide: the new page eases in from the side the player
+    // paged toward, so the turn reads as movement rather than a teleport.
+    // Skipped for the finder — its DOM search input sits outside the canvas
+    // and can't ride along, and a half-sliding page looks broken.
+    if (this.contentLayer && this.pages[next]?.kind !== 'community') {
+      this.contentLayer.setX(delta * 46);
+      this.tweens.add({ targets: this.contentLayer, x: 0, duration: 200, ease: 'Quad.easeOut' });
+    }
   }
 
   // ── Community search bar ─────────────────────────────────────────────────

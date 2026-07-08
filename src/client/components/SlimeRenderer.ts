@@ -281,6 +281,11 @@ export class SlimeRenderer {
     if (onComplete) tween.on('complete', onComplete);
   }
 
+  /** Current on-screen size — effect layers (e.g. falling broken goggles) match it. */
+  get displaySize(): number {
+    return this.size;
+  }
+
   setSize(size: number) {
     this.size = size;
     this.patternImg.setDisplaySize(size, size);
