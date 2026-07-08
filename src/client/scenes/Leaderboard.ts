@@ -276,8 +276,11 @@ export class Leaderboard extends Phaser.Scene {
 
     // Paint the last-known rows immediately — tab switches and revisits feel
     // instant, and the fresh response re-renders underneath when it lands.
+    // A board we've never fetched shows a pulsing loading label instead of a
+    // silently empty panel (first visits sat blank for up to 4s).
     const cached = this.boardCache.get(board);
     if (cached) this.renderEntries(cached);
+    else this.showListLoading();
 
     try {
       // Cap so a hung connection resolves to the empty-board state instead of
@@ -298,8 +301,26 @@ export class Leaderboard extends Phaser.Scene {
     }
   }
 
+  // Pulsing placeholder inside the (empty) scroll viewport while the first
+  // fetch for a board is in flight. renderEntries clears it with everything
+  // else in the container.
+  private showListLoading() {
+    if (!this.scrollContainer) return;
+    const { w: vw, h: vh } = this.scrollViewport;
+    const loading = this.add.text(vw / 2, vh / 2, 'Loading rankings...', {
+      fontFamily: PIXELIFY, fontSize: `${Math.max(13, Math.round(vw * 0.035))}px`, color: C.TEXT_BEIGE,
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
+    this.scrollContainer.add(loading);
+  }
+
   private renderEntries(entries: LeaderboardEntry[]) {
     if (!this.scrollContainer) return;
+    // The container may hold the loading placeholder or the cached render
+    // this response replaces — stacking fresh rows over stale ones rendered
+    // both at once whenever ranks shifted between paint and fetch.
+    for (const child of this.scrollContainer.list) this.tweens.killTweensOf(child);
+    this.scrollContainer.removeAll(true);
     const { w: vw, h: vh } = this.scrollViewport;
     const board = BOARDS.find(b => b.type === this.activeBoard) ?? BOARDS[0]!;
 
@@ -309,6 +330,7 @@ export class Leaderboard extends Phaser.Scene {
         align: 'center', wordWrap: { width: vw - 40 },
       }).setOrigin(0.5);
       this.scrollContainer.add(empty);
+      this.scrollContainer.setY(this.scrollViewport.y);
       this.scrollTrack?.destroy(); this.scrollTrack = null;
       this.scrollThumb?.destroy(); this.scrollThumb = null;
       this.scrollMaxOffset = 0;
@@ -329,6 +351,10 @@ export class Leaderboard extends Phaser.Scene {
 
     const contentH = 20 + entries.length * rowH + (entries.length - 1) * rowGap;
     this.scrollMaxOffset = Math.max(0, contentH - vh);
+    // A re-render (cache → fresh) keeps the scroll position, clamped in case
+    // the fresh list is shorter than where the player had scrolled to.
+    const minY = this.scrollViewport.y - this.scrollMaxOffset;
+    if (this.scrollContainer.y < minY) this.scrollContainer.setY(minY);
 
     this.scrollTrack?.destroy();
     this.scrollThumb?.destroy();

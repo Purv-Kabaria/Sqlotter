@@ -18,7 +18,7 @@ import {
 // Bump when the level set changes incompatibly — the app-upgrade trigger wipes
 // level progress (completions/stars/streaks/level leaderboards) on a mismatch
 // so nobody keeps stars for levels that no longer exist.
-export const LEVELS_VERSION = '5-nose-alpha-bubble';
+export const LEVELS_VERSION = '6-twentyfive-worlds';
 
 export const LEVELS_PER_WORLD = 16; // max per world (grid capacity)
 
@@ -36,6 +36,18 @@ export const WORLD_NAMES: readonly string[] = [
   'Trap Tundra',
   'Expert Estuary',
   'Master Marsh',
+  // Specialist worlds — each spotlights one toy at expert budgets.
+  'Monocle Mire',
+  'Ring Reef',
+  'Nose Nebula',
+  'Scarf Summit',
+  'Stacked Shallows',
+  'Bubble Bog',
+  'Mirage Meadow',
+  'Fade Fjord',
+  'Vertigo Vale',
+  'Snare Strait',
+  'Gauntlet Gulch',
   // Mechanic-dense finale worlds (~half the slots are nose/alpha/bubble).
   'Bullseye Bay',
   'Opacity Ocean',
@@ -596,12 +608,35 @@ const WORLD_RAMPS: readonly WorldRamp[] = [
   { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 4], baseFirst: 0.7, midRemove: [0.4, 0.5], decoys: [2, 3] },
   // W10 Master Marsh — everything at once, every mechanic on the table.
   { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [2, 3] },
-  // W11 Bullseye Bay — nose + alpha, half the world (see mechanic density below).
-  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [3, 3] },
-  // W12 Opacity Ocean — alpha + bubble, opacity everywhere.
-  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [3, 3] },
-  // W13 Splotter's Sanctum — the whole toybox, hardest in the game.
-  { maskPool: ALL_MASKS, masks: [4, 4], paints: [4, 6], baseFirst: 0.7, midRemove: [0.5, 0.6], decoys: [3, 4] },
+  // W11 Monocle Mire — eye stencils only at expert budgets; every band is a
+  // fragile goggle or a glasses pair, so splash order is everything.
+  { maskPool: [...EYE_MASKS, 'scarf'], masks: [2, 3], paints: [4, 4], baseFirst: 0.75, midRemove: [0.3, 0.45], decoys: [2, 3] },
+  // W12 Ring Reef — nested pumpkins and round shapes; ring-on-ring goals.
+  { maskPool: [...PUMPKIN_MASKS, 'plate', 'cone', 'pendant-h', 'pendant-v', ...BELT_MASKS], masks: [2, 3], paints: [4, 4], baseFirst: 0.6, midRemove: [0.35, 0.5], decoys: [2, 3] },
+  // W13 Nose Nebula — the nose every other slot (dense, see MECH_DENSE_WORLDS).
+  { maskPool: ALL_MASKS, masks: [3, 3], paints: [4, 4], baseFirst: 0.7, midRemove: [0.35, 0.45], decoys: [2, 3] },
+  // W14 Scarf Summit — the diagonal band and the big fills, layered.
+  { maskPool: [...NEW_STENCILS, ...BELT_MASKS, 'pendant-h', 'pendant-v', 'underwear'], masks: [2, 3], paints: [4, 4], baseFirst: 0.65, midRemove: [0.35, 0.5], decoys: [2, 3] },
+  // W15 Stacked Shallows — maximum simultaneous layers, removals mid-flight.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 4], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [2, 3] },
+  // W16 Bubble Bog — the bubble every other slot (dense).
+  { maskPool: ALL_MASKS, masks: [3, 3], paints: [4, 5], baseFirst: 0.7, midRemove: [0.4, 0.5], decoys: [2, 3] },
+  // W17 Mirage Meadow — decoy-heavy palettes that lie harder than Decoy Dunes.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.6, midRemove: [0.4, 0.5], decoys: [3, 4] },
+  // W18 Fade Fjord — the alpha dip every other slot (dense).
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.4, 0.5], decoys: [2, 3] },
+  // W19 Vertigo Vale — vertical stencils only; every cut runs top-to-bottom.
+  { maskPool: ['goggles-v-thick', 'goggles-v-thin', 'goggles-v-mono', 'glasses-v-thick', 'glasses-v-thin', 'belt-v-thick', 'belt-v-thin', 'pendant-v', 'cone'], masks: [3, 4], paints: [4, 5], baseFirst: 0.7, midRemove: [0.4, 0.55], decoys: [2, 3] },
+  // W20 Snare Strait — Trap Tundra's meaner sibling: more layers, more lies.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [5, 5], baseFirst: 0.65, midRemove: [0.5, 0.6], decoys: [3, 4] },
+  // W21 Gauntlet Gulch — everything at once at near-finale budgets.
+  { maskPool: ALL_MASKS, masks: [4, 4], paints: [5, 5], baseFirst: 0.7, midRemove: [0.5, 0.6], decoys: [3, 4] },
+  // W22 Bullseye Bay — nose + alpha, half the world (see mechanic density below).
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [5, 5], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [3, 3] },
+  // W23 Opacity Ocean — alpha + bubble, opacity everywhere.
+  { maskPool: ALL_MASKS, masks: [3, 4], paints: [5, 6], baseFirst: 0.7, midRemove: [0.45, 0.55], decoys: [3, 3] },
+  // W24 Splotter's Sanctum — the whole toybox, hardest in the game.
+  { maskPool: ALL_MASKS, masks: [4, 4], paints: [5, 6], baseFirst: 0.7, midRemove: [0.5, 0.6], decoys: [3, 4] },
 ];
 
 // The special mechanics each world weaves into ~every 4th slot (the rest are
@@ -615,15 +650,29 @@ const WORLD_MECHANICS: readonly (readonly Mechanic[])[] = [
   ['nose', 'alpha'],                       // W8
   ['alpha', 'bubble'],                     // W9
   ['nose', 'alpha', 'bubble'],             // W10
-  ['nose', 'alpha'],                       // W11 Bullseye Bay
-  ['alpha', 'bubble'],                     // W12 Opacity Ocean
-  ['nose', 'alpha', 'bubble'],             // W13 Splotter's Sanctum
+  [],                                      // W11 Monocle Mire — pure eye stencils
+  ['bubble'],                              // W12 Ring Reef
+  ['nose'],                                // W13 Nose Nebula
+  ['alpha'],                               // W14 Scarf Summit
+  [],                                      // W15 Stacked Shallows — pure layering
+  ['bubble'],                              // W16 Bubble Bog
+  ['nose', 'bubble'],                      // W17 Mirage Meadow
+  ['alpha'],                               // W18 Fade Fjord
+  [],                                      // W19 Vertigo Vale — pure verticals
+  ['nose', 'alpha'],                       // W20 Snare Strait
+  ['nose', 'alpha', 'bubble'],             // W21 Gauntlet Gulch
+  ['nose', 'alpha'],                       // W22 Bullseye Bay
+  ['alpha', 'bubble'],                     // W23 Opacity Ocean
+  ['nose', 'alpha', 'bubble'],             // W24 Splotter's Sanctum
 ];
 
-// How often a mechanic showcase lands in a mechanic world: the finale worlds
-// (W11+) go dense (every other slot ≈ half the world); earlier worlds sprinkle.
+// Worlds where the mechanic IS the theme go dense (a showcase every other
+// slot ≈ half the world); the rest sprinkle one in every fourth slot.
+// Indices into WORLD_RAMPS: Nose Nebula, Bubble Bog, Fade Fjord + the finales.
+const MECH_DENSE_WORLDS: ReadonlySet<number> = new Set([12, 15, 17, 21, 22, 23]);
+
 function mechInterval(worldIndex: number): number {
-  return worldIndex >= 10 ? 2 : 4;
+  return MECH_DENSE_WORLDS.has(worldIndex) ? 2 : 4;
 }
 
 export function buildMechanicRecipe(
@@ -690,13 +739,20 @@ function generateWorlds(): LevelData[] {
       const t = i / (LEVELS_PER_WORLD - 1);
 
       // Every `every`-th slot in a mechanic world is a nose/alpha/bubble
-      // showcase (finale worlds go dense); the rest are plain generated puzzles.
-      // Falls back to a generated level if the builder can't roll a fresh shape.
+      // showcase (dense worlds every other slot); the rest are plain generated
+      // puzzles. A showcase must clear the world's minimum challenge (a 1-color
+      // bubble recipe is 2 moves — an insult in an endgame world), so short
+      // rolls are retried and the slot falls back to a generated level if the
+      // builder can't roll a fresh shape at par.
       let recipe: GeneratedRecipe | null = null;
       if (mechanics.length > 0 && i % every === every - 1) {
         const mech = mechanics[Math.floor(i / every) % mechanics.length]!;
         const mechRng = mulberry32(0x9E37 + worldNum * 1000 + i * 13);
-        recipe = buildMechanicRecipe(mech, mechRng, 1 + Math.round(t), usedShapes);
+        const minSteps = worldNum >= 8 ? 5 : 4;
+        for (let k = 0; k < 6 && !recipe; k++) {
+          const cand = buildMechanicRecipe(mech, mechRng, 1 + Math.round(t), usedShapes);
+          recipe = cand && cand.solution.length >= minSteps ? cand : null;
+        }
       }
       recipes.push(recipe ?? buildGeneratedLevel(rng, slotConfig(ramp, t), usedShapes));
     }

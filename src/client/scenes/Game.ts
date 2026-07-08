@@ -1001,6 +1001,16 @@ export class Game extends Phaser.Scene {
     const title = this.level.title;
     const t0 = Date.now();
     let sparks = 0, streakDays: number | undefined, firstSplat = false;
+    // The win animation masks the POST's typical latency; if the request
+    // outlives it (slow connection, 4s cap), say what the wait is for
+    // instead of freezing silently between the anim and the results screen.
+    const saving: { txt: Phaser.GameObjects.Text | null } = { txt: null };
+    const savingTimer = this.time.delayedCall(1100, () => {
+      saving.txt = this.add.text(this.scale.width / 2, this.scale.height - 28, 'Tallying your Sparks...', {
+        fontFamily: PIXEL_FONT, fontSize: '10px', color: C.TEXT_BEIGE,
+      }).setOrigin(0.5).setDepth(40);
+      this.tweens.add({ targets: saving.txt, alpha: 0.4, duration: 600, yoyo: true, repeat: -1 });
+    });
     try {
       const res = await fetch('/api/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1013,6 +1023,11 @@ export class Game extends Phaser.Scene {
         firstSplat = data.firstSplat === true;
       }
     } catch { /* best-effort */ }
+    savingTimer.remove(false);
+    if (saving.txt) {
+      this.tweens.killTweensOf(saving.txt);
+      saving.txt.destroy();
+    }
 
     this.time.delayedCall(Math.max(0, 900 - (Date.now() - t0)), () => {
       this.goToScene('LevelComplete', {

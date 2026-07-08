@@ -200,10 +200,10 @@ export class MainMenu extends Phaser.Scene {
       }
     }
 
-    // Sky area: 36% of height, but never so tall that 5×66px buttons can't fit below.
-    // 66 is a hard floor, not a preference — see docs/9-slicing.md (32px button corners
-    // need 2×32=64px minimum before they overlap).
-    const minBtnArea = 5 * 66 + 4 * 4 + pad * 2;
+    // Sky area: 36% of height, but never so tall that 4×66px button rows can't
+    // fit below. 66 is a hard floor, not a preference — see docs/9-slicing.md
+    // (32px button corners need 2×32=64px minimum before they overlap).
+    const minBtnArea = 4 * 66 + 3 * 4 + pad * 2;
     const skyH    = Math.max(0, Math.min(h * 0.36, h - titleH - minBtnArea));
     const splotSz = Math.max(0, Math.min(w * 0.65, skyH * 0.80, 240));
     const splotY  = titleH + skyH * 0.44;
@@ -222,10 +222,10 @@ export class MainMenu extends Phaser.Scene {
     // Buttons start at least 26px below the username so they never overlap
     const btnAreaStart = Math.max(titleH + skyH, usernameY + 26);
     const remaining = Math.max(0, h - btnAreaStart);
-    const rawBtnH = Math.round((remaining - pad * 2) / 5) - 8;
+    const rawBtnH = Math.round((remaining - pad * 2) / 4) - 8;
     const btnH  = Math.min(Math.max(rawBtnH, 66), 84);
     const btnW  = Math.min(w - pad * 2, 460);
-    const gap   = Math.max(4, Math.round((remaining - pad * 2 - 5 * btnH) / 4));
+    const gap   = Math.max(4, Math.round((remaining - pad * 2 - 4 * btnH) / 3));
     const startY = btnAreaStart + pad;
     this.buildMenuButtons(cx, startY, btnW, btnH, gap, els, 'portrait');
   }
@@ -488,75 +488,69 @@ export class MainMenu extends Phaser.Scene {
     els: Phaser.GameObjects.GameObject[],
     mode: 'portrait' | 'landscape',
   ) {
-    type BtnDef = [string, string, string, (string | undefined)?];
-    const defs: BtnDef[] = [
-      ['Play',    'icon-play',   'LevelSelect'],
-      ['Daily',   'icon-timer',  'Game',       'daily'],
-      ['Create',  'icon-pencil', 'Editor'],
-      ['Shop',    'icon-price',  'Shop'],
-      ['Ranking', 'icon-trophy', 'Leaderboard'],
-    ];
+    type BtnDef = { label: string; icon: string; scene: string; data?: Record<string, unknown> };
+    const PLAY:    BtnDef = { label: 'Play',    icon: 'icon-play',   scene: 'LevelSelect' };
+    const DAILY:   BtnDef = { label: 'Daily',   icon: 'icon-timer',  scene: 'Game', data: { levelId: 'daily' } };
+    const CREATE:  BtnDef = { label: 'Create',  icon: 'icon-pencil', scene: 'Editor' };
+    // Level Finder — jumps straight to LevelSelect's finder page (search bar
+    // over curated worlds + community levels).
+    const FIND:    BtnDef = { label: 'Find',    icon: 'icon-people', scene: 'LevelSelect', data: { page: 'finder' } };
+    const SHOP:    BtnDef = { label: 'Shop',    icon: 'icon-price',  scene: 'Shop' };
+    const RANKING: BtnDef = { label: 'Ranking', icon: 'icon-trophy', scene: 'Leaderboard' };
 
-    const ff   = PIXELIFY;
-    const fs   = Math.max(12, Math.round(btnH * 0.28));
+    const ff = PIXELIFY;
+    const fs = Math.max(12, Math.round(btnH * 0.28));
 
+    // Both modes are row stacks; a row with two defs splits the width. The
+    // pairing keeps every button at a corner-safe height while fitting six
+    // destinations in the vertical budget five used to take — landscape keeps
+    // its exact three-row height so 320-tall screens still fit the stack.
+    let rows: { defs: BtnDef[]; h: number; fs: number }[];
     if (mode === 'portrait') {
-      defs.forEach(([label, icon, scene, param], i) => {
-        const btn = addBeigeButton(this, {
-          x: cx, y: startY + i * (btnH + gap),
-          width: btnW, height: btnH,
-          label, iconKey: icon, fontSize: fs, fontFamily: ff,
-          onClick: () => this.goToScene(scene, param),
-        });
-        btn.setDepth(8).setAlpha(0);
-        this.tweens.add({ targets: btn, alpha: 1, duration: 240, delay: 80 + i * 50 });
-        els.push(btn);
-      });
+      rows = [
+        { defs: [PLAY],            h: btnH, fs },
+        { defs: [DAILY],           h: btnH, fs },
+        { defs: [CREATE, FIND],    h: btnH, fs },
+        { defs: [SHOP, RANKING],   h: btnH, fs },
+      ];
     } else {
-      // Play — full-width
-      const playBtn = addBeigeButton(this, {
-        x: cx, y: startY,
-        width: btnW, height: btnH,
-        label: 'Play', iconKey: 'icon-play',
-        fontSize: fs + 2, fontFamily: ff,
-        onClick: () => this.goToScene('LevelSelect'),
-      });
-      playBtn.setDepth(8).setAlpha(0);
-      this.tweens.add({ targets: playBtn, alpha: 1, duration: 240, delay: 80 });
-      els.push(playBtn);
-
-      // 2×2 grid
-      const halfW  = (btnW - gap) / 2;
       const smallH = Math.round(btnH * 0.88);
-      const gridTop = startY + btnH + gap;
-      const gridFs  = Math.max(10, Math.round(smallH * 0.26));
-      const gridDefs: BtnDef[] = [defs[1]!, defs[2]!, defs[3]!, defs[4]!];
+      const gridFs = Math.max(10, Math.round(smallH * 0.26));
+      rows = [
+        { defs: [PLAY, FIND],      h: btnH,   fs: fs + 2 },
+        { defs: [DAILY, CREATE],   h: smallH, fs: gridFs },
+        { defs: [SHOP, RANKING],   h: smallH, fs: gridFs },
+      ];
+    }
 
-      gridDefs.forEach(([label, icon, scene, param], i) => {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        const bx  = cx - btnW / 2 + halfW / 2 + col * (halfW + gap);
-        const by  = gridTop + row * (smallH + gap);
+    let y = startY;
+    let delay = 80;
+    for (const row of rows) {
+      const colGap = row.defs.length > 1 ? gap : 0;
+      const w = (btnW - colGap * (row.defs.length - 1)) / row.defs.length;
+      row.defs.forEach((def, col) => {
+        const bx = cx - btnW / 2 + w / 2 + col * (w + colGap);
         const btn = addBeigeButton(this, {
-          x: bx, y: by,
-          width: halfW, height: smallH,
-          label, iconKey: icon,
-          fontSize: gridFs, fontFamily: ff,
-          onClick: () => this.goToScene(scene, param),
+          x: bx, y: y + row.h / 2,
+          width: w, height: row.h,
+          label: def.label, iconKey: def.icon, fontSize: row.fs, fontFamily: ff,
+          onClick: () => this.goToScene(def.scene, def.data),
         });
         btn.setDepth(8).setAlpha(0);
-        this.tweens.add({ targets: btn, alpha: 1, duration: 240, delay: 160 + i * 50 });
+        this.tweens.add({ targets: btn, alpha: 1, duration: 240, delay });
+        delay += 50;
         els.push(btn);
       });
+      y += row.h + gap;
     }
   }
 
-  private goToScene(scene: string, param?: string) {
+  private goToScene(scene: string, data?: Record<string, unknown>) {
     if (this.navigating) return;
     this.navigating = true;
     this.cameras.main.fadeOut(250, 10, 5, 14);
     this.time.delayedCall(260, () => {
-      this.scene.start(scene, param ? { levelId: param } : undefined);
+      this.scene.start(scene, data);
     });
   }
 

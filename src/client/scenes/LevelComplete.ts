@@ -552,6 +552,8 @@ export class LevelComplete extends Phaser.Scene {
     if (this.shareBusy || this.shareDone || this.navigating) return;
     this.shareBusy = true;
     this.shareBtn?.setAlpha(0.6);
+    // Snapshot + upload can take seconds — acknowledge the tap immediately.
+    this.showToast('Posting your Splat Card…', '#DEC998');
 
     // Snapshot the card preview while it's still on screen — best-effort,
     // same as the crown flow: a null result still posts, just as plain text.
@@ -742,6 +744,9 @@ export class LevelComplete extends Phaser.Scene {
     if (this.crownBusy || this.crownDone || this.navigating || !this.crownLayer) return;
     this.crownBusy = true;
     this.crownClaimBtn?.setAlpha(0.6);
+    // The claim round-trips Reddit's media upload (up to ~15s) — acknowledge
+    // the tap immediately so the dimmed button doesn't read as a freeze.
+    this.showToast('Claiming your crown…', '#FFD700');
 
     // Snapshot the settled card into a PNG data URI. Best-effort: a null
     // result still posts the crown, just as a text comment.

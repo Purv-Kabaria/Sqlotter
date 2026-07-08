@@ -165,7 +165,16 @@ export class Shop extends Phaser.Scene {
     this.input.on('wheel', this.onWheelBound);
 
     this.buildBackground();
+    // The first render blocks on the profile (capped at 2.5s) — a pulsing
+    // label keeps the bare clouds from reading as a hang.
+    const loading = this.add.text(this.scale.width / 2, this.scale.height / 2, 'Loading shop...', {
+      fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
+      stroke: '#3A1A08', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
     await this.loadProfile();
+    this.tweens.killTweensOf(loading);
+    loading.destroy();
 
     this.buildUI();
     this.scale.on('resize', this.onResize, this);
@@ -670,6 +679,9 @@ export class Shop extends Phaser.Scene {
   private async postFit() {
     if (this.fitBusy) return;
     this.fitBusy = true;
+    // The round-trip posts a Reddit comment and can take seconds — say so
+    // instead of leaving the tap feeling ignored.
+    this.showToast('Posting your fit…', C.GREEN);
     try {
       const res = await fetch('/api/share/fit', { method: 'POST', signal: AbortSignal.timeout(6000) });
       if (this.navigating) return;

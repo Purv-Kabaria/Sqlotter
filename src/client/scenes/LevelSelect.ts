@@ -33,6 +33,12 @@ export class LevelSelect extends Phaser.Scene {
   private searchQuery = '';
   private searchDebounce: number | null = null;
   private searchToken = 0;
+  // True while a search fetch is in flight — the grid shows "Searching..."
+  // instead of silently holding the previous results.
+  private searchPending = false;
+  // Set when MainMenu's Find button opened this scene — jump straight to the
+  // finder page (and put the caret in the search box) once pages exist.
+  private openFinder = false;
 
   // Scratch shapes reused by buildFrame() every call — RenderTexture.draw()/erase()
   // only *queue* the draw for the next render pass rather than rendering synchronously,
@@ -47,7 +53,7 @@ export class LevelSelect extends Phaser.Scene {
 
   constructor() { super('LevelSelect'); }
 
-  init() {
+  init(data?: { page?: string }) {
     this.bgLayers = [];
     this.contentLayer = null;
     this.pages = [];
@@ -58,6 +64,8 @@ export class LevelSelect extends Phaser.Scene {
     this.searchQuery = '';
     this.searchDebounce = null;
     this.searchToken = 0;
+    this.searchPending = false;
+    this.openFinder = data?.page === 'finder';
     this.frameSolid = null;
     this.frameHole = null;
     this.navigating = false;
@@ -71,11 +79,23 @@ export class LevelSelect extends Phaser.Scene {
     this.buildBackground();
 
     // Load progress/community data before the first render so level buttons never
-    // flash an incorrect locked state.
+    // flash an incorrect locked state. The wait is capped at 2.5s (see the
+    // fetches) — a pulsing label keeps it from reading as a hang.
+    const loading = this.add.text(this.scale.width / 2, this.scale.height / 2, 'Loading levels...', {
+      fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
+      stroke: '#3A1A08', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets: loading, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
     await Promise.all([this.loadProgress(), this.loadCommunityLevels()]);
+    this.tweens.killTweensOf(loading);
+    loading.destroy();
 
     this.buildPages();
+    if (this.openFinder) this.pageIndex = this.pages.length - 1;
     this.buildPage();
+    // Arriving via the home page's Find button: the player came here to type,
+    // so hand the search box the caret right away.
+    if (this.openFinder) this.searchInput?.focus();
     this.scale.on('resize', this.onResize, this);
   }
 
@@ -200,7 +220,7 @@ export class LevelSelect extends Phaser.Scene {
     // FACE (titleW minus the 2×14px corner bevels) rather than overflowing.
     const titleLabel = page.kind === 'world'
       ? (page.meta.num === 0 ? page.meta.name : `World ${page.meta.num} — ${page.meta.name}`)
-      : 'Community Levels';
+      : 'Level Finder';
     const fittedFs = Math.max(12, Math.min(titleFs, Math.floor((titleW - 28) / (titleLabel.length * 0.62))));
     const titleBtn = addBeigeButton(this, {
       x: titleX, y: titleY, width: titleW, height: titleH,
@@ -352,19 +372,60 @@ export class LevelSelect extends Phaser.Scene {
         };
       });
     }
-    if (this.communityLevels.length === 0) {
-      return [{
-        label: this.searchQuery.trim() ? 'No splats found — try another name' : 'Coming soon...',
-        disabled: true,
-      }];
-    }
     // Par on the button: every community level advertises the move count it's
     // guaranteed to be solvable in (the creator's own verified recording).
-    return this.communityLevels.slice(0, Math.max(1, maxItems)).map((level) => ({
-      label: `${level.title.length > 12 ? `${level.title.slice(0, 12)}...` : level.title} · par ${level.optimalSteps}`,
-      disabled: false,
-      onClick: () => this.openLevel(level.id),
-    }));
+    const communityItems: GridItem[] = this.communityLevels
+      .slice(0, Math.max(1, maxItems))
+      .map((level) => ({
+        label: `${level.title.length > 12 ? `${level.title.slice(0, 12)}...` : level.title} · par ${level.optimalSteps}`,
+        disabled: false,
+        onClick: () => this.openLevel(level.id),
+      }));
+
+    if (this.searchPending) {
+      return [{ label: 'Searching...', disabled: true }];
+    }
+
+    // A query searches the whole game, not just community splats: curated
+    // levels match on their title or their world ("bubble bog", "world 12").
+    // Community results keep up to half the grid so a broad curated match
+    // (a whole world is 16 levels) can't crowd them off the page entirely.
+    const q = this.searchQuery.trim().toLowerCase();
+    if (q) {
+      const curatedItems = this.findCuratedLevels(q, Math.max(0, maxItems - Math.min(communityItems.length, Math.floor(maxItems / 2))));
+      const combined = [...curatedItems, ...communityItems].slice(0, Math.max(1, maxItems));
+      if (combined.length > 0) return combined;
+      return [{ label: 'No splats found — try another name', disabled: true }];
+    }
+
+    if (communityItems.length === 0) {
+      return [{ label: 'No community splats yet — search or create one!', disabled: true }];
+    }
+    return communityItems;
+  }
+
+  // Curated matches for the finder — world-position label so a result reads
+  // as a place ("W12-L3"), with locked levels shown but not tappable.
+  private findCuratedLevels(q: string, cap: number): GridItem[] {
+    const out: GridItem[] = [];
+    const curated = getCuratedLevels();
+    for (const meta of WORLDS_META) {
+      const worldKey = `world ${meta.num} ${meta.name}`.toLowerCase();
+      const worldHit = worldKey.includes(q);
+      for (let i = 0; i < meta.size && out.length < cap; i++) {
+        const level = curated[meta.start + i];
+        if (!level) continue;
+        if (!worldHit && !level.title.toLowerCase().includes(q)) continue;
+        const locked = this.isLevelLocked(level);
+        out.push({
+          label: `W${meta.num}-L${i + 1} · ${level.title}`,
+          disabled: locked,
+          onClick: locked ? undefined : () => this.openLevel(level.id),
+        });
+      }
+      if (out.length >= cap) break;
+    }
+    return out;
   }
 
   private buildArrow(x: number, y: number, size: number, angle: number, disabled: boolean, onClick: () => void) {
@@ -481,10 +542,16 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private async runSearch() {
-    await this.loadCommunityLevels(this.searchQuery.trim());
-    // Only redraw if the player is still looking at the community page.
+    // Redraw immediately so the grid shows "Searching..." (via buildGridItems)
+    // instead of holding the previous results while the fetch runs.
+    this.searchPending = true;
     const page = this.pages[this.pageIndex];
-    if (!this.navigating && page?.kind === 'community') this.buildPage();
+    if (page?.kind === 'community') this.buildPage();
+    await this.loadCommunityLevels(this.searchQuery.trim());
+    this.searchPending = false;
+    // Only redraw if the player is still looking at the community page.
+    const after = this.pages[this.pageIndex];
+    if (!this.navigating && after?.kind === 'community') this.buildPage();
   }
 
   private openLevel(levelId: string) {

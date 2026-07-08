@@ -6,19 +6,10 @@ import type { LevelData } from '../../shared/types';
 // bare name or an ISO date is a wasted impression.
 export const GAME_POST_TITLE = 'Sqlotter 🎨 Paint the slime. Mind the goggles. Beat the par.';
 
-// Daily titles tease the day's difficulty instead of announcing a date. The
-// flavor ladder tracks generateDailyLevel's weekday→tier mapping, and putting
-// par in the title turns the post into a dare before the game even loads.
-const TIER_FLAVOR: Record<LevelData['difficulty'], string> = {
-  1: 'a gentle one',
-  2: 'a sneaky one',
-  3: 'a tricky one',
-  4: 'a devious one',
-  5: 'a diabolical one',
-};
-
+// Daily titles stay minimal — no emojis, no flavor copy. Just the game,
+// the date, and the level name.
 export function dailyPostTitle(level: LevelData, date: string): string {
-  return `🎨 Daily Splat ${date}: “${level.title}” (${TIER_FLAVOR[level.difficulty]}), par ${level.optimalSteps}. First solver takes the crown 👑`;
+  return `Daily Splat ${date}: ${level.title}`;
 }
 
 export const createPost = async () => {

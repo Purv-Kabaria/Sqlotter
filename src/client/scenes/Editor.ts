@@ -185,6 +185,18 @@ export class Editor extends Phaser.Scene {
   // Play/Publish (or clicking one while another's transition is in flight)
   // from queuing more than one scene transition.
   private navigating = false;
+  // True while a publish POST is in flight (or has succeeded) — publishing
+  // creates a Reddit post, so a double-tap must never fire twice.
+  private publishing = false;
+
+  // Text scale factor. The design's fixed 9-13px text is sized for phones;
+  // tablets render the same canvas units on a much larger physical screen,
+  // where it reads illegibly small. Every text size (and the chrome that has
+  // to contain the text — header bar, badges, control buttons) multiplies by
+  // this; phones (min dimension ≤ 480) stay exactly as designed.
+  private tsf = 1;
+  // The header bar height at the current text scale (HEADER_H × tsf).
+  private hh = HEADER_H;
 
   constructor() { super('Editor'); }
 
@@ -206,6 +218,7 @@ export class Editor extends Phaser.Scene {
     this.splot      = null;
     this.activePopup = null;
     this.navigating = false;
+    this.publishing = false;
   }
 
   // Safety net for the deferred background set — normally MainMenu has already
@@ -248,6 +261,8 @@ export class Editor extends Phaser.Scene {
     this.goalRenderer = null; // its container was in uiObjs
 
     const { width, height } = this.scale;
+    this.tsf = Phaser.Math.Clamp(Math.min(width, height) / 480, 1, 1.5);
+    this.hh = Math.round(HEADER_H * this.tsf);
 
     // Background — the full bg2 cloud stack, cover-scaled like every other
     // scene's backdrop.
@@ -275,23 +290,24 @@ export class Editor extends Phaser.Scene {
 
   private buildPortrait(width: number, height: number) {
     const cx = width / 2;
+    const t = this.tsf;
     this.buildHeader(width, true);
 
     // Inputs sit on two rows just under the header.
     this.inputCx = cx;
-    this.inputW = Math.min(width - 96, 300);
-    this.titleInputY = HEADER_H + 20;
-    this.hintInputY = HEADER_H + 52;
+    this.inputW = Math.min(width - 96, Math.round(300 * t));
+    this.titleInputY = this.hh + Math.round(20 * t);
+    this.hintInputY = this.titleInputY + Math.round(32 * t);
 
-    const top = HEADER_H + 78;
-    const bottomZone = height - 62; // bottom buttons live below this line
+    const top = this.hintInputY + Math.round(26 * t);
+    const bottomZone = height - Math.round(62 * t); // bottom buttons live below this line
 
     // Height budget: shrink the goal card first, the tile grid scales itself
     // to whatever remains (buildModPanel), so the layout can't overflow.
     // The panel's floor scales with the screen — on short phones a fixed 150px
     // panel squeezed the 25-tile grid into ~26px micro-tiles while the goal
     // card kept 90px; trading ~15px of goal size buys visibly larger tiles.
-    const blockFixed = 10 + 36 + 8 + 28 + 22; // controls + steps + feedback rows
+    const blockFixed = Math.round((10 + 36 + 8 + 28 + 22) * t); // controls + steps + feedback rows
     let goalSz = Math.min(Math.round(width * 0.28), 120);
     const minPanel = Math.max(150, Math.round((bottomZone - top) * 0.45));
     while (goalSz > 56 && (goalSz + 24) + blockFixed + minPanel > bottomZone - top) goalSz -= 4;
@@ -299,14 +315,14 @@ export class Editor extends Phaser.Scene {
     const cardH = goalSz + 24;
     this.buildGoalCard(cx, top + cardH / 2, goalSz, width);
 
-    const ctrlY = top + cardH + 10 + 18;
+    const ctrlY = top + cardH + Math.round((10 + 18) * t);
     this.buildControlsRow(cx, ctrlY);
 
-    const stepsY = ctrlY + 18 + 8 + 14;
+    const stepsY = ctrlY + Math.round((18 + 8 + 14) * t);
     this.buildStepsPill(cx, stepsY, width - 24);
-    this.buildFeedback(cx, stepsY + 14 + 4 + 8, width - 32);
+    this.buildFeedback(cx, stepsY + Math.round((14 + 4 + 8) * t), width - 32);
 
-    const panelTop = stepsY + 14 + 22;
+    const panelTop = stepsY + Math.round((14 + 22) * t);
     this.buildModPanel(cx, panelTop, width - 12, bottomZone - panelTop, width >= 520 ? 5 : 4);
 
     this.buildBottomButtons(cx, height, width);
@@ -318,43 +334,45 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildLandscape(width: number, height: number) {
+    const t = this.tsf;
     // Inputs stacked in the header's right half — sized before the header so
-    // the wordmark knows where it must stop (they collided at 568w).
-    this.inputW = Math.min(width - 240, 330);
+    // the wordmark knows where it must stop (they collided at 568w). The two
+    // rows keep their 64px-header proportions as the bar grows with tsf.
+    this.inputW = Math.min(width - 240, Math.round(330 * t));
     this.inputCx = width - 12 - this.inputW / 2;
-    this.titleInputY = 22;
-    this.hintInputY = 50;
+    this.titleInputY = Math.round(this.hh * 0.345);
+    this.hintInputY = Math.round(this.hh * 0.78);
     this.buildHeader(width, false, width - 12 - this.inputW - 10);
 
-    const leftW  = Math.min(Math.round(width * 0.42), 340);
+    const leftW  = Math.min(Math.round(width * 0.42), Math.round(340 * t));
     const leftCx = 12 + leftW / 2;
     const rightX0 = leftW + 24;
     const rightW  = width - rightX0 - 12;
     const rightCx = rightX0 + rightW / 2;
 
-    const top = HEADER_H + 12;
-    const bottomZone = height - 62;
+    const top = this.hh + 12;
+    const bottomZone = height - Math.round(62 * t);
 
     // Left column: goal card + controls + steps + feedback, bottom buttons
     // pinned at the column's foot.
-    const blockFixed = 10 + 36 + 8 + 28 + 20;
+    const blockFixed = Math.round((10 + 36 + 8 + 28 + 20) * t);
     const goalSz = Phaser.Math.Clamp((bottomZone - top) - blockFixed - 24, 56, 120);
     const cardH = goalSz + 24;
     this.buildGoalCard(leftCx, top + cardH / 2, goalSz, leftW);
 
-    const ctrlY = top + cardH + 10 + 18;
+    const ctrlY = top + cardH + Math.round((10 + 18) * t);
     this.buildControlsRow(leftCx, ctrlY);
 
-    const stepsY = ctrlY + 18 + 8 + 14;
+    const stepsY = ctrlY + Math.round((18 + 8 + 14) * t);
     this.buildStepsPill(leftCx, stepsY, leftW - 8);
-    this.buildFeedback(leftCx, stepsY + 14 + 4 + 8, leftW - 16);
+    this.buildFeedback(leftCx, stepsY + Math.round((14 + 4 + 8) * t), leftW - 16);
 
     this.buildBottomButtons(leftCx, height, leftW + 24);
 
     // Splot in the slack between the left block and the buttons, if any.
-    const slack = (height - 62) - (stepsY + 36);
+    const slack = bottomZone - (stepsY + Math.round(36 * t));
     if (slack >= 104) {
-      this.spawnSplot(leftCx, stepsY + 36 + slack / 2, Math.min(96, slack - 12));
+      this.spawnSplot(leftCx, stepsY + Math.round(36 * t) + slack / 2, Math.min(96, slack - 12));
     }
 
     // Right column: the build panel gets the full height, capped on huge
@@ -371,30 +389,32 @@ export class Editor extends Phaser.Scene {
   // back, pencil-badged title. In landscape the title hugs the left so the
   // DOM inputs can occupy the right half.
   private buildHeader(width: number, centered: boolean, maxRight = width) {
-    this.uiObjs.push(this.add.rectangle(width / 2, HEADER_H / 2, width, HEADER_H, C.HEADER_BG).setDepth(10));
+    const t = this.tsf;
+    this.uiObjs.push(this.add.rectangle(width / 2, this.hh / 2, width, this.hh, C.HEADER_BG).setDepth(10));
 
-    const back = addBeigeButtonShell(this, 10 + 24, HEADER_H / 2, 48, 48, false,
+    const backSz = Math.round(48 * Math.min(t, 1.25));
+    const back = addBeigeButtonShell(this, 10 + backSz / 2, this.hh / 2, backSz, backSz, false,
       () => this.goToScene('MainMenu'));
-    back.addContent([addDepthIcon(this, 0, -1, 'icon-arrow', 21, 21).setAngle(180)]);
+    back.addContent([addDepthIcon(this, 0, -1, 'icon-arrow', Math.round(21 * t), Math.round(21 * t)).setAngle(180)]);
     back.container.setDepth(11);
     this.uiObjs.push(back.container);
 
-    const title = this.add.text(0, HEADER_H / 2, 'LEVEL EDITOR', {
+    const title = this.add.text(0, this.hh / 2, 'LEVEL EDITOR', {
       fontFamily: PIXEL_FONT,
-      fontSize: '11px',
+      fontSize: `${Math.round(11 * t)}px`,
       color: C.TEXT_LIGHT,
       stroke: '#000000',
       strokeThickness: 4,
       letterSpacing: 1,
     }).setOrigin(0, 0.5).setDepth(11);
-    const iconSz = 18;
+    const iconSz = Math.round(18 * t);
     const totalW = iconSz + 8 + title.width;
-    const startX = centered ? width / 2 - totalW / 2 : 68;
+    const startX = centered ? width / 2 - totalW / 2 : 10 + backSz + 10;
     // In landscape the DOM inputs occupy the header's right half — the
     // wordmark shrinks rather than running underneath them (maxRight).
     const maxTextW = maxRight - (startX + iconSz + 8);
     if (title.width > maxTextW && maxTextW > 0) title.setScale(maxTextW / title.width);
-    const icon = addDepthIcon(this, startX + iconSz / 2, HEADER_H / 2 - 1, 'icon-pencil', iconSz, iconSz).setDepth(11);
+    const icon = addDepthIcon(this, startX + iconSz / 2, this.hh / 2 - 1, 'icon-pencil', iconSz, iconSz).setDepth(11);
     title.setX(startX + iconSz + 8);
     this.uiObjs.push(title, icon);
   }
@@ -406,10 +426,11 @@ export class Editor extends Phaser.Scene {
     const cardH = goalSz + 24;
 
     this.uiObjs.push(addBeigeSolidCard(this, cx, cy, cardW, cardH).setDepth(2));
-    this.uiObjs.push(addBeigeBadge(this, cx, cy - cardH / 2, 132, 28).setDepth(4));
+    this.uiObjs.push(addBeigeBadge(this, cx, cy - cardH / 2,
+      Math.round(132 * this.tsf), Math.round(28 * this.tsf)).setDepth(4));
     this.uiObjs.push(this.add.text(cx, cy - cardH / 2, 'GOAL SLIME', {
       fontFamily: PIXEL_FONT,
-      fontSize: '9px',
+      fontSize: `${Math.round(9 * this.tsf)}px`,
       color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5).setDepth(5));
@@ -423,10 +444,11 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildControlsRow(cx: number, cy: number) {
-    // Undo (64) + Reset (64) + Decoys (104), 8px gaps → 248 total.
-    this.buildSmallBtn(cx - 92, cy, 64, 36, 'Undo',  () => this.undo());
-    this.buildSmallBtn(cx - 20, cy, 64, 36, 'Reset', () => this.reset());
-    this.decoyX = cx + 72;
+    // Undo (64) + Reset (64) + Decoys (104), 8px gaps → 248 total, all × tsf.
+    const t = this.tsf;
+    this.buildSmallBtn(cx - Math.round(92 * t), cy, Math.round(64 * t), Math.round(36 * t), 'Undo',  () => this.undo());
+    this.buildSmallBtn(cx - Math.round(20 * t), cy, Math.round(64 * t), Math.round(36 * t), 'Reset', () => this.reset());
+    this.decoyX = cx + Math.round(72 * t);
     this.decoyY = cy;
     this.buildDecoyButton();
   }
@@ -440,17 +462,17 @@ export class Editor extends Phaser.Scene {
     const worst = `Steps: ${MAX_SOLUTION_STEPS}/${MAX_SOLUTION_STEPS}  |  Diff: 5/5`;
     this.stepsText = this.add.text(cx, cy, worst, {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
+      fontSize: `${Math.round(10 * this.tsf)}px`,
       color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5).setDepth(5);
-    let fs = 10;
+    let fs = Math.round(10 * this.tsf);
     while (fs > 7 && this.stepsText.width + 20 > maxW) {
       fs -= 1;
       this.stepsText.setFontSize(fs);
     }
     const badgeW = Math.min(maxW, Math.round(this.stepsText.width) + 20);
-    this.uiObjs.push(addBeigeBadge(this, cx, cy, badgeW, 28).setDepth(4));
+    this.uiObjs.push(addBeigeBadge(this, cx, cy, badgeW, Math.round(28 * this.tsf)).setDepth(4));
     this.uiObjs.push(this.stepsText);
     this.updateMeta();
   }
@@ -458,7 +480,7 @@ export class Editor extends Phaser.Scene {
   private buildFeedback(cx: number, cy: number, wrapW: number) {
     this.feedbackText = this.add.text(cx, cy, '', {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
+      fontSize: `${Math.round(10 * this.tsf)}px`,
       color: '#ff8888',
       stroke: '#1a0a2e',
       strokeThickness: 3,
@@ -479,9 +501,10 @@ export class Editor extends Phaser.Scene {
   private buildDecoyButton() {
     this.decoyBtn?.destroy();
     this.decoyBtn = addBeigeButton(this, {
-      x: this.decoyX, y: this.decoyY, width: 104, height: 36,
+      x: this.decoyX, y: this.decoyY,
+      width: Math.round(104 * this.tsf), height: Math.round(36 * this.tsf),
       label: `Decoys: ${this.decoyCount}`,
-      fontSize: 10, fontFamily: PIXELIFY,
+      fontSize: Math.round(10 * this.tsf), fontFamily: PIXELIFY,
       onClick: () => {
         this.decoyCount = (this.decoyCount + 1) % 4;
         this.buildDecoyButton();
@@ -502,16 +525,16 @@ export class Editor extends Phaser.Scene {
     if (panelH < 90) return; // pathological screens: skip rather than smear
     this.uiObjs.push(addDarkPanel(this, cx, topY + panelH / 2, panelW, panelH).setDepth(2));
 
-    this.uiObjs.push(this.add.text(cx, topY + 15, 'BUILD YOUR GOAL', {
+    this.uiObjs.push(this.add.text(cx, topY + Math.round(15 * this.tsf), 'BUILD YOUR GOAL', {
       fontFamily: PIXEL_FONT,
-      fontSize: '9px',
+      fontSize: `${Math.round(9 * this.tsf)}px`,
       color: C.TEXT_BEIGE,
       stroke: '#000000',
       strokeThickness: 3,
     }).setOrigin(0.5).setDepth(5));
 
-    const innerTop = topY + 28;
-    const innerH   = panelH - 40;
+    const innerTop = topY + Math.round(28 * this.tsf);
+    const innerH   = panelH - Math.round(40 * this.tsf);
     const innerW   = panelW - 24;
 
     // Prefer labeled tiles; fall back to compact icon tiles (the Game
@@ -588,25 +611,27 @@ export class Editor extends Phaser.Scene {
       }
     } else {
       if (iconKey && this.textures.exists(iconKey)) {
-        content.push(addDepthIcon(this, -w / 2 + 14, 0, iconKey, 16, 16, 1, 0.4));
+        content.push(addDepthIcon(this, -w / 2 + 16, 0, iconKey, 20, 20, 1, 0.4));
       }
       const label = slot.kind === 'paint' ? 'Paint...'
         : slot.kind === 'pumpkin' ? 'Pumpkin...'
         : modLabel(slot.mod);
       // Pixelify, not PIXEL_FONT — Press Start 2P runs a full fontSize width
-      // per character, so "Goggles"/"Underwear" at 9px overflowed the 55px
-      // wrap width (single words don't wrap, they spill past the tile edge).
+      // per character, so "Goggles"/"Underwear" would overflow the wrap width
+      // (single words don't wrap, they spill past the tile edge).
       // Matches the words-in-Pixelify / numerals-in-PS2P convention anyway.
-      // 10px, not 11 — "Underwear" at 11px lands exactly on the border art.
-      const labelTxt = this.add.text(-w / 2 + 25, 0, label, {
+      // 12px design: the grid block scales itself to fit (0.5-1.5×), and at
+      // tablet scale the old 10px design left tiles mostly empty beige with a
+      // squint-sized label in the corner.
+      const labelTxt = this.add.text(-w / 2 + 28, 0, label, {
         fontFamily: PIXELIFY,
-        fontSize: '10px',
+        fontSize: '12px',
         color: C.DARK_BROWN,
-        wordWrap: { width: w - 31 },
+        wordWrap: { width: w - 34 },
       }).setOrigin(0, 0.5);
       // Single words don't wrap, they spill — a measured clamp catches the
-      // one label ("Underwear") that still lands on the border art.
-      if (labelTxt.width > w - 31) labelTxt.setScale((w - 31) / labelTxt.width);
+      // labels ("Underwear", "Pumpkin...") that still land on the border art.
+      if (labelTxt.width > w - 34) labelTxt.setScale((w - 34) / labelTxt.width);
       content.push(labelTxt);
     }
 
@@ -621,9 +646,10 @@ export class Editor extends Phaser.Scene {
     const COLS = width > height ? 8 : 4;
     const rows = Math.ceil(PAINT_COLORS.length / COLS);
 
-    const pad = 14, gap = 8, titleH = 34;
-    const slotSz = Math.min(64, Math.floor(
-      (Math.min(width - 24, COLS === 8 ? 620 : 340) - pad * 2 - gap * (COLS - 1)) / COLS));
+    const t = this.tsf;
+    const pad = 14, gap = 8, titleH = Math.round(34 * t);
+    const slotSz = Math.min(Math.round(64 * t), Math.floor(
+      (Math.min(width - 24, Math.round((COLS === 8 ? 620 : 340) * t)) - pad * 2 - gap * (COLS - 1)) / COLS));
     const popW = slotSz * COLS + gap * (COLS - 1) + pad * 2;
     const popH = titleH + rows * (slotSz + gap) - gap + pad * 2;
     const pcx = width / 2, pcy = height / 2;
@@ -634,7 +660,7 @@ export class Editor extends Phaser.Scene {
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, Math.max(popH, 66), false).container);
     items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 6, 'Pick a color', {
-      fontFamily: PIXEL_FONT, fontSize: '10px', color: C.DARK_BROWN,
+      fontFamily: PIXEL_FONT, fontSize: `${Math.round(10 * t)}px`, color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -672,9 +698,10 @@ export class Editor extends Phaser.Scene {
       .sort((a, b) => (a.coverage ?? 0) - (b.coverage ?? 0));
     const worn = replayOps(EDITOR_DEFS, this.actions).worn;
 
-    const pad = 14, gap = 10, titleH = 36;
-    const slotSz = Math.min(104, Math.floor(
-      (Math.min(width - 24, 360) - pad * 2 - gap * (mods.length - 1)) / mods.length));
+    const t = this.tsf;
+    const pad = 14, gap = 10, titleH = Math.round(36 * t);
+    const slotSz = Math.min(Math.round(104 * t), Math.floor(
+      (Math.min(width - 24, Math.round(360 * t)) - pad * 2 - gap * (mods.length - 1)) / mods.length));
     const popW = slotSz * mods.length + gap * (mods.length - 1) + pad * 2;
     const popH = titleH + pad + slotSz + pad;
     const pcx = width / 2, pcy = height / 2;
@@ -685,7 +712,7 @@ export class Editor extends Phaser.Scene {
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, popH, false).container);
     items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pumpkin size', {
-      fontFamily: PIXEL_FONT, fontSize: '10px', color: C.DARK_BROWN,
+      fontFamily: PIXEL_FONT, fontSize: `${Math.round(10 * t)}px`, color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -713,7 +740,7 @@ export class Editor extends Phaser.Scene {
       const lbl = this.add.text(0, slotSz * 0.30, isWorn ? `${cov}% ON` : `${cov}%`, {
         // #1E3D08, not the lighter #2E5C0A — this sits on the beige button
         // shell, where the lighter green was too close to it to read.
-        fontFamily: PIXEL_FONT, fontSize: '9px', color: isWorn ? '#1E3D08' : C.DARK_BROWN,
+        fontFamily: PIXEL_FONT, fontSize: `${Math.round(9 * t)}px`, color: isWorn ? '#1E3D08' : C.DARK_BROWN,
       }).setOrigin(0.5);
       shell.addContent([sh, sli, brd, pum, lbl]);
       if (isWorn) {
@@ -754,16 +781,17 @@ export class Editor extends Phaser.Scene {
   }
 
   private buildBottomButtons(cx: number, height: number, width: number) {
-    const btnY = height - 32;
-    const btnW = Math.min((width - 48) / 2, 148);
-    const btnH = 46;
+    const t = this.tsf;
+    const btnY = height - Math.round(32 * t);
+    const btnW = Math.min((width - 48) / 2, Math.round(148 * t));
+    const btnH = Math.round(46 * t);
 
     this.uiObjs.push(addBeigeButton(this, {
       x: cx - btnW / 2 - 6, y: btnY,
       width: btnW, height: btnH,
       label: 'Test Play',
       iconKey: 'icon-play',
-      fontSize: 13, fontFamily: PIXELIFY,
+      fontSize: Math.round(13 * t), fontFamily: PIXELIFY,
       onClick: () => this.testPlay(),
     }).setDepth(8));
 
@@ -772,7 +800,7 @@ export class Editor extends Phaser.Scene {
       width: btnW, height: btnH,
       label: 'Publish',
       iconKey: 'icon-share',
-      fontSize: 13, fontFamily: PIXELIFY,
+      fontSize: Math.round(13 * t), fontFamily: PIXELIFY,
       onClick: () => void this.publish(),
     }).setDepth(8));
   }
@@ -782,7 +810,7 @@ export class Editor extends Phaser.Scene {
       x, y,
       width: Math.max(w, 60), height: Math.max(h, 36),
       label,
-      fontSize: 11, fontFamily: PIXELIFY,
+      fontSize: Math.round(11 * this.tsf), fontFamily: PIXELIFY,
       onClick: cb,
     }).setDepth(5));
   }
@@ -903,11 +931,17 @@ export class Editor extends Phaser.Scene {
   }
 
   private async publish() {
+    // Publishing creates a Reddit post — a double-tap must not create two.
+    // The flag stays set on success (the scene navigates away); only failure
+    // paths clear it so the creator can retry.
+    if (this.publishing) return;
     const err = this.validateRecording();
     if (err) {
       this.showFeedback(err, true);
       return;
     }
+    this.publishing = true;
+    this.showFeedback('Publishing your level…', false);
     const title = (this.titleInput?.value ?? '').trim() || 'My Custom Level';
     this.titleValue = title;
     const hint = (this.hintInput?.value ?? '').trim().slice(0, 160);
@@ -931,11 +965,13 @@ export class Editor extends Phaser.Scene {
       if (this.navigating) return;
 
       if (res.status === 401) {
+        this.publishing = false;
         this.showFeedback('Log in to publish levels!', true);
         return;
       }
       if (!res.ok) {
         const err = await res.json() as { message?: string };
+        this.publishing = false;
         this.showFeedback(err.message ?? 'Failed to publish', true);
         return;
       }
@@ -946,6 +982,7 @@ export class Editor extends Phaser.Scene {
         this.goToScene('Game', { levelId: data.levelId });
       });
     } catch {
+      this.publishing = false;
       if (!this.navigating) this.showFeedback('Network error, try again', true);
     }
   }
@@ -1023,13 +1060,14 @@ export class Editor extends Phaser.Scene {
     const sx     = rect.width  / this.scale.width;
     const sy     = rect.height / this.scale.height;
     const scale  = Math.min(sx, sy);
+    const inputH = 26 * this.tsf;
 
     Object.assign(input.style, {
       left:     `${rect.left + (cx - w / 2) * sx}px`,
-      top:      `${rect.top  + (y - 13) * sy}px`,
+      top:      `${rect.top  + (y - inputH / 2) * sy}px`,
       width:    `${w * sx}px`,
-      height:   `${26 * sy}px`,
-      fontSize: `${13 * scale}px`,
+      height:   `${inputH * sy}px`,
+      fontSize: `${13 * this.tsf * scale}px`,
     });
   }
 
