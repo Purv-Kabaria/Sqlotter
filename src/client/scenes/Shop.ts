@@ -828,9 +828,12 @@ export class Shop extends Phaser.Scene {
       color: equipped ? C.GREEN_DARK : C.TEXT_DARK,
       fontStyle: 'bold',
       align: 'center',
-      wordWrap: { width: size - 14 },
       shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
     }).setOrigin(0.5, 0);
+    // One measured line, downscaled to fit — wordWrap broke "Crimson Red"
+    // onto two lines on the colors grid's small cards, running the second
+    // line straight through the price row below.
+    if (lbl.width > size - 12) lbl.setScale((size - 12) / lbl.width);
     content.push(lbl);
 
     const badgeX = size / 2 - size * 0.14;
