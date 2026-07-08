@@ -1,8 +1,10 @@
 import type { LevelData } from './types';
 import type { GenConfig, GeneratedRecipe, Mechanic } from './curatedLevels';
 import {
-  buildGeneratedLevel, buildMechanicRecipe, difficultyForSteps, getCuratedLevels, mulberry32,
+  buildGeneratedLevel, buildMechanicRecipe, difficultyForSteps, getCuratedLevels,
+  getCuratedShapeKeys, mulberry32,
 } from './curatedLevels';
+import { replaySim, structureKey } from './slimeSim';
 
 // The curated set lives in curatedLevels.ts (hand-authored tutorial + worlds
 // generated deterministically on first access — no build step involved).
@@ -61,14 +63,55 @@ function dailyFeature(rng: () => number, weekend: boolean): Mechanic | null {
   return weekend ? 'alpha' : null; // weekends never fall through to plain generated
 }
 
+// ── Daily uniqueness ──────────────────────────────────────
+// From DAILY_EPOCH onward, every daily is generated against the shape/recipe
+// keys of the ENTIRE curated set plus every prior daily — a daily is never a
+// re-skin of a campaign level, and no two dailies repeat a goal shape (plain
+// puzzles) or a recipe (mechanic showcases, whose bullseyes/fades share one
+// coarse structure key by design — see the world builders). The walk from the
+// epoch is deterministic (fixed seeds, fixed order) and memoized per process;
+// each historical day costs ~1ms, so even years in this stays trivially cheap
+// for the server (the only caller — clients fetch /api/daily).
+//
+// Dates BEFORE the epoch keep the original un-deduped output, so a deploy of
+// this change never swaps an already-posted daily under its players.
+const DAILY_EPOCH_MS = Date.UTC(2026, 6, 10); // 2026-07-10
+const DAY_MS = 86_400_000;
+
+const dailySeq: LevelData[] = []; // index = days since epoch
+let dailyUsed: Set<string> | null = null;
+
 /**
  * Generate a deterministic daily stencil puzzle from a date string
- * (YYYY-MM-DD). The level id is `daily-YYYY-MM-DD`. Dailies skew HARD and now
- * rotate a featured mechanic (nose / alpha dip / bubble) for daily variety,
- * falling back to a plain generated puzzle when a mechanic can't reach the
- * daily's minimum challenge.
+ * (YYYY-MM-DD). The level id is `daily-YYYY-MM-DD`. Dailies skew HARD, rotate
+ * a featured mechanic (nose / alpha dip / bubble) for variety, and are unique
+ * against the curated set and all prior dailies (see above).
  */
 export function generateDailyLevel(date: string): LevelData {
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  // Pre-epoch (or unparseable) dates: the legacy un-deduped generator.
+  if (!(ms >= DAILY_EPOCH_MS)) return generateDailyRaw(date);
+
+  const idx = Math.round((ms - DAILY_EPOCH_MS) / DAY_MS);
+  const memo = dailySeq[idx];
+  if (memo) return memo;
+  dailyUsed ??= new Set(getCuratedShapeKeys());
+  for (let i = dailySeq.length; i <= idx; i++) {
+    const day = new Date(DAILY_EPOCH_MS + i * DAY_MS).toISOString().slice(0, 10);
+    const level = generateDailyRaw(day, dailyUsed);
+    // The builders register accepted shapes themselves; the generator's
+    // last-resort fallback path doesn't. Registering the published level's
+    // keys explicitly (idempotent) closes that gap, so even a fallback day
+    // can't be duplicated by a later one.
+    const goal = replaySim(level.palette, level.optimalSolution);
+    if (goal) dailyUsed.add(structureKey(goal));
+    dailyUsed.add(level.optimalSolution.join('>'));
+    dailySeq[i] = level;
+  }
+  return dailySeq[idx]!;
+}
+
+function generateDailyRaw(date: string, usedShapes?: Set<string>): LevelData {
   const seed = parseInt(date.replace(/-/g, ''), 10);
   const rng  = mulberry32(seed);
 
@@ -91,11 +134,11 @@ export function generateDailyLevel(date: string): LevelData {
   let recipe: GeneratedRecipe | null = null;
   if (feature) {
     for (let k = 0; k < 6 && !recipe; k++) {
-      const cand = buildMechanicRecipe(feature, rng, tier >= 5 ? 3 : 2);
+      const cand = buildMechanicRecipe(feature, rng, tier >= 5 ? 3 : 2, usedShapes);
       recipe = cand && cand.solution.length >= MIN_DAILY_STEPS ? cand : null;
     }
   }
-  recipe ??= buildGeneratedLevel(rng, DAILY_CONFIGS[tier]);
+  recipe ??= buildGeneratedLevel(rng, DAILY_CONFIGS[tier], usedShapes);
   const steps = recipe.solution.length;
 
   // The displayed difficulty honours the daily's HARD tier. A mechanic feature

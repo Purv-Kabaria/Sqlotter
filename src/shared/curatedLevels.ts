@@ -820,6 +820,16 @@ export function getCuratedLevels(): LevelData[] {
   return curatedCache;
 }
 
+/**
+ * Every shape/recipe key the curated build registered — the daily generator
+ * seeds its own dedupe with these so a daily is never a re-skin of a campaign
+ * level. Free to expose: the build accumulates the set anyway.
+ */
+export function getCuratedShapeKeys(): ReadonlySet<string> {
+  getCuratedLevels();
+  return buildShapes!;
+}
+
 export const WORLDS_META: readonly WorldMeta[] = WORLD_NAMES.map((name, num) => ({
   num,
   name,
