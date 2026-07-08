@@ -383,9 +383,13 @@ export class Shop extends Phaser.Scene {
     els.push(this.buildIconButton(x0 + homeSize / 2, y, homeSize, 'icon-home', () => this.goToMenu()).setDepth(15));
 
     const pillH = Math.max(34, Math.min(56, Math.round(headerH * 0.72)));
-    this.buildSparksPill(x1, y, pillH, els);
+    const pillW = this.buildSparksPill(x1, y, pillH, els);
 
-    // SHOP wordmark, centered between the buttons
+    // SHOP wordmark, centered in the gap the home button and sparks pill
+    // actually leave — centering on the full row ran the "P" under the pill
+    // once a 5-figure balance widened it (390w portrait).
+    const gapL = x0 + homeSize + 8;
+    const gapR = x1 - pillW - 8;
     const fs = Math.max(20, Math.min(30, Math.round(headerH * 0.40)));
     const title = this.add.text(0, 0, 'SHOP', headingTextStyle(fs, C.TEXT_BEIGE))
       .setOrigin(0, 0.5);
@@ -393,7 +397,8 @@ export class Shop extends Phaser.Scene {
     const totalW = iconSz + 8 + title.width;
     const icon = addDepthIcon(this, -totalW / 2 + iconSz / 2, 0, 'icon-bag', iconSz, iconSz);
     title.setX(-totalW / 2 + iconSz + 8);
-    const bar = this.add.container((x0 + x1) / 2, y, [icon, title]).setDepth(12).setAlpha(0);
+    const bar = this.add.container((gapL + gapR) / 2, y, [icon, title]).setDepth(12).setAlpha(0);
+    if (totalW > gapR - gapL) bar.setScale(Math.max(0.6, (gapR - gapL) / totalW));
     this.tweens.add({ targets: bar, alpha: 1, duration: 240, delay: 60 });
     els.push(bar);
   }
@@ -549,6 +554,11 @@ export class Shop extends Phaser.Scene {
         fontStyle: active ? 'bold' : 'normal',
         shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
       }).setOrigin(0.5);
+      // The 0.62 estimate gets close, but at 320w the five tabs leave ~52px
+      // each and "Mouths" still kisses the bevel — a measured clamp guarantees
+      // the label stays inside the button face.
+      const maxLabelW = r.w - 12;
+      if (label.width > maxLabelW) label.setScale(maxLabelW / label.width);
       shell.addContent([label]);
 
       els.push(shell.container);
@@ -561,7 +571,7 @@ export class Shop extends Phaser.Scene {
   // hit 5 figures (easily reached now that shop items price into the tens
   // of thousands). `rightX` anchors the pill's right edge in place since its
   // width is now only known after the text is measured.
-  private buildSparksPill(rightX: number, y: number, h: number, els: Phaser.GameObjects.GameObject[]) {
+  private buildSparksPill(rightX: number, y: number, h: number, els: Phaser.GameObjects.GameObject[]): number {
     const fs = Math.max(10, Math.round(h * 0.32));
     const iconSz = Math.max(12, Math.round(h * 0.42));
     const pad = Math.round(h * 0.32);
@@ -581,6 +591,7 @@ export class Shop extends Phaser.Scene {
     this.sparksText.setPosition(-w / 2 + pad + iconSz + 6, -1);
     button.add([icon, this.sparksText]);
     els.push(button);
+    return w;
   }
 
   private buildIconButton(x: number, y: number, size: number, iconKey: string, onClick: () => void): Phaser.GameObjects.Container {
@@ -800,13 +811,15 @@ export class Shop extends Phaser.Scene {
       const swatchSize = size * 0.5;
       content.push(this.add.image(0, -size * 0.09, this.getColorSwatchTexture(item)).setDisplaySize(swatchSize, swatchSize));
     } else {
-      // The customization art is the card's hero — sized to fill most of the
-      // plate. All character-part source images share a 128×128 canvas cropped
-      // to the mascot's full head (so layers align when composited on Splot),
-      // meaning a lot of any single icon's frame is transparent margin; sizing
-      // it up here scales the drawn glyph right along with that margin.
-      const iconSize = size * 0.66;
-      content.push(this.add.image(0, -size * 0.09, item.iconKey).setDisplaySize(iconSize, iconSize));
+      // The customization art is the card's hero. Character-part sources share
+      // a full-head 128×128 canvas (so layers align when composited on Splot),
+      // which leaves most of any single part's frame as transparent margin —
+      // drawn raw, a brow was a tiny squiggle lost in the card. Contain-fit
+      // the alpha-trimmed glyph into the plate instead, with an upscale cap so
+      // the smallest parts don't blow up into mush.
+      const t = this.getTrimmedIconTexture(item.iconKey);
+      const artScale = Math.min((size * 0.66) / t.w, (size * 0.46) / t.h, 2.4);
+      content.push(this.add.image(0, -size * 0.09, t.key).setDisplaySize(t.w * artScale, t.h * artScale));
     }
 
     const lbl = this.add.text(0, size * 0.24, item.label, {
@@ -887,6 +900,55 @@ export class Shop extends Phaser.Scene {
       g.destroy();
     }
     return key;
+  }
+
+  // Bakes an alpha-trimmed copy of a character-part texture (cached by key,
+  // same pattern as getColorSwatchTexture) so cards and popups can size the
+  // actual drawn glyph instead of the mostly-transparent 128×128 frame it
+  // ships in. Returns the trimmed texture's key and pixel dimensions for
+  // aspect-preserving contain-fits.
+  private getTrimmedIconTexture(srcKey: string): { key: string; w: number; h: number } {
+    const trimKey = `trim-${srcKey}`;
+    if (this.textures.exists(trimKey)) {
+      const img = this.textures.get(trimKey).getSourceImage();
+      return { key: trimKey, w: img.width, h: img.height };
+    }
+    const frame = this.textures.get(srcKey).get();
+    const fallback = { key: srcKey, w: frame.width, h: frame.height };
+    const src = this.textures.get(srcKey).getSourceImage();
+    if (!(src instanceof HTMLImageElement || src instanceof HTMLCanvasElement)) return fallback;
+
+    const w = src.width, h = src.height;
+    const scan = document.createElement('canvas');
+    scan.width = w; scan.height = h;
+    const ctx = scan.getContext('2d');
+    if (!ctx) return fallback;
+    ctx.drawImage(src, 0, 0);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if ((data[(y * w + x) * 4 + 3] ?? 0) > 16) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return fallback; // fully transparent — nothing to trim to
+
+    const pad = 2; // keep a sliver of breathing room around soft edges
+    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+    maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+    const bw = maxX - minX + 1, bh = maxY - minY + 1;
+    const out = document.createElement('canvas');
+    out.width = bw; out.height = bh;
+    const outCtx = out.getContext('2d');
+    if (!outCtx) return fallback;
+    outCtx.drawImage(scan, minX, minY, bw, bh, 0, 0, bw, bh);
+    this.textures.addCanvas(trimKey, out);
+    return { key: trimKey, w: bw, h: bh };
   }
 
   private hitTestCard(px: number, py: number): CardRecord | null {
@@ -1085,8 +1147,15 @@ export class Shop extends Phaser.Scene {
     }).setOrigin(0.5));
 
     const iconSize = Math.max(48, Math.min(popW * 0.28, popH * 0.30, 96));
-    const previewKey = item.category === 'colors' ? this.getColorSwatchTexture(item) : item.iconKey;
-    content.push(this.add.image(0, -popH * 0.11, previewKey).setDisplaySize(iconSize, iconSize));
+    if (item.category === 'colors') {
+      content.push(this.add.image(0, -popH * 0.11, this.getColorSwatchTexture(item)).setDisplaySize(iconSize, iconSize));
+    } else {
+      // Same trimmed contain-fit the grid cards use — the raw frame is mostly
+      // transparent margin (see buildItemCard).
+      const t = this.getTrimmedIconTexture(item.iconKey);
+      const s = Math.min(iconSize / t.w, iconSize / t.h, 2.4);
+      content.push(this.add.image(0, -popH * 0.11, t.key).setDisplaySize(t.w * s, t.h * s));
+    }
 
     const labelFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
     content.push(this.add.text(0, popH * 0.13, item.label, {

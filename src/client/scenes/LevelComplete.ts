@@ -99,10 +99,15 @@ export class LevelComplete extends Phaser.Scene {
       this.add.circle(x, y, Phaser.Math.Between(1, 3), 0xffffff, Phaser.Math.FloatBetween(0.2, 0.7));
     }
 
-    // Panel
+    // Panel — centered when the rows below it (~108px with the Splat Card
+    // row, ~60px without) still fit; otherwise slid up toward the top edge so
+    // a short landscape viewport doesn't push the nav buttons off-screen.
     const panelW = Math.min(width - 32, 380);
     const panelH = 320;
-    const panelY = height / 2;
+    const rowsH = Array.isArray(actions) && actions.length > 0 ? 108 : 60;
+    const panelY = height / 2 + panelH / 2 + rowsH > height
+      ? Math.max(panelH / 2 + 8, height - rowsH - panelH / 2)
+      : height / 2;
     addPixelPanel(this, cx, panelY, panelW, panelH).setAlpha(0.95);
 
     // "LEVEL CLEAR!" title
@@ -185,17 +190,26 @@ export class LevelComplete extends Phaser.Scene {
 
     if (streakDays !== undefined) {
       const streakY = statsY + 46;
-      this.add.image(cx - 72, streakY + 7, 'icon-fire').setDisplaySize(18, 18);
-      const streak = this.add.text(cx + 4, streakY, `${streakDays} day streak!`, {
+      const streak = this.add.text(0, streakY, `${streakDays} day streak!`, {
         fontFamily: PIXEL_FONT,
         fontSize: '10px',
         color: '#ffb347',
         stroke: '#1a0a2e',
         strokeThickness: 3,
       }).setOrigin(0.5).setAlpha(0);
+      // Center flame + text as one row, spacing the flame off the measured text
+      // width so long streaks ("100 day streak!") never run under the icon.
+      const flameW = 18;
+      const gap = 8;
+      const rowW = flameW + gap + streak.width;
+      const flame = this.add.image(cx - rowW / 2 + flameW / 2, streakY + 1, 'icon-fire')
+        .setDisplaySize(flameW, flameW).setAlpha(0);
+      streak.setX(cx + rowW / 2 - streak.width / 2);
+      // Fade-in is its own tween — riding alpha on the scale pop's yoyo faded
+      // the row back OUT, leaving an orphaned flame with no text.
+      this.tweens.add({ targets: [streak, flame], alpha: 1, duration: 220, delay: 1250 });
       this.tweens.add({
         targets: streak,
-        alpha: 1,
         scaleX: 1.06,
         scaleY: 1.06,
         duration: 220,
@@ -214,27 +228,45 @@ export class LevelComplete extends Phaser.Scene {
     const panelBottom = panelY + panelH / 2;
     const room = height - panelBottom;
     const canShare = Array.isArray(actions) && actions.length > 0;
+    // Even slid to the top, a ~390px-tall landscape window leaves under 100px
+    // below the panel — not enough to stack the Splat Card row above the nav
+    // row. Merge everything into one centered row there instead of clipping.
+    const singleRow = canShare && room < 100;
+    const shareVisual: SplatCardVisual = { title: data?.title ?? '', stars, steps, palette: data?.goalPalette ?? [] };
+
+    let btnW  = Math.min((panelW - 24) / 3, 110);
+    let navCx = cx;
+    const btnY = singleRow
+      ? panelBottom + room / 2
+      : Math.min(panelBottom + (canShare ? Math.min(98, room * 0.68) : 50), height - 26);
+
     if (canShare) {
-      this.buildShareButton(cx, panelBottom + Math.min(44, room * 0.30), Math.min(panelW - 24, 250),
-        { levelId, timeMs, actions },
-        { title: data?.title ?? '', stars, steps, palette: data?.goalPalette ?? [] });
+      if (singleRow) {
+        const shareW = 132;
+        btnW = Math.min(btnW, (width - 40 - shareW - 24) / 3);
+        const rowW = shareW + 8 + btnW * 3 + 16;
+        this.buildShareButton(cx - rowW / 2 + shareW / 2, btnY, shareW,
+          { levelId, timeMs, actions }, shareVisual);
+        navCx = cx + rowW / 2 - (btnW * 3 + 16) / 2;
+      } else {
+        this.buildShareButton(cx, panelBottom + Math.min(44, room * 0.30), Math.min(panelW - 24, 250),
+          { levelId, timeMs, actions }, shareVisual);
+      }
     }
 
-    // Buttons — three in a row
-    const btnY  = panelBottom + (canShare ? Math.min(98, room * 0.68) : 50);
-    const btnW  = Math.min((panelW - 24) / 3, 110);
+    // Nav buttons — three in a row
     const btnGap = btnW + 8;
 
     const nextId = this.getNextLevelId(levelId);
     const hasNext = nextId !== null;
 
-    this.buildBtn(cx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
+    this.buildBtn(navCx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
       this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
     });
-    this.buildBtn(cx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
+    this.buildBtn(navCx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
       this.goToScene('Leaderboard', { levelId });
     });
-    this.buildBtn(cx + btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
+    this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
       this.goToScene('LevelSelect');
     });
 

@@ -237,31 +237,41 @@ export class LevelSelect extends Phaser.Scene {
     const gridBottom = isPortrait ? height - 20 - arrowSize - 16 : height - 24;
     const availH     = Math.max(0, gridBottom - gridTop);
 
-    // Fit designRows rows (+ gaps) into availH. Prefer a comfortable gap and a
+    // Community levels aren't capped by the API to a page-sized batch (up to 20), and
+    // this screen has no scrolling — cap to the same WORLD_CAPACITY every world page
+    // reserves space for, so buttons never overflow past the arrows/screen edge.
+    const items = this.buildGridItems(page, cols * designRows);
+
+    // Size rows to the page's actual content (the tutorial world and community
+    // pages run short of capacity) so sparse pages grow their buttons into the
+    // space instead of huddling above a dead band.
+    const layoutRows = Math.max(1, Math.ceil(items.length / cols));
+
+    // Fit layoutRows rows (+ gaps) into availH. Prefer a comfortable gap and a
     // full-size button, but progressively tighten the gap — and then shrink the
     // button toward the small-corner variant's floor — so short screens never
     // clip the last row into the pagination arrows. addBeigeButton auto-swaps to
     // the 16px-corner art below 65px, so heights under the 66px full-size floor
     // still render cleanly (the previous Math.max(66, …) forced overflow instead).
     let rowGap = isPortrait ? 12 : 20;
-    let btnH   = (availH - rowGap * (designRows - 1)) / designRows;
+    let btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
     if (btnH < 66) {
       rowGap = isPortrait ? 8 : 12;
-      btnH   = (availH - rowGap * (designRows - 1)) / designRows;
+      btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
     }
     if (btnH < 54) {
       rowGap = 5;
-      btnH   = (availH - rowGap * (designRows - 1)) / designRows;
+      btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
     }
     btnH = Math.max(40, Math.min(isPortrait ? 74 : 80, btnH));
 
+    // Whatever the height clamp left over splits evenly above and below the
+    // grid, so a short page reads as centered rather than top-heavy.
+    const usedH = layoutRows * btnH + (layoutRows - 1) * rowGap;
+    gridTop += Math.max(0, (availH - usedH) / 2);
+
     const btnW = (gridW - colGap * (cols - 1)) / cols;
     const fs   = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
-
-    // Community levels aren't capped by the API to a page-sized batch (up to 20), and
-    // this screen has no scrolling — cap to the same WORLD_CAPACITY every world page
-    // reserves space for, so buttons never overflow past the arrows/screen edge.
-    const items = this.buildGridItems(page, cols * designRows);
 
     if (page.kind === 'community' && items.length === 1 && items[0]!.disabled) {
       // "Coming soon" placeholder — spans the full grid width instead of one cell.

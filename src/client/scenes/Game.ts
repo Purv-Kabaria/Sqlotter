@@ -325,27 +325,31 @@ export class Game extends Phaser.Scene {
       }
     }));
 
-    // Level title + context line, centered. In-game the header identifies the
-    // puzzle ("Orange Splash" / "World 1 · Level 1") — branding stays on the
-    // splash/menu screens (and the landscape palette keeps its logo). Width
-    // budget: whatever the back button (left) and hint+reset pair (right)
-    // leave free, mirrored so the title stays visually centered.
-    const sideReserve = 10 + HUD_BTN * 2 + 8 + 12;
-    const maxChars = Math.max(10, Math.floor((width - sideReserve * 2) / 9));
-    const rawTitle = this.level.title;
-    const titleLabel = rawTitle.length > maxChars ? `${rawTitle.slice(0, maxChars - 3)}...` : rawTitle;
-    elements.push(this.add.text(width / 2, HEADER_H / 2 - 8, titleLabel, {
+    // Level title + context line. In-game the header identifies the puzzle
+    // ("Orange Splash" / "World 1 · Level 1") — branding stays on the
+    // splash/menu screens (and the landscape palette keeps its logo). Both
+    // lines center in the gap the buttons actually leave — back on the left,
+    // hint+reset on the right, like a standard app bar. Mirroring the wider
+    // right side instead starved 320px screens down to ~7 characters.
+    const hudLeftEdge  = 10 + HUD_BTN + 10;
+    const hudRightEdge = width - (10 + HUD_BTN + 8 + HUD_BTN) - 10;
+    const hudTextCX    = (hudLeftEdge + hudRightEdge) / 2;
+    const hudTextMaxW  = Math.max(60, hudRightEdge - hudLeftEdge);
+    const titleText = this.add.text(hudTextCX, HEADER_H / 2 - 8, this.level.title, {
       fontFamily: PIXEL_FONT, fontSize: '9px', color: C.TEXT_LIGHT,
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(16));
+    }).setOrigin(0.5).setDepth(16);
+    this.fitHudLine(titleText, this.level.title, hudTextMaxW);
+    elements.push(titleText);
     const context = this.levelContextLabel();
     if (context) {
       // Secondary context line ("World 1 · Level 1"). Pixelify at 9px reads far
-      // cleaner than the 6px display face it replaced, and self-centers so there's
-      // no width budget to blow.
-      elements.push(this.add.text(width / 2, HEADER_H / 2 + 13, context, {
+      // cleaner than the 6px display face it replaced.
+      const ctxText = this.add.text(hudTextCX, HEADER_H / 2 + 13, context, {
         fontFamily: PIXELIFY, fontSize: '9px', color: '#B7A585',
-      }).setOrigin(0.5).setDepth(16));
+      }).setOrigin(0.5).setDepth(16);
+      this.fitHudLine(ctxText, context, hudTextMaxW);
+      elements.push(ctxText);
     }
 
     // Hint + Reset in header right.
@@ -353,6 +357,20 @@ export class Game extends Phaser.Scene {
     elements.push(this.hudIconButton(width - 10 - HUD_BTN / 2, HEADER_H / 2, 'icon-reset', 0, () => this.handleReset()));
 
     this.hudLayer = this.add.container(0, 0, elements);
+  }
+
+  // Fits one HUD text line into maxW, measured for real instead of estimated
+  // per-glyph: first drop to 8px (Press Start 2P is an 8px-native face, so it
+  // stays crisp; Pixelify holds up too), then trim characters with a "..." tail
+  // ("…" has no glyph in these faces).
+  private fitHudLine(text: Phaser.GameObjects.Text, full: string, maxW: number) {
+    if (text.width <= maxW) return;
+    text.setFontSize(8);
+    let keep = full.length;
+    while (keep > 3 && text.width > maxW) {
+      keep -= 1;
+      text.setText(`${full.slice(0, keep).trimEnd()}...`);
+    }
   }
 
   // Square beige icon button for the header strip — the same shell+depth-icon

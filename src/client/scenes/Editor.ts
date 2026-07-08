@@ -288,9 +288,12 @@ export class Editor extends Phaser.Scene {
 
     // Height budget: shrink the goal card first, the tile grid scales itself
     // to whatever remains (buildModPanel), so the layout can't overflow.
+    // The panel's floor scales with the screen — on short phones a fixed 150px
+    // panel squeezed the 25-tile grid into ~26px micro-tiles while the goal
+    // card kept 90px; trading ~15px of goal size buys visibly larger tiles.
     const blockFixed = 10 + 36 + 8 + 28 + 22; // controls + steps + feedback rows
     let goalSz = Math.min(Math.round(width * 0.28), 120);
-    const minPanel = 150;
+    const minPanel = Math.max(150, Math.round((bottomZone - top) * 0.45));
     while (goalSz > 56 && (goalSz + 24) + blockFixed + minPanel > bottomZone - top) goalSz -= 4;
 
     const cardH = goalSz + 24;
@@ -523,7 +526,7 @@ export class Editor extends Phaser.Scene {
     // tiles, so sweep the plausible column counts and keep the largest scale.
     let compactCols = 4;
     let compact = layout(TILE_SQ, TILE_SQ, compactCols);
-    for (let c = 5; c <= 8; c++) {
+    for (let c = 5; c <= 12; c++) {
       const cand = layout(TILE_SQ, TILE_SQ, c);
       if (cand.scale > compact.scale) { compact = cand; compactCols = c; }
     }
@@ -569,7 +572,7 @@ export class Editor extends Phaser.Scene {
 
     if (compact) {
       if (iconKey && this.textures.exists(iconKey)) {
-        content.push(addDepthIcon(this, 0, 0, iconKey, 22, 22, 1, 0.4));
+        content.push(addDepthIcon(this, 0, 0, iconKey, 30, 30, 1, 0.4));
       }
       // Orientation arrow, bottom-right — the same disambiguation the Game
       // palette tiles use (thickness is already carried by the icon art).
@@ -591,12 +594,16 @@ export class Editor extends Phaser.Scene {
       // wrap width (single words don't wrap, they spill past the tile edge).
       // Matches the words-in-Pixelify / numerals-in-PS2P convention anyway.
       // 10px, not 11 — "Underwear" at 11px lands exactly on the border art.
-      content.push(this.add.text(-w / 2 + 25, 0, label, {
+      const labelTxt = this.add.text(-w / 2 + 25, 0, label, {
         fontFamily: PIXELIFY,
         fontSize: '10px',
         color: C.DARK_BROWN,
         wordWrap: { width: w - 31 },
-      }).setOrigin(0, 0.5));
+      }).setOrigin(0, 0.5);
+      // Single words don't wrap, they spill — a measured clamp catches the
+      // one label ("Underwear") that still lands on the border art.
+      if (labelTxt.width > w - 31) labelTxt.setScale((w - 31) / labelTxt.width);
+      content.push(labelTxt);
     }
 
     shell.addContent(content);
