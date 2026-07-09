@@ -6,11 +6,23 @@ bare white slime and reproduces the pattern by combining two kinds of palette ac
 
 - **Paint** — splashes a color over every part of the slime that isn't protected.
   The pot always offers the standard **16-color rack** (`PAINT_COLORS_16`).
-- **Stencils** (goggles, glasses, belts, pendants, pumpkins, underwear) — worn items
-  that **protect whatever they cover** from paint. Tapping a worn stencil takes it
-  off again. **Goggles are one-time use**: the splash that lands on them knocks them
-  off and breaks them (automatically, no action logged) — only a reset restores them.
-  The pumpkin tile always offers all three sizes (25/50/75).
+- **Stencils** (goggles, glasses, belts, pendants, pumpkins, underwear, plate, cone,
+  scarf) — worn items that **protect whatever they cover** from paint. Tapping a worn
+  stencil takes it off again. **Goggles are one-time use**: the splash that lands on
+  them knocks them off and breaks them (automatically, no action logged) — only a
+  reset restores them. The pumpkin tile always offers all three sizes (25/50/75).
+
+Three specials round out the toolbox:
+
+- **Nose** — worn small; every splash grows it one size (small → medium → big, each a
+  different mask), and a splash on a big nose knocks it off. A growing stencil you
+  steer with your coats.
+- **Alpha dip** — one-shot translucency: every exposed cell drops to 75% opacity
+  ("dipped"). Counts as a splash (breaks goggles, grows the nose). One dip per run —
+  a second tap is refused like broken goggles.
+- **Bubble** — reusable soft dip that only affects its inner circle; the outer ring
+  keeps full color. Not a splash: goggles and noses are safe. Dipping is idempotent
+  (dipped stays 75%), and a fresh color coat makes a cell opaque again.
 
 Goals never show attached modifiers — the accessories are *tools*, not targets. The
 level is won the moment the painted pattern matches the goal **and nothing is worn**
@@ -38,7 +50,7 @@ Where the logic lives:
 | Per-attempt session: steps, timer, worn set | `src/client/engine/LevelEngine.ts` |
 | Gameplay scene: palette UI, HUD, animations, win flow | `src/client/scenes/Game.ts` |
 | Pattern compositing (canvas, real PNGs) | `src/client/components/SlimeRenderer.ts` |
-| Curated levels (tutorial + 10 generated worlds) | `src/shared/curatedLevels.ts` |
+| Curated levels (tutorial + 24 generated worlds) | `src/shared/curatedLevels.ts` |
 | Daily level generator (seeded, deterministic) | `src/shared/levelData.ts` |
 | Server validation + rewards | `src/server/routes/api.ts` (`POST /api/complete`) |
 
@@ -57,26 +69,36 @@ The slime is a 64×64 cell grid (`MASK_GRID`), sampled once from the real art by
 - `MASK_BITMAPS[maskId]` — which cells each stencil covers (from each modifier PNG's
   alpha channel, threshold ≥ 100 so translucent goggle lenses count as covering).
 
-`SimState` is `{ grid, colors, worn, broken }`: a per-cell color index, the color
-table (index 0 = unpainted white), the ordered list of worn mask ids, and the mask
-ids broken this run.
+`SimState` is `{ grid, alpha, colors, worn, broken, spent }`: a per-cell color index,
+a per-cell opacity flag (opaque | dipped at 75%), the color table (index 0 =
+unpainted white), the ordered list of worn mask ids, the mask ids broken this run,
+and the one-shot action ids already used this run (the alpha dip).
 
 Each action id resolves against the level palette **plus the standard catalog**
 (the 16 paints and 3 pumpkin sizes — `resolveActionDef`) and does exactly one thing:
 
 | Action | Effect | Step cost |
 |--------|--------|-----------|
-| `paint` def | every body cell NOT covered by a worn stencil ← this color; then any worn **goggles** snap off into `broken` | 1 |
+| `paint` def | every exposed body cell ← this color at full opacity; then splash side effects | 1 |
+| `alpha` dip | every exposed cell → dipped (75%); splash side effects; one dip per run — a second tap is refused | 1 |
+| `bubble` | exposed cells inside the bubble's inner circle → dipped; reusable, no splash side effects | 1 |
 | stencil def, not worn | put it on (protects its cells from now on) | 1 |
 | stencil def, worn | take it off | 1 |
-| broken goggles | refused — the tap is not logged, replays containing one are invalid | 0 |
+| nose tap | wear it small / take it off at whatever size it grew to | 1 |
+| `__reset__` | clear everything (grid, worn, broken, spent) — logged, clock keeps running | 1 |
+| broken goggles / spent dip | refused — the tap is not logged, replays containing one are invalid | 0 |
+
+**Splash side effects** (color paint and alpha dip, not the bubble): every worn pair
+of goggles snaps off into `broken`, and a worn nose grows one size (a splash on big
+knocks it off, re-wearable small).
 
 Aside from the goggle break there are no conflicts and no use counts — any other
 stencil can go on or off at any time, and any combination can be worn simultaneously.
 The puzzle is ordering plus goggle economy: which stencils are on when each coat
 lands, and which single splash each pair of goggles is spent on.
 
-**Win check** (`isCleanMatch`): every body cell resolves to the same color as the
+**Win check** (`isCleanMatch`): every body cell displays the same effective color
+(hue + dip state — a dipped cell shows its color composited at 75% over white) as the
 goal replay, and `worn` is empty.
 
 **The goal IS a replay.** `LevelData` has no stored goal state — `optimalSolution`
@@ -102,6 +124,11 @@ What each mask protects (measured on the 64×64 grid, % of body cells):
 | `goggles-*-thin` / `glasses-*-thin` | narrow eye band | ~16% |
 | `goggles-*-mono` | monocle band | ~19% |
 | `pendant-h` / `pendant-v` | chest charm | ~19% |
+| `plate` | large dish shape | large |
+| `cone` | rainbow snow-cone shape | large |
+| `scarf` | wrap-around band (left/right variants mirror the art, one shared mask) | medium |
+| `nose-small/medium/big` | nose area, one mask per size | grows per splash |
+| `bubble-inner` | region the bubble dips (not a worn mask) | inner circle |
 
 `h-`/`v-` prefixes are orientation: `horizontal-*` assets run left-right,
 `vertical-*` top-to-bottom, so the same item family gives two different pattern
@@ -167,14 +194,15 @@ provably solvable before they're stored.
 
 ## Level sources
 
-**Curated — 8 tutorial + 160 generated.** `curatedLevels.ts` hand-authors the Splash
-Course (each lesson teaches one stencil concept: paint, re-coat, wear/remove, paint
-order, undies print, goggle band, pumpkin sizes, stacking) and generates worlds 1–10
-on first access (`getCuratedLevels()`, memoized) with a fixed-seed PRNG — identical
-on client and server, no build step. Generation is lazy so it never blocks the
-client's boot script or a server cold start. Each generated level is validated
-during generation: its solution replays cleanly, ends bare, and every paint op is
-necessary (dropping one changes the pattern).
+**Curated — 16 tutorial + 384 generated (25 worlds, 400 levels).** `curatedLevels.ts`
+hand-authors the Splash Course — 16 lessons whose solutions collectively exercise all
+26 modifiers plus paint, from First Splash up to Goggle Pileup (five worn goggles,
+one black splash breaks them all) — and generates worlds 1–24 on first access
+(`getCuratedLevels()`, memoized) with a fixed-seed PRNG — identical on client and
+server, no build step. Generation is lazy so it never blocks the client's boot script
+or a server cold start. Each generated level is validated during generation: its
+solution replays cleanly, ends bare, and every paint op is necessary (dropping one
+changes the pattern).
 
 Three mechanisms keep the set varied and ramped:
 
@@ -195,11 +223,15 @@ Three mechanisms keep the set varied and ramped:
 `LEVELS_VERSION` stamps the set; the `onAppUpgrade` trigger wipes level
 progress when it changes.
 
-**Daily.** `generateDailyLevel(date)` seeds the same generator from the date;
-dailies skew HARD on purpose — weekdays tier 4, weekends tier 5 (easy lives in
-the Splash Course, the daily is the competitive ritual). Each daily gets a
+**Daily — the Sqlot.** A daily level is a **Sqlot**, the game's player-facing name
+for the ritual. `generateDailyLevel(date)` seeds the same generator from the date;
+Sqlots skew HARD on purpose — weekdays tier 4, weekends tier 5 (easy lives in
+the Splash Course, the Sqlot is the competitive ritual). Each Sqlot gets a
 deterministic quirky name ("The Grumpy Goggle Job") drawn from the same seed,
-used in the level, the post title, and every Splat Card that quotes it.
+used in the level, the post title (`Sqlot 2026-07-09: The Grumpy Goggle Job`),
+and every Splat Card that quotes it. From the daily epoch onward, each Sqlot is
+generated against the shape/recipe keys of the entire campaign plus every prior
+Sqlot, so a daily is never a re-skin of a campaign level or an earlier daily.
 Solvable by construction; `GET /api/daily` falls back to rotating curated
 levels if the scheduler hasn't published one. The scheduler task runs hourly
 and is idempotent per piece (level store / Reddit post checked separately), so
@@ -244,3 +276,10 @@ Counts below ramp from the world's first level to its last (see `WORLD_RAMPS`):
 | 8 | Trap Tundra | 2→3 + decoys | 3→4 | deeper stacks |
 | 9 | Expert Estuary | 3 | 3→4 | three stencils deep |
 | 10 | Master Marsh | 3→4 | 4 | everything at once |
+
+Beyond the main ramp, worlds 11–21 are **specialists** — each spotlights one toy at
+expert budgets (Monocle Mire, Ring Reef, Nose Nebula, Scarf Summit, Stacked Shallows,
+Bubble Bog, Mirage Meadow, Fade Fjord, Vertigo Vale, Snare Strait, Gauntlet Gulch) —
+and worlds 22–24 are the mechanic-dense finale (Bullseye Bay, Opacity Ocean,
+Splotter's Sanctum), where roughly half the slots use nose/alpha/bubble. See
+`WORLD_NAMES` / `WORLD_RAMPS` in `curatedLevels.ts` for the authoritative list.

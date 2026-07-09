@@ -89,28 +89,24 @@ All 256×256. Rendered using `SlimeRenderer` (see `docs/slime-rendering.md`).
 
 | File | Key | Purpose |
 |------|-----|---------|
-| `slime/color.png` | `slime-color` | Base body shape, baked into a genuine overlay-blended texture per tint (see below) |
-| `slime/border.png` | `slime-border` | Black outline, always on top |
-| `slime/overlay-normal.png` | `slime-shine` | Gloss highlight — genuine OVERLAY blend baked via `color-blend`, amount 0.5 |
-| `slime/overlay-applied.png` | `slime-applied` | Gloss highlight, post-modifier flash (ADD blend) |
+| `slime/color.png` | `slime-color` | White body shape — the base of every pattern composite and the alpha clamp |
+| `slime/border.png` | `slime-border` | Black outline, always on top of the pattern |
+| `slime/overlay-normal.png` | `slime-shine` | Gloss highlight, overlay-composited into the pattern at 0.5 |
+| `slime/overlay-applied.png` | `slime-applied` | Post-action flash (ADD blend) |
 
-`slime-color` is tinted + overlay-blended with `slime-shine` at runtime via
-`paintOverlayShine()` (`src/client/components/overlayShine.ts`) rather than a plain
-`setTint(hexColor)` — see `docs/slime-rendering.md` for why. It's also used as two separate cropped
-images for two-color mode. All other layers sit on top unchanged.
+`SlimeRenderer` composites the paint pattern (body + per-coat tinted stamps with
+worn stencils punched out + dip veil + shine) onto a per-instance canvas texture —
+see `docs/slime-rendering.md`. Single-color shine bakes elsewhere (Preloader's
+decorative slime, color-picker swatches, Splot) use `paintOverlayShine()`
+(`src/client/components/overlayShine.ts`).
 
-**Layer depth order inside `SlimeRenderer`:**
+**Child order inside `SlimeRenderer`'s container:**
 
 ```
-depth -1  bottomImg    (baked slime-color+shine texture, tinted, cropped to bottom zone — two-color mode only)
-depth  0  topImg       (baked slime-color+shine texture, tinted, full or cropped to top zone)
-depth  1  pumpkinImg   (modifier overlay)
-depth  2  underwearImg (modifier overlay)
-depth  3  beltImg      (modifier overlay)
-depth  4  pendantImg   (modifier overlay)
-depth  5  eyeImg       (goggles or glasses overlay)
-depth  7  borderImg    (slime-border, always visible)
-depth  8  appliedFlash (slime-applied, ADD blend, only during animation)
+patternImg    (the per-instance canvas texture: body + coats + dip veil + shine)
+borderImg     (slime-border, always visible)
+worn stencils (mod-{maskId} images in wear order — ON the slime, above the outline)
+appliedFlash  (slime-applied, ADD blend, only during animation)
 ```
 
 ---
@@ -173,28 +169,49 @@ Key formula: `mod-pendant-${variant}`.
 
 Key formula: `mod-pumpkin-${coverage}`.
 
-### Underwear
+### Underwear, plate, cone
 
 | File | Key |
 |------|-----|
 | `modifiers/underwear.png` | `mod-underwear` |
+| `modifiers/plate.png` | `mod-plate` |
+| `modifiers/rainbow-cone.png` | `mod-cone` |
 
-**How `SlimeRenderer` selects texture keys:**
-```typescript
-const eyeKey = state.goggles
-  ? `mod-goggles-${state.goggles}`
-  : state.glasses
-    ? `mod-glasses-${state.glasses}`
-    : null;
-```
-Pumpkin, belt, pendant, underwear follow the same `mod-{type}-${variant}` pattern.
+### Scarf
+
+| File | Key |
+|------|-----|
+| `modifiers/scarf-right.png` | `mod-scarf` |
+
+The left/right variants share one coverage mask, so the game loads a single
+texture (`scarf-left.png` exists as art but isn't loaded). The palette tile
+carries a diagonal orientation arrow (135° for left, −45° for right) instead of
+separate icons.
+
+### Nose (grows one size per splash)
+
+| File | Key |
+|------|-----|
+| `modifiers/nose-small.png` | `mod-nose-small` |
+| `modifiers/nose-medium.png` | `mod-nose-medium` |
+| `modifiers/nose-big.png` | `mod-nose-big` |
+
+### Bubble (reusable inner-circle opacity dip)
+
+| File | Key |
+|------|-----|
+| `modifiers/bubble.png` | `mod-bubble` |
+
+**Texture key rule:** worn masks render as `mod-{maskId}` — the maskId comes from
+`slimeSim.ts#maskIdOf` (`goggles-h-thick`, `pumpkin-50`, `nose-medium`, `plate`, …).
 
 **Adding a new modifier overlay:**
-1. Place `modifiers/my-mod.png` at 256×256 with transparency.
-2. Load in `Preloader.ts`: `{ key: 'mod-mymod', path: 'modifiers/my-mod.png' }`.
-3. Add the variant type in `src/shared/types.ts`.
-4. Add a new `Image` layer in `SlimeRenderer.ts` at the appropriate depth.
-5. Call `setLayer(img, key)` in `setState()`.
+1. Place `modifiers/my-mod.png` at 256×256 with transparency, painted in the same
+   coordinate space as `slime/color.png`.
+2. Re-run `scripts/generate_masks.py` to bake its coverage into `src/shared/maskData.ts`.
+3. Add the type/variant in `src/shared/types.ts` and its maskId in `slimeSim.ts#maskIdOf`.
+4. Load in `Preloader.ts`: `{ key: 'mod-mymod', path: 'modifiers/my-mod.png' }`.
+   `SlimeRenderer` discovers masks by id — no renderer changes needed.
 
 ---
 
@@ -316,6 +333,16 @@ Icons are used in buttons (via `addDepthIcon`), HUD, and the modifier palette.
 | `icon-underwear`     | `icons/puzzle/underwear.png`     | `underwear` |
 | `icon-belt-thick`    | `icons/puzzle/belt-thick.png`    | `belt` thick |
 | `icon-belt-thin`     | `icons/puzzle/belt-thin.png`     | `belt` thin |
+| `icon-nose`          | `icons/puzzle/nose.png`          | `nose` |
+| `icon-plate`         | `icons/puzzle/plate.png`         | `plate` |
+| `icon-cone`          | `icons/puzzle/rainbow-cone.png`  | `cone` |
+| `icon-scarf`         | `icons/puzzle/scarf.png`         | `scarf` (one icon; tiles add an orientation arrow) |
+| `icon-bubble`        | `icons/puzzle/bubble.png`        | `bubble` — **art not delivered yet** |
+
+The last five load tolerantly via `OPTIONAL_PUZZLE_ICONS` in `Preloader.ts`:
+a missing file just 404s and the palette tile falls back to drawing the modifier
+art itself (`icon-nose` additionally falls back to a baked zoom of `mod-nose-big`).
+Drop the PNG in and the icon appears with no code change.
 
 ### HUD (96×96)
 

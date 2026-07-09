@@ -120,11 +120,15 @@ modifiers/
   horizontal-belt-thick.png      vertical-belt-thick.png
   horizontal-belt-thin.png       vertical-belt-thin.png
   pumpkin-25.png  pumpkin-50.png  pumpkin-75.png
-  underwear.png
+  underwear.png   plate.png       rainbow-cone.png
+  scarf-left.png  scarf-right.png bubble.png
+  nose-small.png  nose-medium.png nose-big.png
 ```
 
 `horizontal-*` = element oriented left-right across the slime.
 `vertical-*` = element oriented top-to-bottom on the slime.
+Scarf left/right share one coverage mask (the art mirrors); the nose sizes are
+three distinct masks (it grows one size per splash).
 
 ### Character (Splot mascot — cosmetic only, NOT puzzle elements)
 ```
@@ -149,7 +153,9 @@ icons/navigation/  arrow, home, settings, cancel, help, share
 icons/gameplay/    play, pause, timer, reset
 icons/puzzle/      paint, pendent, glasses-thick, glasses-thin,
                    goggles-thin, goggles-thick, goggle, pumpkin,
-                   underwear, belt-thick, belt-thin
+                   underwear, belt-thick, belt-thin, nose, plate,
+                   rainbow-cone, scarf  (bubble.png not delivered yet —
+                   Preloader loads these tolerantly via OPTIONAL_PUZZLE_ICONS)
 icons/hud/         heart, spark, star, fire
 icons/community/   people, trophy, pencil, gold, silver, bronze
 icons/shop/        bag, lock, unlock, price
@@ -178,22 +184,32 @@ the identical simulation with no canvas.
 ```typescript
 type SimState = {
   grid: Uint8Array;   // per-cell index into colors
+  alpha: Uint8Array;  // per-cell opacity: opaque | dipped (75%)
   colors: string[];   // colors[0] = '#FFFFFF' (unpainted)
   worn: string[];     // mask ids currently worn, in order
   broken: string[];   // goggles broken this run (a splash landed on them)
+  spent: string[];    // one-shot action ids used this run (alpha dip)
 };
 ```
 
-- Paint action: every body cell not covered by a worn stencil ← the paint color; then
-  every worn GOGGLES mask snaps off into `broken` (automatic, no action logged)
+- Paint action: every body cell not covered by a worn stencil ← the paint color at
+  full opacity; then splash side effects — every worn GOGGLES mask snaps off into
+  `broken`, and a worn nose grows one size (small→medium→big; a splash on big knocks
+  it off). All automatic, no action logged
+- Alpha dip: every exposed cell → 75% opacity ("dipped", idempotent). Counts as a
+  splash. ONE dip per run — a second tap is refused like broken goggles
+- Bubble: dips only exposed cells inside its inner-circle region; reusable, NOT a
+  splash (goggles and noses are safe)
 - Stencil action: toggle — on if off, off if on. Broken goggles refuse the tap
   (nothing logged; replays containing one are invalid). Everything else is a free
-  toggle — no conflicts, no counts
+  toggle — no conflicts, no counts. Reset (`__reset__`) is itself a logged,
+  step-costing action that clears grid/worn/broken/spent
 - Action ids resolve against the palette PLUS the standard catalog
   (`resolveActionDef`): the 16 paints (`PAINT_COLORS_16`) and the 3 pumpkin sizes are
   always available — the color picker always offers the full 16-color rack, the
   pumpkin picker all three sizes
-- Win (`isCleanMatch`): all body cells match the goal replay's colors && `worn` is empty
+- Win (`isCleanMatch`): all body cells display the goal replay's effective color
+  (hue + dip state) && `worn` is empty
 - The goal IS a replay: `LevelData.optimalSolution` replayed over `LevelData.palette`
   produces the goal pattern. There is no stored goal state.
 
@@ -238,44 +254,41 @@ Notes: parseStoredLevel (src/server/routes/api.ts) validates on read and
 
 ### User Profile
 ```
-Key:   user:{userId}
+Key:   user:{username}
 Type:  hash
-Fields:
-  sparks               ← number
-  unlockedItemsJson    ← JSON.stringify(string[])  ← item IDs
-  preferencesJson      ← JSON.stringify(UserPrefs)
-  levelsCompletedCount
-  optimalSolvesCount
-  joinedAt
+Fields (flat, per-concern — no JSON blobs):
+  sparks:lifetime      ← never decreases; feeds the flair tier ladder
+  daily:streak / daily:lastDate
+  done:{levelId}       ← "1" first-completion marker (hSetNX = award guard)
+  stars:{levelId}      ← best stars for that level
+  equipped             ← JSON Record<slot, itemId>
+  owned:{itemId}       ← "1"
+  flair:optOut / flair:last / fitcheck:won / created / lb:seeded
+Spendable balance lives separately: sparks:{username} (STRING counter).
 ```
 
-### Level Completion Record (per user per level)
+### Leaderboards (purely global — no per-level boards)
 ```
-Key:   completion:{levelId}:{userId}
-Type:  hash
-Fields:
-  bestSteps    ← best steps in a successful attempt
-  bestTimeMs
-  attempts
-  completedAt  ← first completion timestamp
-  isOptimal    ← "1" | "0"
+lb:global:sparks   lifetime Sparks     (zAdd on award)
+lb:global:moves    cumulative moves    (zIncrBy per completion)
+lb:global:played   total completions   (zIncrBy per completion)
+users:all          permanent player registry (score = join time)
+```
+Scores are stored NEGATED so a plain ascending zRange yields "highest first,
+A-Z tiebreak". Un-negate on read (see GET /api/leaderboard/global).
+
+### Daily Sqlot Index
+```
+daily:{YYYY-MM-DD}       string → levelId        (TTL 30d)
+daily-post:{YYYY-MM-DD}  string → Reddit post id (idempotence guard)
 ```
 
-### Leaderboards (Redis Sorted Sets)
+### Community / engagement
 ```
-leaderboard:level:{levelId}:steps   score=steps    member=username
-leaderboard:level:{levelId}:time    score=timeMs   member=username
-leaderboard:global:levels_solved    score=count    member=userId
-leaderboard:global:accuracy         score=pct×100  member=userId  (integer 0-10000)
-leaderboard:global:sparks           score=sparks   member=userId
-```
-
-Use `zAdd` with `{ NX: true }` to insert best scores only (or `{ LT: true }` for steps/time where lower=better).
-
-### Daily Puzzle Index
-```
-Key:   daily:{YYYY-MM-DD}
-Type:  string → levelId
+ugc:index (ZSET) · ugc:titles (search) · ugc:plays (royalty counter)
+level:first-completer · level:first-stats · level:crowned
+duel:{levelId}[, :stats] · fitcheck:current / :week / :comments:{postId} / :carded:{postId}
+levels:version · subreddit:name
 ```
 
 ---
@@ -291,7 +304,7 @@ Each scene class lives in its own file under `src/client/scenes/`. The required 
 - `Game.ts` — core puzzle gameplay
 - `LevelComplete.ts` — results after solving
 - `Editor.ts` — user level creation
-- `Leaderboard.ts` — per-level and global boards
+- `Leaderboard.ts` — global boards (sparks / moves / played)
 - `Shop.ts` — Splot customization with Sparks
 - `GameOver.ts` — fallback/error state
 
@@ -401,11 +414,12 @@ Splash (inline)
   └─ [Start] → requestExpandedMode('game')
 
 MainMenu (expanded)
-  ├─ [Play]           → LevelSelect
-  ├─ [Daily Puzzle]   → Game (daily level)
-  ├─ [Leaderboards]   → Leaderboard
-  ├─ [Create Level]   → (login gate) → Editor
-  └─ [Shop]           → (login gate) → Shop
+  ├─ [Play]           → LevelSelect (worlds)
+  ├─ [Daily Sqlot]    → Game (levelId: 'daily')
+  ├─ [Create]         → (login gate) → Editor
+  ├─ [Find]           → LevelSelect (finder page — search community + campaign)
+  ├─ [Shop]           → (login gate) → Shop
+  └─ [Ranking]        → Leaderboard
 
 LevelSelect
   └─ [Level N]        → Game (level N)
@@ -436,16 +450,22 @@ All API routes live under `/api/`. Internal platform routes (menu, forms, trigge
 
 ### Core Game APIs
 ```
-GET  /api/init              → { postId, username, isLoggedIn }
-GET  /api/level/:levelId    → LevelResponse
-GET  /api/daily             → DailyResponse (today's level)
-POST /api/complete          → { levelId, steps, timeMs } → CompletionResponse
-GET  /api/leaderboard/level/:levelId   → LeaderboardResponse
-GET  /api/leaderboard/global/:type     → LeaderboardResponse
-GET  /api/user/profile      → UserProfileResponse
-POST /api/user/equip        → { itemId } → EquipResponse
-GET  /api/levels/list       → LevelsListResponse
-POST /api/level/create      → LevelCreateRequest → LevelCreateResponse
+GET  /api/init                    → InitResponse
+GET  /api/level/:id               → LevelResponse (curated / daily-* / ugc-*)
+GET  /api/daily                   → DailyResponse (today's Sqlot, self-healing)
+POST /api/complete                → { levelId, timeMs, actions } → CompleteResponse
+                                    (server REPLAYS actions through the sim)
+GET  /api/levels/list             → LevelsListResponse (campaign)
+GET  /api/levels/community?q=     → CommunityLevelsResponse (search/browse UGC)
+POST /api/level/create            → LevelCreateRequest → LevelCreateResponse
+GET  /api/leaderboard/global?type=sparks|moves|played → LeaderboardResponse
+GET  /api/user/profile            → ProfileResponse
+POST /api/user/buy                → BuyRequest → BuyResponse (server-priced)
+POST /api/user/equip              → EquipRequest → EquipResponse
+POST /api/user/flair              → FlairPrefRequest → FlairPrefResponse
+POST /api/share/card              → ShareCardRequest (Splat Card comment)
+POST /api/share/first-splat       → FirstSplatRequest (crown claim)
+POST /api/share/fit               → Fit Check Friday comment
 ```
 
 ### Type conventions
@@ -466,18 +486,24 @@ POST /api/level/create      → LevelCreateRequest → LevelCreateResponse
 | First to complete a level | +30 bonus |
 | User-level gets 10 plays | +5 (passive) |
 
-| Item | Sparks cost |
+| Item (src/shared/shop.ts is authoritative) | Sparks cost |
 |------|------------|
-| Extra eye style | 50 |
-| Extra mouth style | 50 |
-| Extra eyebrow style | 30 |
-| Accessory (cap, hat) | 80 |
-| Accessory (crown, horns) | 150 |
-| Accessory (party-hat) | 80 |
+| Splot colors — 24 solids, exponential ladder | 1,000 – 14,000 |
+| Splot colors — 5 rare finale effects (gradient/sparkle/rainbow/opal/golden) | 16,000 – 25,000 |
+| Eye styles | 125 – 300 |
+| Mouth styles | 100 – 225 |
+| Eyebrow styles | 110 – 190 |
+| Accessories (cap, party hat, horns, top hat) | 150 – 375 |
+| Golden Crown | 25,000 |
 
 ---
 
-## Daily Puzzle System
+## Daily Sqlot System
+
+A daily level is a **Sqlot** — that's the player-facing name everywhere (post
+titles, menu button, in-game subtitle). Post titles stay minimal, no emojis:
+`Sqlot 2026-07-09: The Grumpy Goggle Job` (see `dailyPostTitle` in
+`src/server/core/post.ts`).
 
 Declare in `devvit.json`:
 ```json
@@ -495,13 +521,15 @@ The task runs **hourly and idempotent per piece**: the level store (`daily:{YYYY
 `levelId`) and the Reddit post (`daily-post:{YYYY-MM-DD}`) are checked separately, so the
 post lands right after UTC midnight and any transient failure retries within the hour.
 
-**Generation algorithm:**
-1. Pick difficulty tier from the weekday — dailies skew hard (weekdays 4, weekends 5)
+**Generation algorithm** (`generateDailyLevel` in `src/shared/levelData.ts`):
+1. Pick difficulty tier from the weekday — Sqlots skew hard (weekdays 4, weekends 5)
 2. Draw a deterministic quirky title from the date seed ("The Grumpy Goggle Job")
-3. Pick N random compatible modifiers from the tier's pool
-4. Apply them in a valid sequence to get a target state
-5. Store the generating sequence as `optimalSolution`
-6. Add decoy modifiers (valid but not needed)
+3. Some days spotlight a feature mechanic (nose/alpha/bubble) when it clears the ≥4-move bar
+4. Build a valid recipe with the shared generator; the sequence IS `optimalSolution`
+5. Add decoy modifiers (valid but not needed)
+6. **Uniqueness walk**: from `DAILY_EPOCH_MS` onward each Sqlot is generated against
+   the shape/recipe keys of the entire campaign plus every prior Sqlot — never a
+   re-skin of a campaign level or an earlier daily (validated out 730 days)
 
 ---
 
@@ -512,7 +540,7 @@ post lands right after UTC midnight and any transient failure retries within the
 - Prefer **named exports** over default exports
 - Use `void (async () => { ... })()` pattern for fire-and-forget in Phaser event handlers
 - Server routes use `async (c) => { ... }` Hono handler signature
-- All Redis keys use `:`-separated namespaces: `user:{id}`, `level:{id}`, `leaderboard:{...}`
+- All Redis keys use `:`-separated namespaces: `user:{name}`, `level:{id}`, `lb:global:{board}`
 - Shared types in `src/shared/` only — no cross-imports between client and server
 - No `import` from `@devvit/public-api` — Devvit Web only
 

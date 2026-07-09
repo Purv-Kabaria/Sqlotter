@@ -200,7 +200,7 @@ export class Game extends Phaser.Scene {
     if (token !== this.loadToken) return;
     this.loadingText?.destroy();
     if (!this.level) {
-      this.showLoadError('Daily puzzle is unavailable.', () => this.scene.restart({ levelId: 'daily' }));
+      this.showLoadError("Today's Sqlot is unavailable.", () => this.scene.restart({ levelId: 'daily' }));
       return;
     }
     this.beginLevel();
@@ -399,7 +399,7 @@ export class Game extends Phaser.Scene {
     const level = this.level;
     if (!level) return '';
     if (this.isPreview) return 'Editor preview';
-    if (level.isDaily) return 'Daily Puzzle';
+    if (level.isDaily) return 'Daily Sqlot';
     if (level.authorName) return `by u/${level.authorName}`;
     const match = /^w(\d+)-l(\d+)$/.exec(level.id);
     if (!match) return '';

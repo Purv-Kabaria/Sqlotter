@@ -1,6 +1,6 @@
-# Splot Development Guide
+# Sqlotter Development Guide
 
-Splot is an original sequence puzzle built as a Devvit Web app for Reddit. Players apply modifiers in order to match a target slime, earn Sparks, solve a daily puzzle, customize the Splot mascot, and publish community levels.
+Sqlotter is a Factory-Balls-style stencil-painting puzzle built as a Devvit Web app for Reddit. Players reproduce a goal pattern by wearing accessories as paint stencils in the right order, earn Sparks, solve the daily Sqlot, customize the Splot mascot, and publish community levels.
 
 ## Stack
 
@@ -35,11 +35,11 @@ There is no React or tRPC setup in this repository. Do not introduce either unle
 
 ## Game Invariants
 
-- `SlimeState` equality determines a win.
-- Goggles and glasses are mutually exclusive.
-- Goggles can be used only once per attempt.
-- Pumpkin 75 conflicts with underwear and thick belts.
-- Applying another modifier in the same slot replaces the previous modifier.
+- The shared simulation (`src/shared/slimeSim.ts`) is the single rulebook; client, server, and renderer all replay the same action lists through it. Never fork the rules.
+- Win = the painted pattern matches the goal replay AND nothing is worn (`isCleanMatch`).
+- The goal IS a replay: `optimalSolution` over the level palette produces the goal pattern; no goal state is stored.
+- Goggles break when a splash lands on them (automatic, free, unwearable until reset). All other stencils toggle freely — there are no slot conflicts.
+- Every logged action costs one step, including Reset (which restores broken goggles but keeps the clock and count running).
 - The server is authoritative for levels, completion validation, rewards, purchases, and equipment.
 - Never trust client-provided stars, rewards, ownership, prices, or optimal-step values.
 - Keep the goal visible, the step counter and timer available, and reset always accessible.

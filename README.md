@@ -1,1132 +1,570 @@
-# Splot! — The Slime Puzzle Game
+# Sqlotter — The Slime Stencil-Painting Puzzle
 
-> A Factory-Balls-style sequence puzzle game built on Reddit's Devvit platform. Craft the perfect slime by applying modifiers in the right order. Customise your mascot Splot, compete on leaderboards, and solve a fresh community puzzle every day.
+> A Factory-Balls-style puzzle game that lives in Reddit's feed, built on Devvit Web.
+> Every level shows a **goal pattern** — a bare slime painted in zones of color — and
+> you reproduce it by wearing accessories as **paint stencils** in the right order.
+> Solve the campaign, race the community on the daily **Sqlot**, build your own levels,
+> and dress up Splot, the resident mascot.
+
+**Elevator pitch:** "Wordle's daily ritual meets Factory Balls' paint-and-mask logic,
+running natively inside Reddit posts."
 
 ---
 
 ## Table of Contents
 
-1. [Game Overview](#1-game-overview)
-2. [Core Mechanic](#2-core-mechanic)
-3. [Modifier System](#3-modifier-system)
-4. [Incompatibility Rules](#4-incompatibility-rules)
-5. [Character & Customisation](#5-character--customisation)
-6. [Progression & Sparks Economy](#6-progression--sparks-economy)
-7. [Leaderboard System](#7-leaderboard-system)
-8. [Daily Puzzle System](#8-daily-puzzle-system)
-9. [User-Generated Levels](#9-user-generated-levels)
-10. [Screens & Layouts](#10-screens--layouts)
+1. [How to Play](#1-how-to-play)
+2. [The Simulation](#2-the-simulation)
+3. [Modifier Catalog](#3-modifier-catalog)
+4. [Level Sources](#4-level-sources)
+5. [The Daily Sqlot](#5-the-daily-sqlot)
+6. [Community Levels](#6-community-levels)
+7. [Reddit Engagement Features](#7-reddit-engagement-features)
+8. [Sparks, Stars & the Shop](#8-sparks-stars--the-shop)
+9. [Leaderboards](#9-leaderboards)
+10. [Screens & Navigation](#10-screens--navigation)
 11. [Technical Architecture](#11-technical-architecture)
-12. [Low-Level Design (LLD)](#12-low-level-design-lld)
-13. [API Reference](#13-api-reference)
-14. [Data Schemas](#14-data-schemas)
-15. [Edge Cases & Failure Modes](#15-edge-cases--failure-modes)
-16. [Development Setup](#16-development-setup)
-17. [Hackathon Context](#17-hackathon-context)
+12. [API Reference](#12-api-reference)
+13. [Redis Schema](#13-redis-schema)
+14. [Development](#14-development)
+15. [Deployment](#15-deployment)
+16. [Hackathon Context](#16-hackathon-context)
+17. [Further Docs](#17-further-docs)
 
 ---
 
-## 1. Game Overview
+## 1. How to Play
 
-**Splot!** is a logic puzzle game where every level presents a **goal slime** — a round, blob-shaped character decorated with a specific combination of accessories (goggles, belts, paint colours, pumpkin masks, etc.). The player's job is to reproduce that exact appearance by applying the available **modifiers** in the correct sequence.
-
-Each level asks you to reproduce a **goal slime** by applying modifiers in the right sequence — order matters, and every valid combination is discoverable. Splot! is built for:
-
-- **Reddit's Devvit platform** (Interactive Posts, runs in the feed)
-- **Mobile-first design** (tap-to-apply modifiers)
-- **Community features** (daily puzzles, user-generated levels, leaderboards)
-- **Persistent mascot** (Splot, customisable with Sparks)
-
-**Elevator pitch:** "Wordle meets sequence puzzles on Reddit — solve the slime, climb the board, come back tomorrow."
-
----
-
-## 2. Core Mechanic
-
-### The Puzzle
-
-Each level contains:
+Each level gives you:
 
 | Element | Description |
 |---------|-------------|
-| **Goal Slime** | The target appearance the player must recreate |
-| **Your Slime** | The player's current slime (starts at default state) |
-| **Modifier Palette** | The set of tools available for this level (4–12 items) |
-| **Step Counter** | Counts each modifier application |
-| **Timer** | Tracks elapsed time (affects secondary leaderboard) |
+| **Goal pattern** | A BARE slime painted in zones of color — never shown wearing anything |
+| **Your slime** | Starts bare and white |
+| **Palette** | The level's tools: paint pots and wearable stencils (plus the always-available standards) |
+| **Par** | The level's optimal step count — the 3-star target |
 
-### Solving a Level
+Two kinds of taps:
 
-1. Study the goal slime (colour, accessories, their visual properties)
-2. Identify which modifiers produce which visual effect
-3. Tap modifiers to apply them in sequence
-4. If the slime matches the goal → **level complete**
-5. If stuck → tap **Reset** (resets slime state; step count continues accumulating in the current attempt)
-6. The winning attempt's step count is recorded as the player's best for that level
+- **Paint** splashes a color over every part of the slime that isn't protected.
+- **Stencils** (goggles, glasses, belts, pendants, pumpkins, underwear, plate, cone,
+  scarf, nose) are worn ON the slime and protect whatever they cover from paint.
+  Tapping a worn stencil takes it off again.
 
-### Why Order Matters
+Every logged tap — wearing, removing, painting, even **Reset** — costs one step, and
+**order is the whole puzzle**: which stencils are on when each coat lands decides the
+pattern. You win the moment your painted pattern matches the goal **and nothing is
+worn** (goals are bare, so everything must come off).
 
-Modifiers are **stateful** and **partially exclusive**:
-
-- Applying **blue paint** then **goggles** → blue slime with goggles
-- Applying **goggles** then **blue paint** → same result (paint does not affect goggle colour)
-- Applying **red paint** then **blue paint** → blue slime (second paint overrides first)
-- Applying **pumpkin-75%** then **underwear** → invalid (incompatibility rule fires)
-
-The puzzle author chooses a target state and an available modifier set. The optimal solution is the shortest valid sequence that produces the target.
-
-### Modifier Application Flow
+The canonical 5-step example:
 
 ```
-Player taps modifier M
-        |
-Is M compatible with current slime state?
-        |                           |
-       NO                          YES
-        |                           |
- Shake animation            Apply modifier to state
- Show toast "reason"        Play apply animation
- Block application          Update step counter
-                            Check win condition
-                                    |
-                        Does state == goal?
-                            |           |
-                          YES           NO
-                            |           |
-                     Level Complete  Continue
+pumpkin-25 on → paint green → goggles on → paint red → pumpkin-25 off
 ```
+
+Result: a white cap (pumpkin-protected the whole time), a green goggle-shaped band
+across the eyes (protected during the red coat), red everywhere else. The goggles cost
+nothing to remove — the red splash snapped them off by itself, because…
+
+**Goggles are one-time use.** Any splash that lands on worn goggles knocks them off
+*broken* (automatic, free, not logged). Broken goggles refuse to be worn again until a
+reset. Glasses cover nearly the same bands but survive splashes — the goggle economy
+(which single splash each pair is spent on) is the game's signature twist.
+
+There are no dead ends: everything is removable, Reset is always available (it costs a
+step and restores broken goggles), and every level ships with a provably valid solution.
 
 ---
 
-## 3. Modifier System
+## 2. The Simulation
 
-### Modifier Types
+The whole game runs on one shared, dependency-free simulation —
+`src/shared/slimeSim.ts` — imported by the client (to play), the server (to verify),
+and the renderer (to draw). The rules can never fork.
 
-#### Paint
-- Changes the slime's base `color` property
-- No visual element added; only the tint of `slime/color.png` changes
-- Multiple paints can be applied; each overrides the previous
-- Available colours are defined per-level (each colour is a separate palette item)
-
-#### Goggles (`goggles`)
-- Adds an eye-area overlay to the slime
-- **6 variants**: `h-thick`, `h-thin`, `h-mono`, `v-thick`, `v-thin`, `v-mono`
-- **One-shot mechanic**: After goggles are applied in an attempt, the icon greys out permanently for that attempt. Resetting the slime restores the icon.
-- Occupies the **Eye Slot** — mutually exclusive with Glasses
-
-#### Glasses (`glasses`)
-- Adds a glasses overlay to the slime
-- **4 variants**: `h-thick`, `h-thin`, `v-thick`, `v-thin`
-- Can be re-applied to swap variants (replaces previous glasses)
-- Occupies the **Eye Slot** — mutually exclusive with Goggles
-
-#### Belt (`belt`)
-- Adds a band/stripe overlay across the slime's midsection
-- **4 variants**: `h-thick`, `h-thin`, `v-thick`, `v-thin`
-- One belt active at a time; applying a new belt replaces the previous
-- Occupies the **Belt Slot**
-
-#### Pendant (`pendant`)
-- Adds a necklace/charm overlay on the upper slime
-- **2 variants**: `h` (horizontal), `v` (vertical)
-- One pendant active at a time; applying a new pendant replaces the previous
-- Occupies the **Pendant Slot**
-
-#### Pumpkin (`pumpkin`)
-- Overlays a pumpkin pattern covering a percentage of the slime
-- **3 coverage values**: 25%, 50%, 75%
-- Applying a new pumpkin replaces the previous coverage level
-- Interacts with Belt and Underwear slots at 75% coverage
-
-#### Underwear (`underwear`)
-- Adds a cartoon underwear overlay at the bottom of the slime
-- Single variant; binary (on/off)
-- Occupies the **Underwear Slot**
-
-### Modifier Asset Naming Convention
-
-```
-modifiers/{orientation}-{type}-{size}.png
-
-Examples:
-  modifiers/horizontal-goggles-thick.png
-  modifiers/vertical-belt-thin.png
-  modifiers/pumpkin-50.png
-  modifiers/underwear.png
-```
-
-`h` = horizontal (element spans left-to-right on the slime)
-`v` = vertical (element spans top-to-bottom on the slime)
-
-### Slime State Type
+The slime is a **64×64 cell grid**. `BODY_MASK` marks body cells and
+`MASK_BITMAPS[maskId]` marks each stencil's coverage — both baked from the real PNG
+alpha channels (threshold ≥ 100) by `scripts/generate_masks.py` into
+`src/shared/maskData.ts`, so sim geometry and on-screen art agree by construction.
 
 ```typescript
-type SlimeColor = string; // hex "#RRGGBB"
-type GogglesVariant = 'h-thick' | 'h-thin' | 'h-mono' | 'v-thick' | 'v-thin' | 'v-mono';
-type GlassesVariant = 'h-thick' | 'h-thin' | 'v-thick' | 'v-thin';
-type BeltVariant    = 'h-thick' | 'h-thin' | 'v-thick' | 'v-thin';
-type PendantVariant = 'h' | 'v';
-type PumpkinCoverage = 25 | 50 | 75;
-
-type SlimeState = {
-  color: SlimeColor;
-  goggles: GogglesVariant | null;
-  glasses: GlassesVariant | null;
-  belt: BeltVariant | null;
-  pendant: PendantVariant | null;
-  pumpkin: PumpkinCoverage | null;
-  underwear: boolean;
+type SimState = {
+  grid:   Uint8Array;  // per-cell index into colors
+  alpha:  Uint8Array;  // per-cell opacity: opaque | dipped (75%)
+  colors: string[];    // colors[0] = '#FFFFFF' (unpainted)
+  worn:   string[];    // mask ids currently worn, in wear order
+  broken: string[];    // goggles broken this run (a splash landed on them)
+  spent:  string[];    // one-shot action ids used this run (alpha dip)
 };
 ```
 
-`gogglesUsed` is runtime-only (`boolean`) and is NOT persisted in the level definition or goal state.
+Action rules (`applySimAction`):
 
-### Win Condition
+| Action | Effect | Step |
+|--------|--------|------|
+| paint | every exposed body cell ← this color at full opacity; then splash side effects | 1 |
+| alpha dip | every exposed cell → 75% opacity ("dipped"); splash side effects; **one dip per run** — a second tap is refused | 1 |
+| bubble | dips only exposed cells inside the bubble's inner circle; **reusable**, and gentle (no splash side effects) | 1 |
+| stencil, not worn | put it on | 1 |
+| stencil, worn | take it off | 1 |
+| nose tap | wear it small / take it off (whatever size it grew to) | 1 |
+| reset | clear everything (grid, worn, broken, spent) — clock and step count keep running | 1 |
+| broken goggles / spent dip | refused — not logged; replays containing one are invalid | 0 |
 
-```typescript
-function statesMatch(current: SlimeState, goal: SlimeState): boolean {
-  return (
-    current.color     === goal.color     &&
-    current.goggles   === goal.goggles   &&
-    current.glasses   === goal.glasses   &&
-    current.belt      === goal.belt      &&
-    current.pendant   === goal.pendant   &&
-    current.pumpkin   === goal.pumpkin   &&
-    current.underwear === goal.underwear
-  );
-}
-```
+**Splash side effects** (color paint and alpha dip, not the bubble): every worn pair of
+goggles snaps off into `broken`, and a worn nose grows one size — small → medium → big,
+and a splash on a big nose knocks it off (re-wearable small again).
 
----
+Dipping is idempotent (dipped stays 75%, never compounds), and a fresh color splash
+makes a cell opaque again. A dipped cell displays its color composited at 75% over
+white, so a dip on unpainted white is still white.
 
-## 4. Incompatibility Rules
+**Win check** (`isCleanMatch`): every body cell displays the same effective color
+(hue + dip state) as the goal replay, and `worn` is empty.
 
-These rules exist for logical, gameplay, and comedic reasons. All checks run against the current `SlimeState` before a modifier is applied.
+**The goal IS a replay.** `LevelData` stores no goal state — `optimalSolution` (an
+action-id list) replayed over the level's palette *produces* the goal pattern. It is
+also the par. Action ids resolve against the palette **plus the standard catalog**
+(`resolveActionDef`): the 16-color paint rack (`PAINT_COLORS_16`) and all three pumpkin
+sizes are always available to every level.
 
-| Rule ID | When triggered | Blocked condition | Player toast message |
-|---------|---------------|-------------------|---------------------|
-| `EYE-SLOT` | Apply goggles | `glasses !== null` | "Splot can't see through all that!" |
-| `EYE-SLOT` | Apply glasses | `goggles !== null` | "Splot can't see through all that!" |
-| `GOGGLE-ONE-SHOT` | Apply goggles | `gogglesUsed === true` | "Those goggles are all used up!" |
-| `PUMPKIN-UNDERWEAR` | Apply underwear | `pumpkin === 75` | "There's no room for undies on that pumpkin!" |
-| `UNDERWEAR-PUMPKIN75` | Apply pumpkin 75% | `underwear === true` | "Take the undies off first!" |
-| `THICK-BELT-PUMPKIN75` | Apply pumpkin 75% | `belt === 'h-thick' \| 'v-thick'` | "The pumpkin ate the belt!" |
-| `PUMPKIN75-THICK-BELT` | Apply thick belt | `pumpkin === 75` | "Can't belt a full pumpkin!" |
-
-**Combos that ARE allowed:**
-
-| Combo | Notes |
-|-------|-------|
-| Belt + Underwear | Different regions of slime |
-| Belt + Pendant | Different slots |
-| Pumpkin 25% or 50% + Belt (any) | Below 75% — no conflict |
-| Pumpkin 25% or 50% + Underwear | Below 75% — no conflict |
-| Glasses + Belt + Pendant | All different slots |
-| Multiple paints in sequence | Each overrides previous colour |
-| Pendant + Goggles | Different slots |
+**Server-side verification (anti-cheat).** The client reports what it *did*, never
+"I won". `POST /api/complete` replays the submitted action list through the same sim
+and requires a clean match against the level's own solution replay; forged sequences
+are rejected. The same check guards level creation, so every published level is
+provably solvable.
 
 ---
 
-## 5. Character & Customisation
+## 3. Modifier Catalog
 
-### Splot the Mascot
+26 tools plus the paint rack. `h-`/`v-` prefixes are orientation: `horizontal-*`
+assets run left-right, `vertical-*` top-to-bottom, so one item family yields two
+pattern shapes.
 
-Splot is the player's personal slime mascot. Unlike the puzzle slime, Splot is the player's identity — shown in menus, the shop, win screens, and shared post thumbnails.
+### Paint (always available)
 
-Splot is rendered from layered PNG sprites in `public/assets/character/`:
+The 16-color rack: Red, Orange, Yellow, Green, Lime, Teal, Sky, Blue, Navy, Purple,
+Magenta, Pink, Maroon, Olive, Gray, Black. A level's palette lists which pots it
+*suggests*, but the color picker always offers all 16.
 
-**Rendering order:**
-```
-character/shadow.png          (depth 5)
-character/blob.png            (depth 10)  — tinted to player's chosen colour
-character/mouth/*.png         (depth 20)
-character/mouth/blush.png     (depth 22)  — contextual
-character/mouth/cry.png       (depth 22)  — contextual
-character/eyes/*.png          (depth 30)
-character/eyebrows/*.png      (depth 40)
-character/accessories/*.png   (depth 50)
-character/overlay-normal.png  (depth 60)
-character/outline.png         (depth 65)
-```
+### Stencils
 
-### Customisable Items (purchased with Sparks)
+| Family | Variants | Coverage (approx. % of body) | Notes |
+|--------|----------|------------------------------|-------|
+| Goggles | h-thick, h-thin, h-mono, v-thick, v-thin, v-mono | 16–24% eye band | **break after protecting one splash** |
+| Glasses | h-thick, h-thin, v-thick, v-thin | 16–24% eye band | splash-proof twins of the goggles — and great decoys |
+| Belt | h-thick, h-thin, v-thick, v-thin | 15–34% middle band/column | |
+| Pendant | h, v | ~19% chest charm | |
+| Pumpkin | 25, 50, 75 | ~17% / ~48% / ~92% from the top down | all three sizes always available; pumpkins stack |
+| Underwear | — | ~27% hips | |
+| Plate | — | large dish shape | |
+| Cone | — | rainbow snow-cone shape | |
+| Scarf | left / right | wrap-around band | one coverage mask; the variant mirrors the art and the palette tile's arrow shows the direction |
 
-| Category | Items | Cost |
-|----------|-------|------|
-| Eyes | eye-doubt, eye-cute, eye-pain, eye-happy, eye-shock, eye-open | 50 Sparks each |
-| Eyebrows | eyebrow-surprise, eyebrow-sad, eyebrow-angry | 30 Sparks each |
-| Mouth | mouth-squiggle, mouth-frown, mouth-kiss, mouth-smile, mouth-ooo | 50 Sparks each |
-| Accessories | cap, hat, party-hat | 80 Sparks each |
-| Premium accessories | crown, horns | 150 Sparks each |
+Any combination can be worn simultaneously — there are no slot conflicts. The puzzle
+is ordering plus the goggle economy.
 
-**Default unlocked (free):** `eye-normal`, `eyebrow-normal`, `mouth-happy`
+### Specials
 
-### Dynamic Expressions (automatic, not purchased)
-
-The game overrides Splot's expression temporarily during gameplay events. These revert after 2 seconds:
-
-| Event | Eyes | Eyebrows | Mouth | Extra |
-|-------|------|----------|-------|-------|
-| Modifier applied | eye-happy | eyebrow-normal | mouth-smile | — |
-| Incompatibility | eye-shock | eyebrow-surprise | mouth-ooo | shake tween |
-| Win | eye-cute | eyebrow-normal | mouth-kiss | particles |
-| Wrong attempt | eye-pain | eyebrow-sad | mouth-frown | — |
-| Idle > 5s | eye-doubt | eyebrow-normal | mouth-squiggle | — |
+| Tool | Behavior |
+|------|----------|
+| **Nose** | Worn small; every splash grows it one size (small → medium → big); a splash on big knocks it off. Each size masks a different area — a growing stencil you steer with your coats. |
+| **Alpha dip** | One-shot translucency: everything exposed drops to 75% opacity. Counts as a splash (breaks goggles, grows the nose). One dip per run. |
+| **Bubble** | Reusable soft dip that only affects its inner circle — the outer ring keeps full color. Not a splash: goggles and noses are safe. |
 
 ---
 
-## 6. Progression & Sparks Economy
+## 4. Level Sources
 
-### Earning Sparks
+### Campaign: 25 worlds, 400 levels
 
-| Action | Base | Bonus |
-|--------|------|-------|
-| Complete any level | 10 | — |
-| Complete in optimal steps | 10 | +20 |
-| Complete daily puzzle | 10 | +15 |
-| 1st player to complete a level | 10 | +30 |
-| 2nd player to complete a level | 10 | +20 |
-| 3rd player to complete a level | 10 | +10 |
-| Own user-level receives 10 plays | 0 | +5 |
-| Own user-level receives 50 plays | 0 | +15 |
-| 7-day daily puzzle streak | 0 | +50 |
+`src/shared/curatedLevels.ts` builds the whole campaign deterministically from a fixed
+seed — identical on client and server, no build step, generated lazily on first access
+so it never blocks boot. `LEVELS_VERSION` stamps the set; the app-upgrade trigger
+wipes level progress when it changes.
 
-### Spending Sparks
+- **World 0 — Splash Course**: 16 hand-authored tutorial lessons whose solutions
+  collectively exercise **all 26 modifiers plus paint**. Highlights: Stripe Trick
+  (stencils protect), Goggle Band (goggles break), Pumpkin Parfait (stacking),
+  Bubble Trouble, Big Shapes (plate/cone/scarf), and the finale Goggle Pileup —
+  five worn goggles, all snapped off by one black splash.
+- **Worlds 1–10**: the main ramp — Splat School → Dress-Up Dell → Goggle Grove →
+  Pumpkin Patch → Two-Tone Tarn → Layer Lagoon → Decoy Dunes → Trap Tundra →
+  Expert Estuary → Master Marsh.
+- **Worlds 11–21 (specialists)**: each spotlights one toy at expert budgets —
+  Monocle Mire, Ring Reef, Nose Nebula, Scarf Summit, Stacked Shallows, Bubble Bog,
+  Mirage Meadow, Fade Fjord, Vertigo Vale, Snare Strait, Gauntlet Gulch.
+- **Worlds 22–24 (finale)**: mechanic-dense closers — Bullseye Bay, Opacity Ocean,
+  Splotter's Sanctum.
 
-| Item | Cost |
-|------|------|
-| Eye style | 50 |
-| Mouth style | 50 |
-| Eyebrow style | 30 |
-| Regular accessory (cap/hat/party-hat) | 80 |
-| Premium accessory (crown/horns) | 150 |
+Three mechanisms keep 400 levels varied and fair:
 
-### Stars (displayed on Level Select)
+1. **Structural uniqueness** — every accepted goal's `structureKey` (the pattern
+   majority-downsampled to 16×16 blocks, colors relabeled) must be new across the
+   whole set. Recolors and near-twins are rejected: every goal is a genuinely
+   different shape.
+2. **Ramped budgets** — each world interpolates stencil/paint/decoy counts from a
+   floor to a ceiling across its 16 slots.
+3. **Within-world sort** — recipes are ordered by difficulty score before ids are
+   assigned, so the felt ramp is monotonic.
 
-| Stars | Condition |
-|-------|-----------|
-| ⭐ | Completed (any step count) |
-| ⭐⭐ | Completed in ≤ 2× optimal steps |
-| ⭐⭐⭐ | Completed in exactly optimal steps |
+### Daily
 
----
+See [The Daily Sqlot](#5-the-daily-sqlot).
 
-## 7. Leaderboard System
+### Community
 
-### Per-Level Leaderboards
-
-Each level has two separate leaderboards (shown as tabs):
-
-| Tab | Sort key | Display |
-|-----|----------|---------|
-| Fewest Steps | steps ASC | rank, username, step count |
-| Fastest | timeMs ASC | rank, username, formatted time |
-
-Only successful completions count. Each user's **best** result is kept (`zAdd` with `LT: true`).
-
-Top 3 entries display gold/silver/bronze medal icons from `icons/community/`.
-
-### Global Leaderboards
-
-Three global boards accessible from `MainMenu`:
-
-| Board | Metric | Sort |
-|-------|--------|------|
-| Most Levels Solved | `levelsCompletedCount` | DESC |
-| Most Accurate | `(optimalSolves / total) × 100` | DESC |
-| Most Sparks | `sparks` | DESC |
-
-Global boards display top 50. The current player's own rank is always shown even if outside top 50.
-
-### Realtime Updates
-
-When a player submits a level completion, the server pushes a realtime event:
-
-```typescript
-await realtime.send(`leaderboard:${levelId}`, {
-  type: 'new-entry',
-  username,
-  steps,
-  timeMs,
-  rank,
-});
-```
-
-The `Leaderboard` scene subscribes and live-updates the display. Falls back to 30-second polling if the realtime connection drops.
+See [Community Levels](#6-community-levels).
 
 ---
 
-## 8. Daily Puzzle System
+## 5. The Daily Sqlot
 
-### Schedule
+A daily level is a **Sqlot** — the game's Wordle-style ritual.
 
-A Devvit scheduler cron runs daily at **08:00 UTC**:
-
-```json
-"scheduler": {
-  "tasks": {
-    "daily-puzzle": {
-      "endpoint": "/internal/scheduler/daily-puzzle",
-      "cron": "0 8 * * *"
-    }
-  }
-}
-```
-
-### Generation Algorithm
-
-```
-1. Determine difficulty tier (1–5) by day-of-week:
-   Mon=1, Tue=2, Wed=3, Thu=4, Fri=4, Sat=5, Sun=3
-
-2. Select N modifiers from weighted pool:
-   N = difficulty + 2  (range: 3–7)
-
-3. Build a valid solution sequence:
-   a. Start with default SlimeState
-   b. For each step, pick a random compatible modifier and apply
-   c. Retry up to 10 times on incompatibility; discard sequence if unresolvable
-   d. Record sequence as optimalSolution
-
-4. Add 1–2 "decoy" modifiers (valid but not needed) to increase apparent complexity
-
-5. Validate: solution sequence produces the goal state (server-side simulation)
-
-6. Store level in Redis
-
-7. reddit.submitCustomPost({ title: "Splot! Daily Puzzle — {date}" })
-
-8. Store daily:{YYYY-MM-DD} → levelId in Redis
-```
-
-### Daily Post Structure
-
-Each daily puzzle appears as its own Interactive Post in the subreddit. The splash view (inline feed) shows:
-- The date and "Daily Puzzle" label
-- Goal slime preview (rendered from `postData`)
-- Time remaining countdown
-- Current completion count
-
-### First-Completion Rewards
-
-The first 3 players to solve the daily puzzle receive bonus Sparks (stored in `daily:{date}:first-completions` sorted set):
-
-| Rank | Bonus Sparks |
-|------|-------------|
-| 1st | +50 |
-| 2nd | +30 |
-| 3rd | +20 |
+- **Deterministic**: `generateDailyLevel(date)` seeds the generator from the date;
+  the level id is `daily-YYYY-MM-DD`. Client and server derive the identical level.
+- **Hard on purpose**: weekdays tier 4, weekends tier 5 — easy lives in the Splash
+  Course; the Sqlot is the competitive ritual. Some days feature a spotlight mechanic
+  (nose / alpha / bubble) when it clears the difficulty bar.
+- **Quirky named**: every Sqlot draws a deterministic title from its date seed —
+  "The Grumpy Goggle Job" — used in the level, the post title, and every Splat Card
+  that quotes it.
+- **Never a rerun**: from the daily epoch onward, each Sqlot is generated against the
+  shape/recipe keys of the **entire campaign plus every prior Sqlot** — a daily is
+  never a re-skin of a campaign level or an earlier daily.
+- **Posted automatically**: the `daily-puzzle` scheduler task runs hourly and is
+  idempotent per piece (level store and Reddit post checked separately), so the post
+  lands right after UTC midnight and transient failures retry within the hour. Post
+  titles stay minimal, no emojis: `Sqlot 2026-07-09: The Grumpy Goggle Job`.
+- **Resilient**: `GET /api/daily` self-heals by generating today's Sqlot on demand if
+  the cron hasn't stored it yet, falling back to a curated rotation only as a last
+  resort.
+- **Streaks**: consecutive-day Sqlot completions increment `daily:streak` (solving an
+  old Sqlot late never resets an active streak), which feeds the Splotter Flair.
 
 ---
 
-## 9. User-Generated Levels
+## 6. Community Levels
 
-### Level Editor (`Editor` scene)
+The **Editor** records the creator *playing* the pattern: every tap appends to the
+action list, which becomes both the goal and the reference solution. Creators get the
+full stencil catalog and the 16-color rack, pick 0–3 decoys to pad the published
+palette, and can attach a hint.
 
-Available to logged-in users from `MainMenu`. The editor provides:
+Recordings are capped at `MAX_SOLUTION_STEPS` (20), enforced while recording and
+re-verified server-side — so **every published level is provably solvable within 20
+moves**, and that count is its advertised par. Publishing requires the recording to
+end bare with paint on the slime. The server stores the level (90-day TTL), indexes it
+for search, and posts a **Beat the Creator** challenge post to the subreddit.
 
-1. **Goal Slime Builder** — full modifier palette to design the target state
-2. **Available Modifiers Picker** — choose which modifiers appear in the player's palette (min 3, max 12)
-3. **Test Mode** — play the level as created; step count recorded as reference for optimal
-4. **Title field** — up to 60 characters
-5. **Publish** — creates a Reddit post and stores the level in Redis
-
-**Validation (server-side before publish):**
-- Goal state must differ from default (at least 1 modifier applied)
-- The available palette must contain a valid solution path to the goal state
-- Optimal solution length: 1–15 steps
-- No incompatible goal states (e.g., goggles + glasses simultaneously)
-- No duplicate modifier variants in the palette
-
-### User Level Posts
-
-Published as Interactive Posts: **"Splot Level by u/{author} — {title}"**
-
-Each user-level post includes:
-- Its own per-level leaderboard (steps + time)
-- Play count and completion rate displayed in splash
-- Star rating (1–5) after completing
-
-### Discovery
-
-Community levels are discoverable through:
-- `LevelSelect` → "Community Levels" section (sorted by plays DESC)
-- The game subreddit's post feed (each level = 1 post)
-- Level editor publishes prompt a share sheet (`showShareSheet`)
+Discovery: the **Find** button (home page) opens the level finder — search community
+levels by title or creator (`GET /api/levels/community?q=`), browse the newest, or
+jump to any campaign level.
 
 ---
 
-## 10. Screens & Layouts
+## 7. Reddit Engagement Features
 
-### Screen Inventory
+All five shipped (see `docs/reddit-engagement.md` for design rationale):
 
-| Scene | Entry | Description |
-|-------|-------|-------------|
-| `Splash` | Inline feed view | Preview; Start button; daily countdown |
-| `MainMenu` | After Start | Navigation hub |
-| `LevelSelect` | Play button | Grid with stars + lock states |
-| `Game` | Select level | Core puzzle gameplay |
-| `LevelComplete` | Win condition | Stars, Sparks earned, ranks |
-| `Editor` | Create Level | Build and publish custom puzzles |
-| `Leaderboard` | Trophy icon | Per-level and global rankings |
-| `Shop` | Bag icon | Buy cosmetics with Sparks |
-| `Settings` | Gear icon | Sound, account info |
-| `GameOver` | Error/timeout | Error fallback |
+| Feature | What it does |
+|---------|--------------|
+| **Splat Card** | One-tap, spoiler-safe result comment on the post you just played — moves, time, par delta, streak — with an optional image snapshot and player caption. The Wordle-grid loop, native to the comment section. |
+| **First Splat Crown** | The first-ever solver of a Sqlot can claim a one-time 👑 trophy comment (image card or text). Stored per level; claimed forever. |
+| **Splotter Flair** | Auto-synced subreddit flair showing streak 🔥 and lifetime-Sparks tier; opt-out per player. |
+| **Beat the Creator** | Every published community level is a public duel post: the creator's par is the challenge. |
+| **Fit Check Friday** | Weekly scheduler posts a fashion thread (Fri 15:00 UTC); players one-tap comment their current Splot loadout; Monday's cron crowns a winner. |
 
-### Splash Screen (Inline, ~50 KB max)
+---
 
-```
-┌─────────────────────────────┐
-│   Splot!                    │
-│                             │
-│   [Goal Slime Preview]      │
-│   "Can you make this?"      │
-│                             │
-│   Daily Puzzle  ⏱ 14h 22m  │
-│                             │
-│       [ Play Now ]          │
-└─────────────────────────────┘
-```
+## 8. Sparks, Stars & the Shop
 
-Rendered in plain HTML/CSS (no Phaser). Uses `context.postData` for goal preview. Calls `requestExpandedMode('game')` on click.
+**Stars** (`calcStars`): steps ≤ par → ★★★ · ≤ 2×par → ★★ · else ★.
 
-### Main Menu
+**Sparks** are awarded server-side on a player's **first completion** of each level:
 
-```
-┌────────────────────────┐
-│  [⚙]             [?]  │
-│                        │
-│      [Splot mascot]    │
-│    Hey {username}!     │
-│                        │
-│  ┌──────────────────┐  │
-│  │  Daily Puzzle    │  │
-│  └──────────────────┘  │
-│  [Play]   [Leaderboard]│
-│  [Create] [Shop]       │
-│                        │
-│  ✨ 230 Sparks         │
-└────────────────────────┘
-```
+| Event | Sparks |
+|-------|--------|
+| Complete a level | 10 |
+| … at par (3★) | +20 |
+| … a Sqlot (daily) | +15 |
+| … first on Reddit to solve it | +30 |
 
-### Level Select
+**The Shop** customizes Splot (cosmetic only — never gameplay):
 
-```
-┌──────────────────────────────┐
-│  [←] Levels            [🏆] │
-├──────────────────────────────┤
-│  World 1 — Basics            │
-│  ┌────┐ ┌────┐ ┌────┐       │
-│  │ 1  │ │ 2  │ │ 3  │       │
-│  │⭐⭐⭐│ │⭐⭐ │ │ 🔒 │       │
-│  └────┘ └────┘ └────┘       │
-│  World 2 — Layers            │
-│  ┌────┐ ┌────┐               │
-│  │ 4  │ │ 5  │               │
-│  │ 🔒 │ │ 🔒 │               │
-│  └────┘ └────┘               │
-│  Community Levels            │
-│  [Browse User Levels ↗]      │
-└──────────────────────────────┘
-```
+| Category | Range |
+|----------|-------|
+| Colors — 24 solids on an exponential ladder | 1,000 → 14,000 |
+| Colors — 5 rare finale effects (Aurora Gradient, Silver Sparkle, Rainbow, Opal Shimmer, Golden) | 16,000 → 25,000 |
+| Eyes | 125 – 300 |
+| Mouths | 100 – 225 |
+| Eyebrows | 110 – 190 |
+| Accessories (cap, party hat, horns, top hat) | 150 – 375 |
+| Golden Crown | 25,000 |
 
-Level N+1 unlocks when Level N is completed (1-star threshold).
+Prices live in `src/shared/shop.ts`; the server is authoritative for purchases and
+equips (ownership checked, prices never trusted from the client).
 
-### Game Screen — Portrait Mobile (390 × 844)
+---
+
+## 9. Leaderboards
+
+Purely global, three tabs (`GET /api/leaderboard/global?type=`):
+
+| Board | Metric |
+|-------|--------|
+| `sparks` | Lifetime Sparks (purchases never reduce it) |
+| `moves` | Cumulative moves across all completions |
+| `played` | Total completions |
+
+Scores are stored negated so a plain ascending range yields "highest first, A-Z on
+ties". Every player who has ever opened the game is seeded onto the boards, and the
+current player's row is always shown.
+
+---
+
+## 10. Screens & Navigation
+
+One Phaser scene per file under `src/client/scenes/`:
+
+| Scene | Purpose |
+|-------|---------|
+| `Boot` → `Preloader` | Minimal boot, then full asset load with progress bar |
+| `MainMenu` | Splot + Play / Daily Sqlot / Create / Find / Shop / Ranking |
+| `LevelSelect` | World pager (16-level grids) + the level finder page |
+| `Game` | The puzzle: goal card, your slime, palette, HUD (steps vs par, timer, reset) |
+| `LevelComplete` | Stars, Sparks, streak, Splat Card / First Splat Crown sharing |
+| `Editor` | Record-your-solution level creation, test mode, publish |
+| `Leaderboard` | Global boards |
+| `Shop` | Splot customization |
+| `GameOver` | Error fallback |
 
 ```
-┌───────────────────────┐  390px wide
-│ [←] Level 12   ⏱ 05s │  56px — HUD row 1
-│ Steps: 3  [Reset] [?] │  44px — HUD row 2
-├───────────────────────┤
-│        GOAL           │
-│  ┌─────────────────┐  │
-│  │   [Goal Slime]  │  │  180×180
-│  └─────────────────┘  │
-├───────────────────────┤
-│         YOU           │
-│  ┌─────────────────┐  │
-│  │ [Current Slime] │  │  180×180
-│  └─────────────────┘  │
-├───────────────────────┤
-│   Modifier Palette    │
-│ ┌──┐ ┌──┐ ┌──┐ ┌──┐ │  64×64 tiles
-│ │M1│ │M2│ │M3│ │M4│ │
-│ └──┘ └──┘ └──┘ └──┘ │
-│ ┌──┐ ┌──┐ ┌──┐      │
-│ │M5│ │M6│ │M7│      │
-│ └──┘ └──┘ └──┘      │
-└───────────────────────┘
+Splash (inline post view — plain HTML/CSS, no Phaser)
+  └─ [Play Now] → requestExpandedMode('game')
+
+MainMenu
+  ├─ Play        → LevelSelect (worlds)
+  ├─ Daily Sqlot → Game (levelId: 'daily')
+  ├─ Create      → Editor ── Test → Game (preview) ── Publish → Reddit post
+  ├─ Find        → LevelSelect (finder page)
+  ├─ Shop        → Shop
+  └─ Ranking     → Leaderboard
+
+Game ── Win → LevelComplete ── Next → Game (next level)
 ```
 
-### Game Screen — Landscape Desktop (1024 × 768)
-
-```
-┌──────────────────────────────────────────────────┐
-│ [←] Level 12        ⏱ 05s   Steps: 3  [Reset][?]│ 56px HUD
-├───────────────────┬──────────────────────────────┤
-│                   │   GOAL           YOU          │
-│  MODIFIERS        │  ┌────────┐  ┌────────┐      │
-│  ┌──┐ ┌──┐       │  │ Goal   │  │  You   │      │
-│  │M1│ │M2│       │  └────────┘  └────────┘      │
-│  └──┘ └──┘       │                               │
-│  ┌──┐ ┌──┐       │                               │
-│  │M3│ │M4│  220px│                               │
-│  └──┘ └──┘       │                               │
-│  ┌──┐ ┌──┐       │                               │
-│  │M5│ │M6│       │                               │
-│  └──┘ └──┘       │                               │
-└───────────────────┴──────────────────────────────┘
-```
-
-### Level Complete
-
-```
-┌───────────────────────┐
-│                       │
-│    ✨ Solved! ✨       │
-│  [Splot celebrating]  │
-│                       │
-│      ⭐ ⭐ ⭐          │
-│                       │
-│  Steps:  4 / 3 opt.   │
-│  Time:   00:12        │
-│  Earned: +10 ✨       │
-│                       │
-│  [Leaderboard 🏆]     │
-│  [← Menu] [Next →]   │
-└───────────────────────┘
-```
-
-### Shop / Customisation
-
-```
-┌──────────────────────────┐
-│  [←] Splot Shop          │
-│       ✨ 230 Sparks       │
-├──────────────────────────┤
-│  [Eyes][Mouth][Brows][+] │  ← category tabs
-├──────────────────────────┤
-│  [Splot preview with     │
-│   currently selected]    │
-├──────────────────────────┤
-│  ┌────┐ ┌────┐ ┌────┐  │
-│  │ N  │ │ ?  │ │ 🔒 │  │  N = equipped, ? = buy
-│  │ ✓  │ │50✨│ │50✨│  │
-│  └────┘ └────┘ └────┘  │
-└──────────────────────────┘
-```
+Every scene uses `Phaser.Scale.RESIZE` with a resize handler and is verified from
+280×480 phones up to desktop. Reference resolution 1024×768, scale factor
+`min(w/1024, h/768, 1)`.
 
 ---
 
 ## 11. Technical Architecture
 
-### System Diagram
+| Layer | Technology |
+|-------|-----------|
+| Game engine | Phaser 4 (`phaser@4.2.0`) |
+| Bundler | Vite 8 + `@devvit/start/vite` |
+| Server | Hono on Node 22 (`@devvit/web` serverless) |
+| Platform | Devvit Web 0.13.x |
+| Language | TypeScript 6, strict |
+| Persistence | Redis via `@devvit/web/server` |
+| Scheduling | Devvit cron scheduler |
 
 ```
-Reddit Feed (iFrame)
-┌─────────────────────────────────────────────┐
-│  SPLASH (splash.html + splash.ts)           │
-│  • Plain HTML/CSS — no Phaser               │
-│  • Reads postData for goal preview          │
-│  • requestExpandedMode('game') on click     │
-└───────────────────┬─────────────────────────┘
-                    | requestExpandedMode
-┌───────────────────▼─────────────────────────┐
-│  GAME (game.html + game.ts)                 │
-│  Phaser 4 scene pipeline:                   │
-│  Boot → Preloader → MainMenu                │
-│       → LevelSelect → Game → LevelComplete  │
-│       → Editor → Leaderboard → Shop         │
-│                                             │
-│  Server calls: fetch('/api/...')            │
-└───────────────────┬─────────────────────────┘
-                    | HTTP (same origin)
-┌───────────────────▼─────────────────────────┐
-│  SERVER (src/server/index.ts — Hono/Node)   │
-│                                             │
-│  /api/*         ← game API routes           │
-│  /internal/*    ← Devvit-managed routes     │
-│    /menu/*      ← moderator menu actions    │
-│    /form/*      ← form submissions          │
-│    /triggers/*  ← Reddit event triggers     │
-│    /scheduler/* ← cron job handlers         │
-│                                             │
-│  redis     — KV + sorted sets               │
-│  reddit    — submit posts, get user         │
-│  scheduler — cron + one-off jobs            │
-│  realtime  — push events to clients         │
-│  context   — postId, userId, subredditName  │
-└─────────────────────────────────────────────┘
+src/
+  client/          ← runs in the Reddit iframe
+    splash.ts      ← inline feed view (tiny, no Phaser)
+    game.ts        ← expanded Phaser game entry
+    scenes/        ← one file per scene
+    components/    ← SlimeRenderer, SplotMascot, PixelUI (9-slice)
+    engine/        ← LevelEngine: per-attempt session (steps, timer, action log)
+  server/
+    index.ts       ← Hono app wiring
+    routes/        ← api.ts, menu.ts, triggers.ts, scheduler.ts
+    core/          ← post titles, flair, duels
+  shared/          ← client+server, zero runtime deps
+    slimeSim.ts    ← THE simulation (grid, actions, win check)
+    maskData.ts    ← baked 64×64 bitmaps (generated, do not hand-edit)
+    gameRules.ts   ← stars, level integrity, solution verification
+    curatedLevels.ts ← 25-world campaign generator
+    levelData.ts   ← daily Sqlot generator
+    shop.ts        ← catalog + prices
+    types.ts, api.ts ← domain + API contract types
+public/assets/     ← all sprites (see docs/assets.md)
+devvit.json        ← entrypoints, menu items, triggers, scheduler tasks
 ```
 
-### Phaser Scene Graph
+**Entry points** (`devvit.json`): `splash.html` inline in the feed;
+`game.html` expanded. Client → server is plain `fetch('/api/...')`.
 
-```
-Boot  →  Preloader  →  MainMenu
-                         ├→ LevelSelect  →  Game  →  LevelComplete
-                         │                              ├→ Game (next)
-                         │                              └→ LevelSelect
-                         ├→ Leaderboard
-                         ├→ Shop
-                         ├→ Editor  →  Game (test mode)
-                         └→ Settings (UI overlay, not a scene)
-```
-
-### Responsive Layout Strategy
-
-All scenes use `Phaser.Scale.RESIZE` mode and re-layout on the `resize` event:
-
-```typescript
-create() {
-  this.scale.on('resize', this.onResize, this);
-  this.onResize(this.scale);
-}
-
-onResize(gameSize: Phaser.Structs.Size) {
-  const { width, height } = gameSize;
-  this.cameras.resize(width, height);
-  const sf = Math.min(width / 1024, height / 768, 1);
-  // reposition and rescale all game objects using sf
-}
-```
-
-Portrait breakpoint: `height > width`. Switch to landscape layout when `width > height`.
+Rendering: `SlimeRenderer.setPattern(palette, actions)` replays the action list and
+composites the pattern on a per-instance canvas texture using the real PNGs — white
+body, per-coat tinted stamps with the then-worn stencils punched out, gloss overlay —
+so what the player sees is exactly what the win check judges. Details in
+`docs/slime-rendering.md`.
 
 ---
 
-## 12. Low-Level Design (LLD)
+## 12. API Reference
 
-### LevelEngine (client-side)
+Request/response types live in `src/shared/api.ts`.
 
-```typescript
-// src/client/engine/LevelEngine.ts
-class LevelEngine {
-  private state: SlimeState;
-  private readonly goalState: SlimeState;
-  private stepCount = 0;
-  private gogglesUsed = false;
+### Game
 
-  constructor(level: LevelData) {
-    this.state = defaultSlimeState();
-    this.goalState = level.targetSlime;
-  }
+| Route | Purpose |
+|-------|---------|
+| `GET /api/init` | postId, username, sparks, streak, equipped items, completed levels |
+| `GET /api/daily` | today's Sqlot (self-healing) |
+| `GET /api/levels/list` | curated campaign |
+| `GET /api/level/:id` | one level (curated id, `daily-*`, or `ugc-*`) |
+| `POST /api/complete` | `{ levelId, timeMs, actions }` → verified rewards, stars, streak, crown eligibility |
 
-  applyModifier(modifier: ModifierAction): ApplyResult {
-    const conflict = checkCompatibility(this.state, modifier, this.gogglesUsed);
-    if (conflict) return { success: false, conflict };
+### Community & sharing
 
-    this.state = applyModifierToState(this.state, modifier);
-    this.stepCount++;
-    if (modifier.type === 'goggles') this.gogglesUsed = true;
+| Route | Purpose |
+|-------|---------|
+| `POST /api/level/create` | publish a UGC level (re-verifies the recording) |
+| `GET /api/levels/community?q=` | search/browse community levels |
+| `POST /api/share/card` | post a Splat Card comment (server re-verifies the run) |
+| `POST /api/share/first-splat` | claim the First Splat Crown |
+| `POST /api/share/fit` | comment your loadout on the live Fit Check thread |
 
-    return {
-      success: true,
-      newState: this.state,
-      isWin: statesMatch(this.state, this.goalState),
-    };
-  }
+### Profile & shop
 
-  reset() {
-    this.state = defaultSlimeState();
-    this.gogglesUsed = false;
-    // stepCount intentionally kept — accumulates across resets within one play session
-  }
+| Route | Purpose |
+|-------|---------|
+| `GET /api/user/profile` | profile, stars per level, flair pref |
+| `POST /api/user/buy` | buy a shop item (server-priced) |
+| `POST /api/user/equip` | equip an owned item |
+| `POST /api/user/flair` | flair sync opt-in/out |
+| `GET /api/leaderboard/global?type=` | sparks / moves / played |
 
-  getStepCount() { return this.stepCount; }
-  getState()     { return { ...this.state }; }
-}
+### Internal (declared in devvit.json)
+
+- Menu (moderator): `/internal/menu/post-create`, `post-daily`, `reset-level-stats`,
+  `reset-all-users`
+- Scheduler: `/internal/scheduler/daily-puzzle` (hourly), `fitcheck-post` (Fri 15:00
+  UTC), `fitcheck-award` (Mon 00:00 UTC)
+- Triggers: `/internal/triggers/on-app-install`, `on-app-upgrade`
+
+---
+
+## 13. Redis Schema
+
+All values are strings; parse on read, stringify on write.
+
 ```
+user:{username}              HASH    sparks:lifetime, daily:streak, daily:lastDate,
+                                     done:{levelId}, stars:{levelId}, equipped,
+                                     owned:{itemId}, flair:optOut, flair:last,
+                                     fitcheck:won, created, lb:seeded
+sparks:{username}            STRING  spendable Sparks balance
+users:all                    ZSET    permanent player registry (join time)
 
-### SlimeRenderer (Phaser Container)
+level:{levelId}              STRING  JSON LevelData — dailies TTL 30d, UGC TTL 90d
+level:first-completer        HASH    levelId → first solver
+level:first-stats            HASH    levelId → "steps|timeMs" of the first solve
+level:crowned                HASH    levelId → crown claimant
+levels:version               STRING  deployed LEVELS_VERSION (upgrade wipe guard)
 
-```typescript
-// src/client/components/SlimeRenderer.ts
-class SlimeRenderer {
-  readonly container: Phaser.GameObjects.Container;
-  private layers: Map<string, Phaser.GameObjects.Image>;
+daily:{YYYY-MM-DD}           STRING  → levelId of that day's Sqlot
+daily-post:{YYYY-MM-DD}      STRING  → Reddit post id (idempotence guard)
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    this.container = scene.add.container(x, y);
-    this.layers = new Map();
-    this.buildLayers(scene);
-  }
+lb:global:sparks|moves|played  ZSET  negated scores (see §9)
 
-  updateState(state: SlimeState) {
-    const color = Phaser.Display.Color.HexStringToColor(state.color).color;
-    this.layer('slime-color').setTint(color);
+ugc:index                    ZSET    community level ids by publish time
+ugc:titles                   HASH    levelId → title/creator search registry
+ugc:plays                    HASH    levelId → play count
+duel:{levelId}[, :stats]     Beat-the-Creator post linkage
 
-    this.setLayer('mod-pumpkin',    state.pumpkin  ? `modifier-pumpkin-${state.pumpkin}` : null);
-    this.setLayer('mod-underwear',  state.underwear ? 'modifier-underwear' : null);
-    this.setLayer('mod-belt',       state.belt     ? `modifier-belt-${state.belt}` : null);
-    this.setLayer('mod-pendant',    state.pendant  ? `modifier-pendant-${state.pendant}` : null);
-
-    const eyeKey = state.goggles ? `modifier-goggles-${state.goggles}`
-                 : state.glasses ? `modifier-glasses-${state.glasses}` : null;
-    this.setLayer('mod-eye', eyeKey);
-  }
-
-  private setLayer(key: string, textureKey: string | null) {
-    const img = this.layer(key);
-    if (textureKey) {
-      img.setTexture(textureKey).setVisible(true);
-    } else {
-      img.setVisible(false);
-    }
-  }
-
-  private layer(key: string) {
-    return this.layers.get(key)!;
-  }
-}
-```
-
-### Redis Leaderboard Operations
-
-```typescript
-// src/server/core/leaderboard.ts
-import { redis } from '@devvit/web/server';
-
-const stepsKey = (id: string) => `leaderboard:level:${id}:steps`;
-const timeKey  = (id: string) => `leaderboard:level:${id}:time`;
-
-export async function recordCompletion(
-  levelId: string, username: string, steps: number, timeMs: number
-) {
-  await Promise.all([
-    // LT = only update if new score is lower (better)
-    redis.zAdd(stepsKey(levelId), [{ score: steps,  member: username }], { LT: true }),
-    redis.zAdd(timeKey(levelId),  [{ score: timeMs, member: username }], { LT: true }),
-  ]);
-}
-
-export async function getTopEntries(levelId: string, by: 'steps' | 'time', count = 10) {
-  const key = by === 'steps' ? stepsKey(levelId) : timeKey(levelId);
-  return redis.zRange(key, 0, count - 1, { by: 'rank' });
-}
-
-export async function getUserRank(levelId: string, username: string, by: 'steps' | 'time') {
-  const key = by === 'steps' ? stepsKey(levelId) : timeKey(levelId);
-  return redis.zRank(key, username);
-}
-```
-
-### Daily Puzzle Generator
-
-```typescript
-// src/server/core/dailyGenerator.ts
-import { redis, reddit, context } from '@devvit/web/server';
-
-const MODIFIER_POOL: ModifierDef[] = [/* all available modifiers */];
-const DIFFICULTY_BY_DOW = [3, 1, 2, 3, 4, 4, 5]; // Sun=0 … Sat=6
-
-export async function generateAndPublishDaily(date: string) {
-  const dow = new Date(date).getDay();
-  const difficulty = DIFFICULTY_BY_DOW[dow];
-  const level = generateLevel(difficulty);
-
-  const levelId = crypto.randomUUID();
-  await redis.hSet(`level:${levelId}`, {
-    id: levelId,
-    title: `Daily Puzzle — ${date}`,
-    authorId: 'APP',
-    authorName: 'Splot',
-    targetSlimeJson: JSON.stringify(level.goalState),
-    modifiersJson: JSON.stringify(level.palette),
-    optimalSteps: String(level.solution.length),
-    optimalSolutionJson: JSON.stringify(level.solution),
-    difficulty: String(difficulty),
-    isDaily: '1',
-    dailyDate: date,
-    createdAt: String(Date.now()),
-  });
-
-  const post = await reddit.submitCustomPost({
-    title: `Splot! Daily Puzzle — ${date}`,
-  });
-
-  await redis.hSet(`level:${levelId}`, { postId: post.id });
-  await redis.set(`daily:${date}`, levelId);
-
-  return { levelId, postId: post.id };
-}
+fitcheck:current / :week     STRING  live thread id / week label
+fitcheck:comments:{postId}   entries for the weekly award
+fitcheck:carded:{postId}     HASH    per-user "already posted" guard
+subreddit:name               STRING  persisted at install for the schedulers
 ```
 
 ---
 
-## 13. API Reference
-
-### GET /api/init
-
-```typescript
-type InitResponse = {
-  postId: string;
-  username: string | null;
-  isLoggedIn: boolean;
-  sparks: number;
-  equippedItems: Record<string, string>; // slot → itemId
-};
-```
-
-### GET /api/daily
-
-```typescript
-type DailyResponse = {
-  date: string;           // "YYYY-MM-DD"
-  levelId: string;
-  level: LevelData;
-  playCount: number;
-  completionCount: number;
-  firstCompletions: Array<{ username: string; timeMs: number }>;
-};
-```
-
-### GET /api/level/:levelId
-
-```typescript
-type LevelData = {
-  id: string;
-  title: string;
-  authorId: string;
-  authorName: string;
-  difficulty: 1 | 2 | 3 | 4 | 5;
-  targetSlime: SlimeState;
-  availableModifiers: ModifierDef[];
-  optimalSteps: number;
-  isDaily: boolean;
-  playCount: number;
-  completionCount: number;
-};
-
-type ModifierDef = {
-  id: string;        // e.g. "goggles-h-thick"
-  type: 'paint' | 'goggles' | 'glasses' | 'belt' | 'pendant' | 'pumpkin' | 'underwear';
-  variant: string;
-  color?: string;    // for paint only
-};
-```
-
-### POST /api/complete
-
-**Request:**
-```typescript
-type CompleteRequest = {
-  levelId: string;
-  steps: number;
-  timeMs: number;
-  solution: ModifierAction[];
-};
-```
-
-**Response:**
-```typescript
-type CompleteResponse = {
-  sparksEarned: number;
-  totalSparks: number;
-  isOptimal: boolean;
-  stars: 1 | 2 | 3;
-  stepRank: number | null;
-  timeRank: number | null;
-  isFirstCompletion: boolean;
-};
-```
-
-### GET /api/leaderboard/level/:levelId?by=steps|time&limit=50
-
-### GET /api/leaderboard/global?type=levels_solved|accuracy|sparks&limit=50
-
-### GET /api/user/profile
-
-### POST /api/user/equip — body: `{ itemId: string }`
-
-### GET /api/levels/list?page=0&size=20&filter=curated|community|daily
-
-### POST /api/level/create (login required)
-
-### POST /api/level/:levelId/rate — body: `{ rating: 1|2|3|4|5 }` (login required, after completing)
-
----
-
-## 14. Data Schemas
-
-### Redis Key Namespace
-
-```
-level:{levelId}                  HASH   — level metadata + stats
-user:{userId}                    HASH   — user profile
-completion:{levelId}:{userId}    HASH   — best attempt per user per level
-daily:{YYYY-MM-DD}               STRING — maps date to levelId
-leaderboard:level:{id}:steps     ZSET   — score=steps, member=username
-leaderboard:level:{id}:time      ZSET   — score=timeMs, member=username
-leaderboard:global:levels_solved ZSET   — score=count, member=userId
-leaderboard:global:accuracy      ZSET   — score=pct×100 (int), member=userId
-leaderboard:global:sparks        ZSET   — score=sparks, member=userId
-daily:{date}:first-completions   ZSET   — score=timestamp, member=username (top 3)
-levels:curated                   LIST   — ordered curated level IDs
-levels:community                 ZSET   — score=playCount, member=levelId
-```
-
-### Level Hash Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | UUID |
-| `title` | string | max 60 chars |
-| `authorId` | string | Reddit user ID or "APP" |
-| `authorName` | string | username |
-| `targetSlimeJson` | string | `JSON.stringify(SlimeState)` |
-| `modifiersJson` | string | `JSON.stringify(ModifierDef[])` |
-| `optimalSteps` | string | integer |
-| `optimalSolutionJson` | string | `JSON.stringify(ModifierAction[])` |
-| `difficulty` | string | "1"–"5" |
-| `isDaily` | string | "1" or "0" |
-| `dailyDate` | string | "YYYY-MM-DD" or "" |
-| `playCount` | string | integer counter |
-| `completionCount` | string | integer counter |
-| `ratingSum` | string | integer |
-| `ratingCount` | string | integer |
-| `createdAt` | string | unix ms |
-| `postId` | string | Reddit post ID |
-
-### User Hash Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `sparks` | string | integer |
-| `unlockedItemsJson` | string | `JSON.stringify(string[])` |
-| `equippedItemsJson` | string | `JSON.stringify(Record<slot, itemId>)` |
-| `levelsCompletedCount` | string | integer |
-| `optimalSolvesCount` | string | integer |
-| `streakCurrentDays` | string | integer |
-| `streakLastDate` | string | "YYYY-MM-DD" |
-| `joinedAt` | string | unix ms |
-
----
-
-## 15. Edge Cases & Failure Modes
-
-### Game Logic
-
-| Edge case | Handling |
-|-----------|----------|
-| Goal slime equals default state | Disallowed in editor validation and generation |
-| Level palette has 0 valid solution paths | Server rejects; editor shows validation error |
-| Reset during win animation | Reset is debounced for 500ms after win |
-| Two simultaneous taps (mobile) | Input lock for 100ms after each modifier apply |
-| Goggles applied → reset → goggles applied again | `gogglesUsed` resets on `engine.reset()` |
-| Apply modifier while apply animation runs | Debounce lock (100ms) prevents double-apply |
-| Step count overflow | Capped at 999 in display; no functional limit |
-
-### Network & Server
-
-| Edge case | Handling |
-|-----------|----------|
-| `/api/complete` called with wrong solution | Server re-simulates the solution; returns error if invalid |
-| `/api/complete` called twice for same level | Check `completion:{levelId}:{userId}` existence; update only if better |
-| Daily generation fails | Scheduler retries on non-200; fallback: reuse previous day's level |
-| Redis approaching 500 MB | Log warning at 400 MB; archive completions older than 90 days |
-| User not logged in tries to complete | Allow local completion; prompt login to persist (`showLoginPrompt`) |
-| `postId` missing from context | Return 400; client shows "Open in Reddit" message |
-| Server timeout (> 30s) | 408 response; client shows retry toast |
-
-### Leaderboard
-
-| Edge case | Handling |
-|-----------|----------|
-| Username changes on Reddit | Leaderboards use `userId` as member; display name comes from user hash |
-| User submits better score | `LT: true` flag ensures only best (lower) score is kept in the sorted set |
-| Leaderboard has 0 entries | "Be the first to solve this!" empty state |
-| Realtime subscription disconnects | Automatic 30-second polling fallback |
-
-### Level Editor
-
-| Edge case | Handling |
-|-----------|----------|
-| Editor creates incompatible goal (goggles + glasses) | Validation before publish; toast + highlight conflicting items |
-| User tries to publish with optimal steps = 0 | Blocked: "Your puzzle needs at least 1 step!" |
-| Optimal steps > 15 | Warning: "This puzzle might be too hard. Consider simplifying." (not blocked) |
-| Palette modifiers cannot reach goal state | Server validation returns path-not-found error; show which modifier is missing |
-
----
-
-## 16. Development Setup
+## 14. Development
 
 ### Prerequisites
 
-- Node.js ≥ 22.2.0
-- Reddit account connected at developers.reddit.com
+- Node.js ≥ 22.2
+- A Reddit account connected at [developers.reddit.com](https://developers.reddit.com)
 
-### Install
+### Commands
 
 ```sh
 npm install
+npm run login        # devvit login (one-time)
+npm run dev          # devvit playtest — live-reloads into r/sqlotter_dev
+npm run type-check   # tsc --build (run first)
+npm run lint         # eslint src
+npm run build        # vite build → dist/
+npm run deploy       # type-check + lint + devvit upload (new version, private)
+npm run launch       # deploy + devvit publish (submit for review / go public)
 ```
 
-### Dev (Devvit playtest)
+Backend calls (`/api/*`) only work through playtest or an installed app — not a bare
+local server. Test across portrait mobile (390×844 and 320×568), landscape tablet,
+and desktop; every scene must survive rotation.
 
-```sh
-npm run dev
-# Streams to: https://www.reddit.com/r/{name}_dev/?playtest={name}
-```
+### Conventions
 
-Backend calls only work in playtest — not local-only mode.
-
-### Type Check & Lint
-
-```sh
-npm run type-check
-npm run lint
-```
-
-### Deploy & Publish
-
-```sh
-npm run deploy    # type-check + lint + upload to Devvit
-npm run launch    # deploy + publish (triggers Reddit review)
-```
-
-### Testing
-
-| What | How |
-|------|-----|
-| Responsive layout | Chrome DevTools → Device emulation: 390×844 (mobile), 1024×768 (desktop) |
-| Multi-account | Test with developer, moderator, regular-user accounts |
-| Daily puzzle | Manually POST to `/internal/scheduler/daily-puzzle` in playtest |
-| Leaderboard | Use two browser tabs with different Reddit accounts |
+- TypeScript strict; no `any`, no casts. Type aliases over interfaces; named exports.
+- Shared modules (`src/shared/`) must stay dependency-free — no Phaser, no Devvit.
+- Never import `@devvit/public-api` — this is a Devvit **Web** app.
+- Every new internal endpoint must be declared in `devvit.json`.
+- `src/shared/maskData.ts` is generated by `scripts/generate_masks.py`; regenerate it
+  when modifier art changes, never hand-edit.
 
 ---
 
-## 17. Hackathon Context
+## 15. Deployment
 
-**Event:** Reddit Games with a Hook  
-**Deadline:** July 15, 2026 @ 6:00pm PDT  
-**Total prize pool:** $40,000
+Short version: `npm run deploy` uploads a new private version you can install on your
+own test subreddit; `npm run launch` additionally submits the app for Reddit's review
+so it can be installed anywhere and listed publicly.
 
-### Target Prizes
+The full path — developer account, playtest, upload, publish, review, creating the
+game's home subreddit, and hackathon submission — is documented step by step in
+[`docs/deployment.md`](docs/deployment.md).
 
-| Prize | Amount | Splot! qualifier |
-|-------|--------|-----------------|
-| Best App with a Hook | $15,000 | Daily puzzles + leaderboards + Sparks = daily return loop |
-| Best Use of Phaser | $5,000 | Phaser 4 rendering, animations, responsive RESIZE |
-| Best Use of User Contributions | $3,000 | Level editor → community Reddit posts → play/rate |
-| Best Use of Retention Mechanics | $3,000 | Daily + streaks + Sparks economy + competitive boards |
+---
 
-### Judging Criteria
+## 16. Hackathon Context
 
-| Criterion | Splot! answer |
-|-----------|--------------|
-| **Delightful UX** | Animated Splot expressions, particle effects, < 200ms modifier feedback |
-| **Polish** | Mobile-first, no broken states, Devvit-compliant, feature-complete core loop |
-| **Reddit-y** | Community puzzle sharing, per-subreddit leaderboards, u/ attribution on levels, daily subreddit post ritual |
-| **Hook-y** | Daily puzzle creates a daily ritual; streaks incentivise return; Sparks unlock cosmetics; leaderboard rivalry |
-| **Phaser Innovation** | Layer-compositing slime renderer via Containers, RenderTexture for post previews, RESIZE mode for cross-device |
+**Event:** Reddit "Games with a Hook" — deadline July 15, 2026, 6:00 pm PDT.
 
-### Anti-patterns to Avoid
+| Target prize | Sqlotter's answer |
+|--------------|-------------------|
+| Best App with a Hook ($15k) | The daily Sqlot ritual + streak flair + crowns |
+| Best Use of Phaser ($5k) | Canvas-composited slime renderer, 9-slice pixel UI, full RESIZE responsiveness |
+| Best Use of User Contributions ($3k) | Record-your-solution editor → Beat-the-Creator duel posts |
+| Best Use of Retention Mechanics ($3k) | Streaks, Sparks economy, Fit Check Friday, global boards |
 
-- AI-generated art placeholder aesthetic → all sprites are custom
-- Literal Reddit theming (karma, Snoo) → focus is on slimes and puzzles
-- Derivative aesthetic → Splot uses original sprites and original mechanics tailored to Reddit
-- Mobile-unfriendly layout → portrait-first throughout, tested on 390-wide viewports
+Design tenets: time-to-fun under 5 seconds, mobile-first, Splot reacts to everything,
+no dead ends, celebrate wins loudly.
+
+---
+
+## 17. Further Docs
+
+| Doc | Contents |
+|-----|----------|
+| [`docs/core-gameplay.md`](docs/core-gameplay.md) | The sim in depth: rules, coverage, scoring, level generation |
+| [`docs/slime-rendering.md`](docs/slime-rendering.md) | How SlimeRenderer composites patterns from real PNGs |
+| [`docs/splot-mascot.md`](docs/splot-mascot.md) | The mascot layer stack, expressions, customization |
+| [`docs/ui-components.md`](docs/ui-components.md) | Icons, text, responsive layout math |
+| [`docs/9-slicing.md`](docs/9-slicing.md) | The 9-slice panel/button system |
+| [`docs/assets.md`](docs/assets.md) | Full asset catalog with texture keys |
+| [`docs/reddit-engagement.md`](docs/reddit-engagement.md) | The five shareability features |
+| [`docs/deployment.md`](docs/deployment.md) | Launch/deploy guide |
+| [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | Agent/contributor instructions |
 
 ---
 

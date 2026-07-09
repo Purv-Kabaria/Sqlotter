@@ -47,10 +47,10 @@ void (async () => {
       const daily = await dailyRes.json() as { level?: { difficulty?: number } };
       const diff  = daily.level?.difficulty ?? 1;
       const label = DIFF_LABELS[diff] ?? 'Medium';
-      dailyInfo.textContent = `Daily puzzle: ${label}`;
+      dailyInfo.textContent = `Today's Sqlot: ${label}`;
     }
   } catch {
-    dailyInfo.textContent = "Today's puzzle is waiting!";
+    dailyInfo.textContent = "Today's Sqlot is waiting!";
   }
 })();
 

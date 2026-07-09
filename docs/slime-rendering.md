@@ -1,114 +1,16 @@
 # Slime Rendering
 
-The puzzle slime is rendered by `SlimeRenderer` (`src/client/components/SlimeRenderer.ts`).
-It is a self-contained Phaser `Container` holding 9 image layers that composite via depth.
-`SlimeState` (from `src/shared/types.ts`) is the single source of truth.
+The puzzle slime is rendered by `SlimeRenderer`
+(`src/client/components/SlimeRenderer.ts`). The slime's look is a **paint
+pattern**: each paint op colors the body except where the then-worn stencils
+protected it. The renderer replays an action list and composites the result with
+the real PNGs on a per-instance canvas texture — it is presentation only. Win
+logic never reads pixels: `src/shared/slimeSim.ts` runs the same geometry on
+baked 64×64 bitmaps (see `docs/core-gameplay.md`).
 
 ---
 
-## SlimeState
-
-```typescript
-type SlimeState = {
-  color:       string;          // hex "#RRGGBB" — top zone color (or whole slime)
-  colorBottom?: string;         // hex — bottom zone color (only when pumpkin is active)
-  goggles:  GogglesVariant | null;
-  glasses:  GlassesVariant | null;
-  belt:     BeltVariant    | null;
-  pendant:  PendantVariant | null;
-  pumpkin:  PumpkinCoverage | null;   // 25 | 50 | 75
-  underwear: boolean;
-};
-```
-
-The variant strings encode orientation (`h` / `v`) and style:
-
-| Field | Type | Valid values |
-|-------|------|--------------|
-| `goggles` | `GogglesVariant` | `h-thick`, `h-thin`, `h-mono`, `v-thick`, `v-thin`, `v-mono` |
-| `glasses` | `GlassesVariant` | `h-thick`, `h-thin`, `v-thick`, `v-thin` |
-| `belt` | `BeltVariant` | `h-thick`, `h-thin`, `v-thick`, `v-thin` |
-| `pendant` | `PendantVariant` | `h`, `v` |
-| `pumpkin` | `PumpkinCoverage` | `25`, `50`, `75` |
-
-`DEFAULT_SLIME_STATE` (exported from `types.ts`) is the starting state for every puzzle attempt:
-
-```typescript
-const DEFAULT_SLIME_STATE: SlimeState = {
-  color: '#FFFFFF',
-  goggles: null, glasses: null,
-  belt: null, pendant: null, pumpkin: null, underwear: false,
-};
-```
-
----
-
-## Layer stack
-
-All layers sit inside a single `Phaser.GameObjects.Container`, in this order. Depths are relative
-to the container's own coordinate space.
-
-```
-depth -1  bottomImg    — genuine overlay-blended texture, tinted to colorBottom, bottom crop
-depth  0  topImg       — genuine overlay-blended texture, tinted to color, full or top crop
-depth  1  pumpkinImg   — mod-pumpkin-{25|50|75}
-depth  2  underwearImg — mod-underwear
-depth  3  beltImg      — mod-belt-{variant}
-depth  4  pendantImg   — mod-pendant-{h|v}
-depth  5  eyeImg       — mod-goggles-{variant} OR mod-glasses-{variant}
-depth  7  borderImg    — slime-border (always on)
-depth  8  appliedFlash — slime-applied (ADD blend; animation only, alpha 0 when idle)
-```
-
-### Shine: genuine overlay blend
-
-There's no independent `shineImg` layer. `Phaser.BlendModes.OVERLAY` is **Canvas-only** — setting it
-on a WebGL-rendered Image silently falls back to NORMAL, so it can't just be `.setBlendMode(OVERLAY)`
-on a `slime-shine` sprite. Phaser 4's own Filters system (`enableFilters()` + `addBlend()`) *can*
-bring OVERLAY to WebGL, but only by rendering a GameObject/Container to a texture and blending a
-second texture onto that render as a whole — it can't make a specific child layer overlay-blend
-against its own siblings the way a real "gloss on the body" effect needs, so it isn't used here.
-
-Instead, `src/client/components/overlayShine.ts#paintOverlayShine()` computes the actual overlay
-blend on the CPU using the [`color-blend`](https://www.npmjs.com/package/color-blend) npm package
-(pure JS, proper alpha-aware Porter-Duff compositing — not naive per-channel math, and not the
-Node-native `canvas` package, which doesn't work in a browser bundle) and bakes the result into a
-Phaser `CanvasTexture`:
-
-```typescript
-paintOverlayShine(scene, this.topShineKey, 'slime-color', 'slime-shine', topColor, 0.5);
-this.topImg.setTexture(this.topShineKey);
-```
-
-This tints `slime-color` to `topColor` (replicating Phaser's own multiplicative tint formula) and
-overlay-blends `slime-shine` onto it at `amount: 0.5` (0 = only the tint shows, 1 = the full overlay
-effect — this is the "shine opacity" knob), then uploads the finished pixels as a texture. The output
-is generated at `slime-color`'s native 256×256 resolution (not the on-screen display size), so
-`setDisplaySize()` and the two-color mode's `setCrop()` keep working exactly as before — both operate
-in texture-pixel space, which only stays correct if the generated texture matches the original's
-native dimensions. `pumpkinImg` through `eyeImg`, `borderImg`, and `appliedFlash` are unaffected —
-they're independent sprites layered on top, same as before.
-
-Since `topImg`/`bottomImg` can be tinted to a different color on every `setState()` call (every paint
-modifier application), the texture is regenerated then — each `SlimeRenderer` instance gets its own
-`slime-shine-tex-{id}-top` / `-bottom` texture keys so multiple slimes on screen at once (e.g. goal +
-current) don't overwrite each other's baked texture.
-
-The same `paintOverlayShine()` helper is used everywhere else a slime-shine highlight appears: the
-loading screen's decorative slime in `Preloader.ts` (baked once — its tint never changes) and the
-color-picker swatches in `Game.ts` (baked once per unique hex color, keyed by that color so reopening
-the picker reuses the same generated texture). Splot's `char-shine` uses the identical
-helper/technique — see `docs/splot-mascot.md`.
-
-`appliedFlash` is a separate, momentary interaction flash (not a steady-state highlight), and keeps
-the simpler `Phaser.BlendModes.ADD` — a brightening burst is the more typical choice for a flash effect,
-and ADD (unlike OVERLAY) is natively supported in WebGL via `setBlendMode()`, no filter needed.
-
-All images are set to the same `setDisplaySize(size, size)`. The slime-color source is 256×256; all modifier overlays are also 256×256 and were painted in the same coordinate space, so they align pixel-perfectly at any output size.
-
----
-
-## Instantiation
+## The API
 
 ```typescript
 import { SlimeRenderer } from '../components/SlimeRenderer';
@@ -116,280 +18,109 @@ import { SlimeRenderer } from '../components/SlimeRenderer';
 const renderer = new SlimeRenderer(scene, x, y, size);
 renderer.container.setDepth(10);
 
-// Apply a state
-renderer.setState({
-  color: '#2ECC40',
-  goggles: 'h-thick',
-  glasses: null,
-  belt: null,
-  pendant: null,
-  pumpkin: null,
-  underwear: false,
-});
+// Render the pattern produced by replaying `actions` over `palette`,
+// plus whatever stencils are worn at the end of the replay.
+renderer.setPattern(level.palette, actionLog);
+
+// The goal preview is the same call with the level's own solution —
+// valid solutions end bare, so goals always render as bare slimes.
+goalRenderer.setPattern(level.palette, level.optimalSolution);
+
+renderer.setSize(newSize);   // call from onResize; re-renders the last state
+renderer.displaySize;        // current on-screen size (effect layers match it)
 ```
 
-`size` is the display size in game units (e.g., `200` for a 200×200 slime). The container's position is the center of the slime.
+`size` is the display size in game units; the container's position is the
+slime's center. Each instance owns one canvas texture
+(`slime-pattern-{id}`), created in the constructor and released when the
+container is destroyed — forgetting that release would leak a 256×256 canvas
+into the texture manager on every scene rebuild.
 
 ---
 
-## Color tinting
+## How `setPattern` composites
 
-Single-color slimes use one image layer (`topImg`) tinted with Phaser's `setTint()`:
+`replayOps(palette, actions)` (from the shared sim) returns the paint-op
+stream, the final worn list, and the final per-cell alpha grid. Then, on the
+instance's canvas texture at the art's native 256×256:
 
-```typescript
-const topColor = Phaser.Display.Color.HexStringToColor(state.color).color;
-this.topImg.setTint(topColor);
-```
+1. **Base body** — draw `slime-color.png` (white).
+2. **Per paint op** — build a stamp on a shared scratch canvas: the body drawn,
+   `multiply`-filled with the op's color (matching Phaser's tint math),
+   `destination-in` to restore body alpha, then `destination-out` every stencil
+   the op was masked by. Draw the stamp onto the pattern.
+3. **Opacity veil** — if any cell is dipped, draw a white silhouette of the
+   dipped cells at `1 − DIP_FACTOR` (25%) alpha. It's built from the sim's
+   **final** alpha grid — a later color splash already reset its cells to
+   opaque there — so a reusable bubble never compounds. A 25% white wash over a
+   cell equals that cell's color composited at 75% over white, matching the
+   sim's `cellEffectiveColor` exactly.
+4. **Gloss shine** — `slime-shine` overlay-blended at 0.5, then
+   `destination-in` clamped back to the body alpha.
 
-`Phaser.Display.Color.HexStringToColor(hex).color` converts `"#2ECC40"` to the packed integer `0x2ECC40`. This matches exactly what `setTint()` expects.
+Canvas 2D supports the `overlay` composite directly, which is why the pattern
+is baked on a canvas texture rather than layered Phaser images (Phaser's
+OVERLAY blend is Canvas-renderer-only; on WebGL it silently falls back to
+NORMAL).
 
----
-
-## Two-color rendering
-
-When a pumpkin is active, the slime can have two separate colors — one for the top zone (exposed) and one for the bottom zone (protected by the pumpkin). This is used in levels like "Two Tone" and "Layered Up".
-
-**How it works:**
-
-The pumpkin coverage defines what fraction of the slime height is "protected". The bottom zone keeps the color that was active when the pumpkin was first applied (`colorBottom`). Subsequent paint only affects the top zone (`color`).
-
-`SlimeRenderer.setState()` splits `slime-color.png` into two cropped images:
-
-```typescript
-// In SlimeRenderer.setState():
-const fraction   = state.pumpkin / 100;       // e.g. 0.50 for 50%
-const topFraction = 1 - fraction;             // e.g. 0.50
-
-// Bottom zone: bottomColor, positioned at the bottom half
-this.bottomImg
-  .setTint(bottomColor)
-  .setOrigin(0.5, 0)
-  .setPosition(0, this.size * (topFraction - 0.5))      // shift down
-  .setCrop(0, Math.floor(this.texH * topFraction),       // crop top rows away
-           this.texW, Math.ceil(this.texH * fraction));  // keep bottom fraction
-
-// Top zone: topColor, positioned at the top half
-this.topImg
-  .setOrigin(0.5, 0)
-  .setPosition(0, -this.size / 2)                        // anchor at top
-  .setCrop(0, 0, this.texW, Math.ceil(this.texH * topFraction)); // keep top fraction
-```
-
-The source texture dimensions (`texW = 256, texH = 256`) are read once in the constructor from `scene.textures.get('slime-color').source[0]`.
-
-**State transitions:**
-- `paint` with no pumpkin → updates `color`, clears `colorBottom`, single-color mode
-- First `pumpkin` application → saves current `color` as `colorBottom`, sets `pumpkin` coverage
-- `paint` with pumpkin active → updates `color` (top only), `colorBottom` unchanged
-- Changing pumpkin coverage → fraction changes, both zones redraw at new split
-
-**Example sequence for "Two Tone" (L13):**
-```
-Start:  color=#FFFFFF, pumpkin=null
-Step 1: paint-pink  → color=#FF69B4
-Step 2: pumpkin-50  → colorBottom=#FF69B4, pumpkin=50
-Step 3: paint-green → color=#2ECC40        ← top becomes green, bottom stays pink
-Goal: { color: '#2ECC40', colorBottom: '#FF69B4', pumpkin: 50 }
-```
+**Stencil masks are binarized.** `getStencil()` caches, per maskId, a copy of
+the modifier PNG with alpha flattened to 0/255 at threshold 100 — the same
+`STENCIL_ALPHA_THRESHOLD` used by `scripts/generate_masks.py` when baking the
+sim bitmaps. Translucent goggle lenses PROTECT in the sim, so paint erasure
+must flatten them too; otherwise paint would peek through lenses the sim says
+are covered. The sim and the renderer share geometry by construction.
 
 ---
 
-## Modifier layers
+## Worn stencils
 
-`setLayer()` is the internal helper that shows/hides modifier images:
+Stencils currently worn at the end of the replay draw as normal images in wear
+order **above `slime-border.png`** (but under the apply flash) — accessories
+sit ON the slime, so the outline must not cut across their art. The container's
+child order is: pattern image → border → worn stencils → applied flash.
 
-```typescript
-private setLayer(img: Phaser.GameObjects.Image, textureKey: string | null) {
-  if (textureKey) {
-    img.setTexture(textureKey)
-       .setDisplaySize(this.size, this.size)
-       .setOrigin(0.5, 0.5)
-       .setPosition(0, 0)
-       .setVisible(true);
-  } else {
-    img.setVisible(false);
-  }
-}
-```
-
-**Texture key formulas:**
-```typescript
-pumpkinImg:   state.pumpkin !== null ? `mod-pumpkin-${state.pumpkin}` : null
-underwearImg: state.underwear ? 'mod-underwear' : null
-beltImg:      state.belt      ? `mod-belt-${state.belt}` : null
-pendantImg:   state.pendant   ? `mod-pendant-${state.pendant}` : null
-eyeImg:       state.goggles   ? `mod-goggles-${state.goggles}`
-              : state.glasses ? `mod-glasses-${state.glasses}`
-              : null
-```
-
-Goggles and glasses share the `eyeImg` layer — they are mutually exclusive in game rules.
-
----
-
-## Game rules and conflicts
-
-Modifier application is validated in `src/shared/gameRules.ts` before any state mutation.
-`SlimeRenderer` is purely visual — it receives already-validated states from `applyModifier()`.
-
-**The flow in the Game scene:**
-```typescript
-import { applyModifier } from '../../shared/gameRules';
-
-const result = applyModifier(currentState, mod, gogglesUsed, goalState);
-if (result.ok) {
-  currentState = result.newState;
-  slimeRenderer.setState(currentState);
-  slimeRenderer.playApplyAnim(scene);
-  if (result.isWin) { /* show win screen */ }
-} else {
-  // result.conflict and result.message are available
-  slimeRenderer.playShakeAnim(scene);
-  showToast(result.message);
-}
-```
-
-**Conflict types** (from `types.ts`):
-
-| Conflict | Trigger | Message |
-|----------|---------|---------|
-| `EYE_SLOT` | Goggles + glasses both present | "Splot can't see through all that!" |
-| `GOGGLE_ONE_SHOT` | Goggles already used once | "Those goggles are all used up!" |
-| `PUMPKIN_UNDERWEAR` | Underwear at pumpkin 75% | "No room for undies on that pumpkin!" |
-| `UNDERWEAR_PUMPKIN75` | Pumpkin 75% while underwear on | "Take the undies off first!" |
-| `THICK_BELT_PUMPKIN75` | Thick belt at pumpkin 75% | "The pumpkin ate the belt!" |
-| `PUMPKIN75_THICK_BELT` | Pumpkin 75% while thick belt on | "Can't belt a full pumpkin!" |
-| `COUNT_LIMIT` | Modifier used beyond `count` | "No more of that modifier!" |
-
-Goggles are tracked separately via a `gogglesUsed: boolean` flag (not in `SlimeState`) because the one-shot rule applies per attempt, not per state.
-
----
-
-## Win detection
-
-```typescript
-import { statesMatch } from '../../shared/gameRules';
-
-const isWin = statesMatch(currentState, goalState);
-```
-
-`statesMatch` compares all fields. For two-color slimes, `colorBottom` falls back to `color` when not set:
-
-```typescript
-const aBottom = a.colorBottom ?? a.color;
-const bBottom = b.colorBottom ?? b.color;
-return a.color === b.color && aBottom === bBottom
-  && a.goggles === b.goggles && a.glasses === b.glasses
-  && a.belt === b.belt && a.pendant === b.pendant
-  && a.pumpkin === b.pumpkin && a.underwear === b.underwear;
-```
+Texture keys are `mod-{maskId}` (e.g. `mod-goggles-h-thick`, `mod-pumpkin-50`,
+`mod-nose-medium`, `mod-scarf` variants) — see `docs/assets.md` for the full
+key catalog.
 
 ---
 
 ## Animations
 
-All animations use Phaser tweens and are safe to call multiple times.
+All are Phaser tweens on the container, safe to call repeatedly.
 
-### `playApplyAnim(scene)` — modifier applied
+| Method | Effect |
+|--------|--------|
+| `playApplyAnim(scene)` | ~280ms squish-wide → bounce-tall → elastic settle, plus the `slime-applied` flash (ADD blend) expanding and fading |
+| `playShakeAnim(scene)` | ~180ms horizontal shake (4 × 45ms), restores exact X on complete to prevent float drift |
+| `playWinAnim(scene, onComplete?)` | scale burst to 1.3× with `Back.easeOut` overshoot, yoyo back |
 
-Squish-bounce on the container + radial fade on the applied-flash overlay:
-
-```typescript
-// Applied flash: slime-applied expands and fades out
-scene.tweens.add({
-  targets: this.appliedFlash,
-  alpha: 0, scaleX: 1.18, scaleY: 1.18,
-  duration: 280, ease: 'Quad.easeOut',
-});
-
-// Container: squish down → bounce up → settle
-scene.tweens.chain({
-  targets: this.container,
-  tweens: [
-    { scaleX: 1.15, scaleY: 0.88, duration: 80 },   // squish wide
-    { scaleX: 0.92, scaleY: 1.12, duration: 80 },   // bounce tall
-    { scaleX: 1.0,  scaleY: 1.0,  duration: 120, ease: 'Elastic.easeOut' },
-  ],
-});
-```
-
-Total duration: ~280ms. The Elastic easeOut gives a wobble feel on the return.
-
-### `playShakeAnim(scene)` — conflict
-
-Horizontal shake at the container's world X, 4 repetitions at 45ms each = ~180ms total:
-
-```typescript
-scene.tweens.add({
-  targets: this.container,
-  x: { from: ox - 10, to: ox + 10 },
-  duration: 45, yoyo: true, repeat: 3,
-  ease: 'Sine.easeInOut',
-  onComplete: () => { this.container.x = ox; },
-});
-```
-
-The `onComplete` restores exact X to prevent float drift after repeated shakes.
-
-### `playWinAnim(scene, onComplete?)` — level complete
-
-Scale burst to 1.3× then return:
-
-```typescript
-scene.tweens.add({
-  targets: this.container,
-  scale: 1.3, duration: 200, ease: 'Back.easeOut', yoyo: true,
-});
-```
-
-`Back.easeOut` gives a slight overshoot on the way up, making it feel celebratory.
+The apply flash keeps `Phaser.BlendModes.ADD` — a brightening burst is the
+right feel for a momentary flash, and ADD (unlike OVERLAY) works natively on
+WebGL.
 
 ---
 
-## Resizing
+## Shine elsewhere
 
-```typescript
-renderer.setSize(newSize);
-```
-
-`setSize()` re-runs `setState(currentState)` with the new size, which repositions the two-color crops and resets all layer `setDisplaySize` calls. Call this in `onResize` handlers.
-
----
-
-## Rendering the goal slime (static preview)
-
-The goal slime is a second `SlimeRenderer` instance set to `goalState` and never animated. It can be placed in a `RenderTexture` for efficiency if showing many goal slimes simultaneously (e.g., level select grid):
-
-```typescript
-// Static snapshot into a RenderTexture
-const rt = scene.add.renderTexture(x, y, size, size);
-const renderer = new SlimeRenderer(scene, 0, 0, size);
-renderer.setState(goalState);
-rt.draw(renderer.container, size / 2, size / 2);
-renderer.container.destroy();
-```
-
-For single-goal-slime scenes (Game scene), a live `SlimeRenderer` is simpler and cheaper.
+Other slime-shine highlights (the Preloader's decorative slime, the Game
+scene's color-picker swatches, Splot's `char-shine`) use
+`src/client/components/overlayShine.ts#paintOverlayShine()`, which computes an
+alpha-aware overlay blend on the CPU via the `color-blend` package and bakes it
+into a `CanvasTexture` at the source art's native resolution. Those are
+single-color tints baked once (or once per unique hex); the pattern renderer
+above does its own overlay compositing because it redraws per action.
 
 ---
 
-## Adding a new modifier type
+## Adding a new modifier
 
-1. Add the new variant type to `src/shared/types.ts`:
-   ```typescript
-   export type HatVariant = 'cowboy' | 'witch';
-   // Add 'hat' to ModifierType union
-   export type ModifierType = '...' | 'hat';
-   // Add field to SlimeState
-   type SlimeState = { ...; hat: HatVariant | null; };
-   ```
-
-2. Add the asset (256×256 PNG) and load it in `Preloader.ts`.
-
-3. In `SlimeRenderer.ts`:
-   - Add a new `Image` field and create it in the constructor at the appropriate depth.
-   - Add `setLayer(this.hatImg, state.hat ? \`mod-hat-${state.hat}\` : null)` in `setState()`.
-
-4. In `src/shared/gameRules.ts`, add conflict checks and the `applyToState` case.
-
-5. Add the `ModifierDef` entry to level palettes in `levelData.ts`.
+1. Add the 256×256 PNG under `public/assets/modifiers/` (painted in the same
+   coordinate space as `slime/color.png` so it aligns pixel-perfectly).
+2. Re-run `scripts/generate_masks.py` to bake its coverage into
+   `src/shared/maskData.ts` (never hand-edit that file).
+3. Add the type/variant to `ModifierDef` in `src/shared/types.ts` and its
+   maskId mapping in `slimeSim.ts#maskIdOf`.
+4. Load the texture in `Preloader.ts` as `mod-{maskId}` (and optionally a
+   palette icon under `OPTIONAL_PUZZLE_ICONS`).
+5. The renderer needs no changes — it discovers masks by id.

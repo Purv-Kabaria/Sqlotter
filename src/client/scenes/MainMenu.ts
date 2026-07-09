@@ -494,7 +494,7 @@ export class MainMenu extends Phaser.Scene {
   ) {
     type BtnDef = { label: string; icon: string; scene: string; data?: Record<string, unknown> };
     const PLAY:    BtnDef = { label: 'Play',    icon: 'icon-play',   scene: 'LevelSelect' };
-    const DAILY:   BtnDef = { label: 'Daily',   icon: 'icon-timer',  scene: 'Game', data: { levelId: 'daily' } };
+    const DAILY:   BtnDef = { label: 'Daily Sqlot', icon: 'icon-timer', scene: 'Game', data: { levelId: 'daily' } };
     const CREATE:  BtnDef = { label: 'Create',  icon: 'icon-pencil', scene: 'Editor' };
     // Level Finder — jumps straight to LevelSelect's finder page (search bar
     // over curated worlds + community levels).

@@ -6,10 +6,10 @@ import type { LevelData } from '../../shared/types';
 // bare name or an ISO date is a wasted impression.
 export const GAME_POST_TITLE = 'Sqlotter 🎨 Paint the slime. Mind the goggles. Beat the par.';
 
-// Daily titles stay minimal — no emojis, no flavor copy. Just the game,
-// the date, and the level name.
+// Daily titles stay minimal — no emojis, no flavor copy. A daily level is
+// a "Sqlot": just the ritual name, the date, and the level name.
 export function dailyPostTitle(level: LevelData, date: string): string {
-  return `Daily Splat ${date}: ${level.title}`;
+  return `Sqlot ${date}: ${level.title}`;
 }
 
 export const createPost = async () => {
