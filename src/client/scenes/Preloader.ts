@@ -185,7 +185,7 @@ export const DEFERRED_IMG: AssetDef[] = [
 // key only when the real file didn't load (makeZoomIcon yields to it).
 export const OPTIONAL_PUZZLE_ICONS: AssetDef[] = [
   { key: 'icon-scarf',  path: 'icons/puzzle/scarf.png' },
-  { key: 'icon-cone',   path: 'icons/puzzle/cone.png' },
+  { key: 'icon-cone',   path: 'icons/puzzle/rainbow-cone.png' }, // matches modifiers/rainbow-cone.png naming
   { key: 'icon-bubble', path: 'icons/puzzle/bubble.png' },
   { key: 'icon-nose',   path: 'icons/puzzle/nose.png' },
   { key: 'icon-plate',  path: 'icons/puzzle/plate.png' },

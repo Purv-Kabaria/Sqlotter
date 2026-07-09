@@ -60,6 +60,10 @@ export class LevelSelect extends Phaser.Scene {
   constructor() { super('LevelSelect'); }
 
   init(data?: { page?: string }) {
+    // Phaser re-delivers a scene's LAST init data when it's started with none,
+    // so after Find passes { page: 'finder' } a plain Play would land on the
+    // finder again. Consume the data so every start says what it means.
+    this.sys.settings.data = {};
     this.bgLayers = [];
     this.contentLayer = null;
     this.pages = [];
