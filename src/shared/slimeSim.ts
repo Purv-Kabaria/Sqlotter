@@ -118,6 +118,24 @@ export function isBreakableMask(maskId: string): boolean {
   return maskId.startsWith('goggles-');
 }
 
+// ── Wear-stacking rules ─────────────────────────────────────────────────────
+// Splot is small: at most MAX_WORN stencils fit on him at once, and a pumpkin
+// never goes on top of another pumpkin (it's a full head-cover — one at a
+// time; swap sizes instead). A wear that would break either rule is REFUSED
+// exactly like a tap on broken goggles: state untouched, nothing logged, the
+// 'broken' ActionKind returned — so replays containing one are invalid.
+export const MAX_WORN = 3;
+
+function isPumpkinMaskId(id: string): boolean {
+  return id.startsWith('pumpkin-');
+}
+
+/** True when wearing `maskId` now would violate the stacking rules. */
+function wearRefused(state: SimState, maskId: string): boolean {
+  if (state.worn.length >= MAX_WORN) return true;
+  return isPumpkinMaskId(maskId) && state.worn.some(isPumpkinMaskId);
+}
+
 // Environment-free base64 decoder (no atob on the server, no Buffer types on
 // the client) — the bitsets are ~512 bytes each, decoded once and cached.
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -326,6 +344,7 @@ export function applySimAction(state: SimState, mod: ModifierDef, ops?: PaintOp[
     case 'nose': {
       const at = state.worn.findIndex(isNoseMaskId);
       if (at >= 0) { state.worn.splice(at, 1); return 'remove'; } // take it off (re-wearable small)
+      if (wearRefused(state, 'nose-small')) return 'broken';
       state.worn.push('nose-small');
       return 'wear';
     }
@@ -335,6 +354,7 @@ export function applySimAction(state: SimState, mod: ModifierDef, ops?: PaintOp[
       const at = state.worn.indexOf(maskId);
       if (at >= 0) { state.worn.splice(at, 1); return 'remove'; }
       if (state.broken.includes(maskId)) return 'broken';
+      if (wearRefused(state, maskId)) return 'broken';
       state.worn.push(maskId);
       return 'wear';
     }

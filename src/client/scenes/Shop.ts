@@ -450,9 +450,7 @@ export class Shop extends Phaser.Scene {
 
   private spawnSplot(x: number, y: number, size: number, els: Phaser.GameObjects.GameObject[]) {
     this.splot?.stopIdleAnims();
-    // Soft procedural contact shadow (same as the home screen) — the sprite
-    // shadow reads as a hard black blob inside the beige preview panel.
-    this.splot = new SplotMascot(this, x, y, size, this.previewedEquipment(), undefined, true);
+    this.splot = new SplotMascot(this, x, y, size, this.previewedEquipment());
     this.splot.container.setDepth(5);
     els.push(this.splot.container);
   }

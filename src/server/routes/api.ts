@@ -32,11 +32,12 @@ import { generateDailyLevel, getCuratedLevels } from '../../shared/levelData';
 import {
   isBreakableMask, maskIdOf, PAINT_COLORS_16, resolveActionDef, RESET_ACTION_ID,
 } from '../../shared/slimeSim';
-import { calcStars, isValidSolution, MAX_SOLUTION_STEPS, verifyLevelIntegrity } from '../../shared/gameRules';
+import { calcStars, isValidSolution, MAX_ATTEMPT_ACTIONS, MAX_SOLUTION_STEPS, verifyLevelIntegrity } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
 import { flairTierName, ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import { clearUserFlair, syncUserFlair } from '../core/flair';
 import { createDuelComment, recordDuelResult } from '../core/duel';
+import { cleanPostTitle } from '../core/post';
 import { isPostId } from '../core/tid';
 
 type Err = { status: 'error'; message: string };
@@ -321,7 +322,7 @@ api.post('/complete', async (c) => {
   if (typeof levelId !== 'string' || levelId.length < 1 || levelId.length > 120) {
     return c.json<Err>({ status: 'error', message: 'Invalid level id' }, 400);
   }
-  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 100
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > MAX_ATTEMPT_ACTIONS
     || actions.some((action) => typeof action !== 'string' || action.length > 80)) {
     return c.json<Err>({ status: 'error', message: 'Invalid action sequence' }, 400);
   }
@@ -599,7 +600,7 @@ api.post('/share/card', async (c) => {
   if (typeof levelId !== 'string' || levelId.length < 1 || levelId.length > 120) {
     return c.json<Err>({ status: 'error', message: 'Invalid level id' }, 400);
   }
-  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 100
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > MAX_ATTEMPT_ACTIONS
     || actions.some((action) => typeof action !== 'string' || action.length > 80)) {
     return c.json<Err>({ status: 'error', message: 'Invalid action sequence' }, 400);
   }
@@ -1209,7 +1210,8 @@ api.post('/level/create', async (c) => {
     const moves = `${level.optimalSteps} ${level.optimalSteps === 1 ? 'move' : 'moves'}`;
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
-      title: `⚔️ u/${username} built “${level.title}” in ${moves}. Beat that.`,
+      // cleanPostTitle: no-emoji rule — the embedded level title is user text.
+      title: cleanPostTitle(`u/${username} built “${level.title}” in ${moves}. Beat that.`),
       entry: 'default',
       postData: { levelId },
       styles: {

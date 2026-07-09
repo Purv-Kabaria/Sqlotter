@@ -5,6 +5,8 @@ import type { WorldMeta } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
 import { getCachedProgress, setCachedProgress } from '../levelProgress';
+import { DEFERRED_IMG } from './Preloader';
+import { SplotMascot } from '../components/SplotMascot';
 
 const PIXELIFY = BODY_FONT;
 
@@ -23,6 +25,27 @@ type GridItem = { label: string; disabled: boolean; onClick?: (() => void) | und
 type WorldPage = { kind: 'world'; meta: WorldMeta; levels: LevelData[] };
 type CommunityPage = { kind: 'community' };
 type Page = WorldPage | CommunityPage;
+
+// A finder result row — richer than the world grid's bare label: a result
+// needs to say who made it (community) or where it lives (campaign) before
+// it's worth a tap.
+type FinderItem = {
+  title: string;
+  sub: string;            // byline: "by creator" or "World 12 · Level 3"
+  par: number;
+  difficulty: number;     // 1-5 → DIFF_TIERS word
+  locked?: boolean;       // campaign hits behind progression show a lock
+  onClick?: (() => void) | undefined;
+};
+
+// Difficulty 1-5 rendered as a colored tier word on the row's right edge.
+const DIFF_TIERS = [
+  { label: 'Easy',   color: '#3E8914' },
+  { label: 'Mild',   color: '#5C8A12' },
+  { label: 'Medium', color: '#B87700' },
+  { label: 'Hard',   color: '#C24A14' },
+  { label: 'Expert', color: '#8C2BC1' },
+] as const;
 
 export class LevelSelect extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
@@ -59,6 +82,15 @@ export class LevelSelect extends Phaser.Scene {
 
   constructor() { super('LevelSelect'); }
 
+  // Safety net for the deferred night-sky set (bg1) — normally MainMenu has
+  // already streamed it in the background and this queues nothing.
+  preload() {
+    this.load.setPath('assets');
+    for (const { key, path } of DEFERRED_IMG) {
+      if (!this.textures.exists(key)) this.load.image(key, path);
+    }
+  }
+
   init(data?: { page?: string }) {
     // Phaser re-delivers a scene's LAST init data when it's started with none,
     // so after Find passes { page: 'finder' } a plain Play would land on the
@@ -83,8 +115,8 @@ export class LevelSelect extends Phaser.Scene {
 
   async create() {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
-    this.cameras.main.setBackgroundColor(0x2a1a4a);
-    this.cameras.main.fadeIn(350, 26, 10, 46);
+    this.cameras.main.setBackgroundColor(0x0c1238);
+    this.cameras.main.fadeIn(350, 10, 14, 46);
 
     this.buildBackground();
 
@@ -179,18 +211,23 @@ export class LevelSelect extends Phaser.Scene {
     this.pageIndex = Math.min(this.pageIndex, this.pages.length - 1);
   }
 
-  // ── Background ─────────────────────────────────────────────────────────
+  // ── Background — bg1 night sky (starfield → moon → cloud layers), distinct
+  // from the menu's bright day (bg4) and the Game's purple dusk (bg3) so every
+  // navigation step reads as arriving somewhere new. ───────────────────────
   private buildBackground() {
     const { width, height } = this.scale;
-    const keys   = ['bg3-1', 'bg3-2', 'bg3-3', 'bg3-4'];
-    const alphas = [1, 0.5, 0.7, 0.9];
+    const keys   = ['bg1-1', 'bg1-2', 'bg1-3', 'bg1-4'];
+    // Sky and moon stay full-strength (a dimmed moon just looks broken);
+    // the cloud layers keep most of their body so the night stays dark.
+    const alphas = [1, 1, 0.90, 0.85];
 
     this.bgLayers.forEach(img => img.destroy());
     this.bgLayers = [];
 
     keys.forEach((key, i) => {
+      if (!this.textures.exists(key)) return;
       const img = this.add.image(width / 2, height / 2, key)
-        .setAlpha(alphas[i] ?? 0.6).setDepth(-10 + i);
+        .setAlpha(alphas[i] ?? 0.8).setDepth(-10 + i);
       img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
       this.bgLayers.push(img);
       this.startBgDrift(img, i, width);
@@ -298,70 +335,51 @@ export class LevelSelect extends Phaser.Scene {
     const gridBottom = isPortrait ? height - 20 - arrowSize - 16 : height - 24;
     const availH     = Math.max(0, gridBottom - gridTop);
 
-    // Community levels aren't capped by the API to a page-sized batch (up to 20), and
-    // this screen has no scrolling — cap to the same WORLD_CAPACITY every world page
-    // reserves space for, so buttons never overflow past the arrows/screen edge.
-    // The finder page is capped further, to the rows that genuinely fit above the
-    // 40px button floor: its search bar eats exactly the slack that lets a full
-    // 16-button world grid squeeze onto short phones, so an uncapped result list
-    // ran under the pagination arrows (portrait) or off the bottom (landscape).
-    let maxItems = cols * designRows;
     if (page.kind === 'community') {
-      const rowsFit = Math.max(1, Math.floor((availH + 5) / (40 + 5)));
-      maxItems = Math.min(maxItems, cols * rowsFit);
-    }
-    const items = this.buildGridItems(page, maxItems);
-
-    // Size rows to the page's actual content (the tutorial world and community
-    // pages run short of capacity) so sparse pages grow their buttons into the
-    // space instead of huddling above a dead band.
-    const layoutRows = Math.max(1, Math.ceil(items.length / cols));
-
-    // Fit layoutRows rows (+ gaps) into availH. Prefer a comfortable gap and a
-    // full-size button, but progressively tighten the gap — and then shrink the
-    // button toward the small-corner variant's floor — so short screens never
-    // clip the last row into the pagination arrows. addBeigeButton auto-swaps to
-    // the 16px-corner art below 65px, so heights under the 66px full-size floor
-    // still render cleanly (the previous Math.max(66, …) forced overflow instead).
-    let rowGap = isPortrait ? 12 : 20;
-    let btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
-    if (btnH < 66) {
-      rowGap = isPortrait ? 8 : 12;
-      btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
-    }
-    if (btnH < 54) {
-      rowGap = 5;
-      btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
-    }
-    btnH = Math.max(40, Math.min(isPortrait ? 74 : 80, btnH));
-
-    // Whatever the height clamp left over splits evenly above and below the
-    // grid, so a short page reads as centered rather than top-heavy.
-    const usedH = layoutRows * btnH + (layoutRows - 1) * rowGap;
-    gridTop += Math.max(0, (availH - usedH) / 2);
-
-    const btnW = (gridW - colGap * (cols - 1)) / cols;
-    const fs   = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
-
-    if (page.kind === 'community' && items.length === 1 && items[0]!.disabled) {
-      // "Coming soon" placeholder — spans the full grid width instead of one cell.
-      const bw  = gridW;
-      const bh  = btnH;
-      const btn = addBeigeButton(this, {
-        x: width / 2, y: gridTop + bh / 2, width: bw, height: bh,
-        label: items[0]!.label, fontSize: fs, fontFamily: PIXELIFY, disabled: true,
-      });
-      btn.setAlpha(0);
-      this.tweens.add({ targets: btn, alpha: 1, duration: 220, delay: 80, ease: 'Quad.easeOut' });
-      els.push(btn);
+      // The finder renders as a row LIST (title + byline + par/difficulty),
+      // not the world grid — see buildFinderList.
+      this.buildFinderList(els, width, gridTop, availH, gridW, isPortrait);
     } else {
+      const items = this.buildGridItems(page, cols * designRows);
+
+      // Size rows to the page's actual content (the tutorial world runs short
+      // of capacity) so sparse pages grow their buttons into the space instead
+      // of huddling above a dead band.
+      const layoutRows = Math.max(1, Math.ceil(items.length / cols));
+
+      // Fit layoutRows rows (+ gaps) into availH. Prefer a comfortable gap and a
+      // full-size button, but progressively tighten the gap — and then shrink the
+      // button toward the small-corner variant's floor — so short screens never
+      // clip the last row into the pagination arrows. addBeigeButton auto-swaps to
+      // the 16px-corner art below 65px, so heights under the 66px full-size floor
+      // still render cleanly (the previous Math.max(66, …) forced overflow instead).
+      let rowGap = isPortrait ? 12 : 20;
+      let btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
+      if (btnH < 66) {
+        rowGap = isPortrait ? 8 : 12;
+        btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
+      }
+      if (btnH < 54) {
+        rowGap = 5;
+        btnH   = (availH - rowGap * (layoutRows - 1)) / layoutRows;
+      }
+      btnH = Math.max(40, Math.min(isPortrait ? 74 : 80, btnH));
+
+      // Whatever the height clamp left over splits evenly above and below the
+      // grid, so a short page reads as centered rather than top-heavy.
+      const usedH = layoutRows * btnH + (layoutRows - 1) * rowGap;
+      gridTop += Math.max(0, (availH - usedH) / 2);
+
+      const btnW = (gridW - colGap * (cols - 1)) / cols;
+      const fs   = Math.max(11, Math.min(16, Math.round(btnH * 0.30)));
+
       items.forEach((item, i) => {
         const col = i % cols;
         const row = Math.floor(i / cols);
         const cx  = outerPad + btnW / 2 + col * (btnW + colGap);
         const cy  = gridTop + btnH / 2 + row * (btnH + rowGap);
-        // Long labels (community titles, tutorial lesson names) shrink to fit
-        // the button instead of spilling past its corners.
+        // Long labels (tutorial lesson names) shrink to fit the button instead
+        // of spilling past its corners.
         const itemFs = Math.max(9, Math.min(fs, Math.floor((btnW - 16) / (item.label.length * 0.62))));
         const btn = addBeigeButton(this, {
           x: cx, y: cy, width: btnW, height: btnH,
@@ -403,55 +421,194 @@ export class LevelSelect extends Phaser.Scene {
     this.contentLayer = this.add.container(0, 0, els).setDepth(5);
   }
 
-  private buildGridItems(page: Page, maxItems: number): GridItem[] {
-    if (page.kind === 'world') {
-      return page.levels.map((level, i) => {
-        const locked = this.isLevelLocked(level);
-        // Tutorial buttons carry their lesson name ("One-Shot Goggles");
-        // regular worlds number within the world, matching the page title.
-        return {
-          label: page.meta.num === 0 ? level.title : `Level ${i + 1}`,
-          disabled: locked,
-          onClick: locked ? undefined : () => this.openLevel(level.id),
-        };
-      });
-    }
-    // Par on the button: every community level advertises the move count it's
-    // guaranteed to be solvable in (the creator's own verified recording).
-    const communityItems: GridItem[] = this.communityLevels
-      .slice(0, Math.max(1, maxItems))
-      .map((level) => ({
-        label: `${level.title.length > 12 ? `${level.title.slice(0, 12)}...` : level.title} · par ${level.optimalSteps}`,
-        disabled: false,
-        onClick: () => this.openLevel(level.id),
-      }));
-
-    if (this.searchPending) {
-      return [{ label: 'Searching...', disabled: true }];
-    }
-
-    // A query searches the whole game, not just community splats: curated
-    // levels match on their title or their world ("bubble bog", "world 12").
-    // Community results keep up to half the grid so a broad curated match
-    // (a whole world is 16 levels) can't crowd them off the page entirely.
-    const q = this.searchQuery.trim().toLowerCase();
-    if (q) {
-      const curatedItems = this.findCuratedLevels(q, Math.max(0, maxItems - Math.min(communityItems.length, Math.floor(maxItems / 2))));
-      const combined = [...curatedItems, ...communityItems].slice(0, Math.max(1, maxItems));
-      if (combined.length > 0) return combined;
-      return [{ label: 'No splats found — try another name', disabled: true }];
-    }
-
-    if (communityItems.length === 0) {
-      return [{ label: 'No community splats yet — search or create one!', disabled: true }];
-    }
-    return communityItems;
+  private buildGridItems(page: WorldPage, maxItems: number): GridItem[] {
+    return page.levels.slice(0, maxItems).map((level, i) => {
+      const locked = this.isLevelLocked(level);
+      // Tutorial buttons carry their lesson name ("One-Shot Goggles");
+      // regular worlds number within the world, matching the page title.
+      return {
+        label: page.meta.num === 0 ? level.title : `Level ${i + 1}`,
+        disabled: locked,
+        onClick: locked ? undefined : () => this.openLevel(level.id),
+      };
+    });
   }
 
-  // Curated matches for the finder — world-position label so a result reads
-  // as a place ("W12-L3"), with locked levels shown but not tappable.
-  private findCuratedLevels(q: string, cap: number): GridItem[] {
-    const out: GridItem[] = [];
+  // ── Finder page result list ──────────────────────────────────────────────
+  // A query searches the whole game, not just community splats: curated levels
+  // match on their title or their world ("bubble bog", "world 12"); community
+  // levels are matched server-side on title or creator.
+  private buildFinderList(
+    els: Phaser.GameObjects.GameObject[],
+    width: number, top: number, availH: number, gridW: number, isPortrait: boolean,
+  ) {
+    const cx = width / 2;
+
+    if (this.searchPending) {
+      const t = this.add.text(cx, top + availH / 2, 'Searching...', {
+        fontFamily: PIXELIFY, fontSize: '16px', color: '#FFF6DF',
+        stroke: '#3A1A08', strokeThickness: 4,
+      }).setOrigin(0.5);
+      this.tweens.add({ targets: t, alpha: 0.35, duration: 550, yoyo: true, repeat: -1 });
+      els.push(t);
+      return;
+    }
+
+    // Row geometry first — how many rows genuinely fit decides how many
+    // results get built (this screen has no scrolling). Two-line rows by
+    // preference; short screens tighten to single-line rows before dropping
+    // below four visible results.
+    const cols   = isPortrait ? 1 : 2;
+    const colGap = 24;
+    let rowGap = 8;
+    let rowH   = 58;
+    let rowsFit = Math.floor((availH + rowGap) / (rowH + rowGap));
+    if (rowsFit < 4) {
+      rowH = 44; rowGap = 6;
+      rowsFit = Math.floor((availH + rowGap) / (rowH + rowGap));
+    }
+    rowsFit = Math.max(1, rowsFit);
+    const maxItems = cols * rowsFit;
+
+    const community: FinderItem[] = this.communityLevels.map((lv) => ({
+      title: lv.title,
+      sub: `by ${lv.authorName || 'anonymous'}`,
+      par: lv.optimalSteps,
+      difficulty: lv.difficulty,
+      onClick: () => this.openLevel(lv.id),
+    }));
+
+    const q = this.searchQuery.trim().toLowerCase();
+    let items: FinderItem[];
+    let total: number;
+    if (q) {
+      // Community results keep at least half the rows so a broad curated match
+      // (a whole world is 16 levels) can't crowd them off the page entirely.
+      const curated = this.findCuratedLevels(q, maxItems - Math.min(community.length, Math.floor(maxItems / 2)));
+      total = curated.length + community.length;
+      items = [...curated, ...community].slice(0, maxItems);
+      if (items.length === 0) {
+        this.buildFinderEmptyState(els, cx, top + availH / 2, availH,
+          'No splats found', 'Try a level, world, or creator name.');
+        return;
+      }
+    } else {
+      total = community.length;
+      items = community.slice(0, maxItems);
+      if (items.length === 0) {
+        this.buildFinderEmptyState(els, cx, top + availH / 2, availH,
+          'No community splats yet', 'Be the first — build one in the editor!', true);
+        return;
+      }
+    }
+
+    const rowW   = Math.min((gridW - colGap * (cols - 1)) / cols, 560);
+    const rows   = Math.ceil(items.length / cols);
+    const usedH  = rows * rowH + (rows - 1) * rowGap;
+    const blockW = rowW * cols + colGap * (cols - 1);
+    const left   = cx - blockW / 2;
+
+    items.forEach((item, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = left + rowW / 2 + col * (rowW + colGap);
+      const y = top + rowH / 2 + row * (rowH + rowGap);
+      const rowC = this.buildFinderRow(item, x, y, rowW, rowH);
+      rowC.setAlpha(0).setY(y + 8);
+      this.tweens.add({ targets: rowC, alpha: 1, y, duration: 220, delay: Math.min(i * 30, 260), ease: 'Quad.easeOut' });
+      els.push(rowC);
+    });
+
+    // Results that didn't fit are stated, not silently dropped.
+    const hidden = total - items.length;
+    if (hidden > 0 && availH - usedH >= 20) {
+      els.push(this.add.text(cx, top + usedH + 14, `+${hidden} more — ${q ? 'narrow the search' : 'search to find them'}`, {
+        fontFamily: PIXELIFY, fontSize: '12px', color: '#FFF6DF',
+        stroke: '#3A1A08', strokeThickness: 3,
+      }).setOrigin(0.5).setAlpha(0.85));
+    }
+  }
+
+  // One finder result row: title over a byline on the left, par + difficulty
+  // tier (or a lock for gated campaign levels) on the right.
+  private buildFinderRow(item: FinderItem, x: number, y: number, w: number, h: number): Phaser.GameObjects.Container {
+    const shell = addBeigeButtonShell(this, x, y, w, h, item.locked === true, item.onClick);
+    const content: Phaser.GameObjects.GameObject[] = [];
+    const padX = 14;
+    const rightW = 76;                    // reserved for par/difficulty or the lock
+    const textMaxW = w - padX * 2 - rightW;
+    const twoLine = h >= 50;
+    const titleFs = Math.max(12, Math.min(16, Math.round(h * 0.28)));
+
+    const title = this.add.text(-w / 2 + padX, twoLine ? -h * 0.16 : 0, item.title, {
+      fontFamily: PIXELIFY, fontSize: `${titleFs}px`,
+      color: item.locked ? '#9A7A5A' : '#3A1A08',
+    }).setOrigin(0, 0.5);
+    if (title.width > textMaxW) title.setScale(textMaxW / title.width);
+    content.push(title);
+
+    if (twoLine) {
+      const sub = this.add.text(-w / 2 + padX, h * 0.20, item.sub, {
+        fontFamily: PIXELIFY, fontSize: `${Math.max(9, titleFs - 5)}px`,
+        color: '#7A4A20',
+      }).setOrigin(0, 0.5).setAlpha(item.locked ? 0.6 : 0.9);
+      if (sub.width > textMaxW) sub.setScale(textMaxW / sub.width);
+      content.push(sub);
+    }
+
+    if (item.locked) {
+      content.push(addDepthIcon(this, w / 2 - padX - 10, 0, 'icon-lock', 20, 20).setAlpha(0.75));
+    } else {
+      content.push(this.add.text(w / 2 - padX, twoLine ? -h * 0.16 : 0, `par ${item.par}`, {
+        fontFamily: PIXELIFY, fontSize: '13px', color: '#3A1A08',
+      }).setOrigin(1, 0.5));
+      if (twoLine) {
+        const tier = DIFF_TIERS[Math.max(0, Math.min(DIFF_TIERS.length - 1, item.difficulty - 1))]!;
+        content.push(this.add.text(w / 2 - padX, h * 0.20, tier.label, {
+          fontFamily: PIXELIFY, fontSize: '10px', color: tier.color,
+        }).setOrigin(1, 0.5));
+      }
+    }
+    shell.addContent(content);
+    return shell.container;
+  }
+
+  // Empty finder — the player's own Splot shrugs (see SplotMascot's default
+  // equipment), plus a Create call-to-action when the community list is empty.
+  private buildFinderEmptyState(
+    els: Phaser.GameObjects.GameObject[],
+    cx: number, cy: number, availH: number,
+    headline: string, detail: string, withCreate = false,
+  ) {
+    const splotSz = Math.max(64, Math.min(110, availH * 0.30));
+    const splot = new SplotMascot(this, cx, cy - splotSz * 0.62, splotSz);
+    splot.setExpression('doubt');
+    els.push(splot.container);
+
+    const textY = cy + splotSz * 0.22;
+    els.push(this.add.text(cx, textY, headline, {
+      fontFamily: PIXELIFY, fontSize: '17px', color: '#FFF6DF',
+      stroke: '#3A1A08', strokeThickness: 4,
+    }).setOrigin(0.5));
+    els.push(this.add.text(cx, textY + 24, detail, {
+      fontFamily: PIXELIFY, fontSize: '12px', color: '#FFF6DF',
+      stroke: '#3A1A08', strokeThickness: 3,
+    }).setOrigin(0.5).setAlpha(0.9));
+
+    if (withCreate) {
+      els.push(addBeigeButton(this, {
+        x: cx, y: textY + 68, width: 220, height: 56,
+        label: 'Create a Splat', iconKey: 'icon-pencil', fontSize: 15, fontFamily: PIXELIFY,
+        onClick: () => this.goToScene('Editor'),
+      }));
+    }
+  }
+
+  // Curated matches for the finder — the level title leads and the byline says
+  // where it lives in the campaign; locked levels are still listed (a search
+  // should prove the level exists) but wear a lock instead of a par.
+  private findCuratedLevels(q: string, cap: number): FinderItem[] {
+    const out: FinderItem[] = [];
     const curated = getCuratedLevels();
     for (const meta of WORLDS_META) {
       const worldKey = `world ${meta.num} ${meta.name}`.toLowerCase();
@@ -462,8 +619,11 @@ export class LevelSelect extends Phaser.Scene {
         if (!worldHit && !level.title.toLowerCase().includes(q)) continue;
         const locked = this.isLevelLocked(level);
         out.push({
-          label: `W${meta.num}-L${i + 1} · ${level.title}`,
-          disabled: locked,
+          title: level.title,
+          sub: meta.num === 0 ? `${meta.name} · Lesson ${i + 1}` : `World ${meta.num} · Level ${i + 1}`,
+          par: level.optimalSteps,
+          difficulty: level.difficulty,
+          locked,
           onClick: locked ? undefined : () => this.openLevel(level.id),
         });
       }
@@ -546,12 +706,13 @@ export class LevelSelect extends Phaser.Scene {
       input.value       = this.searchQuery;
       Object.assign(input.style, {
         position:     'fixed',
-        padding:      '0 12px',
+        padding:      '0 14px',
         boxSizing:    'border-box',
         background:   '#FFF6DF',
         color:        '#3A1A08',
-        border:       '2px solid #7A4A20',
-        borderRadius: '8px',
+        border:       '3px solid #7A4A20',
+        borderRadius: '10px',
+        boxShadow:    '0 3px 0 rgba(58,26,8,0.35)',
         outline:      'none',
         zIndex:       '100',
         fontFamily:   '"Pixelify Sans", sans-serif',
@@ -615,7 +776,7 @@ export class LevelSelect extends Phaser.Scene {
     if (this.navigating) return;
     this.navigating = true;
     this.removeSearchInput();
-    this.cameras.main.fadeOut(250, 26, 10, 46);
+    this.cameras.main.fadeOut(250, 10, 14, 46);
     this.time.delayedCall(260, () => this.scene.start(key, data));
   }
 

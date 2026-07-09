@@ -12,7 +12,7 @@ import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { getCuratedLevels } from '../../shared/levelData';
 import { recordCompletion } from '../levelProgress';
-import { BASE_COLOR, standardPaints, standardPumpkins } from '../../shared/slimeSim';
+import { BASE_COLOR, MAX_WORN, standardPaints, standardPumpkins } from '../../shared/slimeSim';
 
 // Tutorial modals ("Splash Course" levels) show once per page load per level —
 // replaying a lesson or resetting it doesn't re-interrupt the player.
@@ -103,6 +103,9 @@ export class Game extends Phaser.Scene {
   private level:  LevelData  | null = null;
   private levelId = 'L01';
   private isPreview = false;
+  // True when the home page's walkthrough button opened this level — the win
+  // screen then chains through the first Splash Course lessons and back home.
+  private isWalkthrough = false;
   // The creator's in-progress recording, carried through a Test Play preview so
   // both exits (win or back) restore the Editor instead of wiping it.
   private editorDraft: EditorDraft | null = null;
@@ -126,6 +129,10 @@ export class Game extends Phaser.Scene {
 
   private paletteContainer: Phaser.GameObjects.Container | null = null;
   private paletteSlots: PaletteSlot[] = [];
+  // Screen position of each palette tile ('paint' / 'pumpkin' / mod id) — the
+  // refusal cross (see showRefusalCross) needs to know WHERE the tapped tool
+  // lives, including for taps that arrive via the color/pumpkin pickers.
+  private slotPosById = new Map<string, { x: number; y: number; cell: number }>();
   // Loose game-area objects (cards, pills, pill texts) — tracked so the
   // resize rebuild can destroy them; orphaning them duplicates the play area.
   private areaObjs: Phaser.GameObjects.GameObject[] = [];
@@ -142,11 +149,12 @@ export class Game extends Phaser.Scene {
   constructor() { super('Game'); }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
-  init(data: { levelId?: string; previewData?: LevelData; editorDraft?: EditorDraft }) {
+  init(data: { levelId?: string; previewData?: LevelData; editorDraft?: EditorDraft; walkthrough?: boolean }) {
     this.engine        = null;
     this.level         = data?.previewData ?? null;
     this.levelId       = data?.levelId ?? 'L01';
     this.isPreview     = !!data?.previewData;
+    this.isWalkthrough = data?.walkthrough === true;
     this.editorDraft   = data?.editorDraft ?? null;
     this.winHandled    = false;
     this.navigating    = false;
@@ -218,7 +226,9 @@ export class Game extends Phaser.Scene {
     this.buildPalette();
 
     const tutorial = this.level.tutorial;
-    if (tutorial && !tutorialShownThisSession.has(this.level.id)) {
+    // The walkthrough exists to teach — its lesson modals always show, even
+    // when a replayed lesson already used up its once-per-session slot.
+    if (tutorial && (this.isWalkthrough || !tutorialShownThisSession.has(this.level.id))) {
       tutorialShownThisSession.add(this.level.id);
       this.showTutorialModal(tutorial, () => {
         // Fresh engine, NOT engine.reset(): reset is a logged, move-costing
@@ -330,6 +340,9 @@ export class Game extends Phaser.Scene {
       this.closeActivePopup();
       if (this.isPreview) {
         this.goToScene('Editor', this.editorDraft ? { draft: this.editorDraft } : undefined);
+      } else if (this.isWalkthrough) {
+        // The walkthrough came from home — back means home, not the world grid.
+        this.goToScene('MainMenu');
       } else {
         this.goToScene('LevelSelect');
       }
@@ -362,8 +375,11 @@ export class Game extends Phaser.Scene {
       elements.push(ctxText);
     }
 
-    // Hint + Reset in header right.
-    elements.push(this.hudIconButton(width - 10 - HUD_BTN - 8 - HUD_BTN / 2, HEADER_H / 2, 'icon-help', 0, () => this.showHint()));
+    // Hint + Reset in header right. Levels without a hint (dailies, the
+    // expert worlds 10+) don't get a dead help button — reset stands alone.
+    if (this.level.hint) {
+      elements.push(this.hudIconButton(width - 10 - HUD_BTN - 8 - HUD_BTN / 2, HEADER_H / 2, 'icon-help', 0, () => this.showHint()));
+    }
     elements.push(this.hudIconButton(width - 10 - HUD_BTN / 2, HEADER_H / 2, 'icon-reset', 0, () => this.handleReset()));
 
     this.hudLayer = this.add.container(0, 0, elements);
@@ -482,7 +498,7 @@ export class Game extends Phaser.Scene {
     // null-safe everywhere he's poked). Tapping him is the same freebie squish
     // as the home screen.
     if (showSplot) {
-      this.splot = new SplotMascot(this, left + blockW / 2, top + blockH + 8 + splotSz / 2, splotSz, {}, undefined, true);
+      this.splot = new SplotMascot(this, left + blockW / 2, top + blockH + 8 + splotSz / 2, splotSz);
       this.splot.container.setDepth(5);
       this.splot.container.setInteractive(
         new Phaser.Geom.Circle(0, 0, splotSz * 0.5),
@@ -556,6 +572,7 @@ export class Game extends Phaser.Scene {
     }
 
     this.paletteSlots = groupPalette(this.level.palette);
+    this.slotPosById.clear();
     const cols = 3, gap = 10, padX = 14;
     const availW = r.w - padX * 2;
     const availH = r.y + r.h - 12 - gridTop;
@@ -590,6 +607,9 @@ export class Game extends Phaser.Scene {
   // feedback) with the modifier's icon. Worn stencils get a green ring + check;
   // broken goggles go dim with a cross badge and stop taking taps.
   private buildPaletteSlot(cx: number, cy: number, cell: number, slot: PaletteSlot): Phaser.GameObjects.Container {
+    this.slotPosById.set(
+      slot.kind === 'single' ? slot.mod.id : slot.kind, { x: cx, y: cy, cell },
+    );
     const onClick = () => {
       if (slot.kind === 'paint') {
         this.showColorPicker(slot.mods);
@@ -885,7 +905,7 @@ export class Game extends Phaser.Scene {
     // paragraph of lesson text needs an opaque face to stay readable.
     items.push(addBeigeSolidCard(this, cx, cy, popW, popH));
 
-    const splot = new SplotMascot(this, cx, cy - popH / 2 + 20 + splotSz / 2, splotSz, {}, undefined, true);
+    const splot = new SplotMascot(this, cx, cy - popH / 2 + 20 + splotSz / 2, splotSz);
     splot.setExpression('excited');
     items.push(splot.container);
 
@@ -956,12 +976,22 @@ export class Game extends Phaser.Scene {
     if (!this.engine || !this.currentRenderer || !this.level || this.winHandled || this.navigating) return;
     const result = this.engine.applyModifier(mod);
 
-    // A refused tap (broken goggles / a spent one-shot) logs nothing, spends no
-    // step. The tile is disabled too; this guards the pickers and races.
+    // A refused tap (broken goggles / a spent one-shot / a wear the stacking
+    // rules forbid) logs nothing and spends no step. The message says WHY and
+    // the cross badge above the tapped tile says WHICH tool was refused.
     if (result.kind === 'broken') {
-      this.showConflictPopup(mod.type === 'alpha'
-        ? 'The alpha dip is used up. One dip per level!'
-        : 'Those goggles are broken. One splash was all they had!');
+      let msg: string;
+      if (mod.type === 'alpha') {
+        msg = 'The alpha dip is used up. One dip per level!';
+      } else if (this.engine.isBroken(mod)) {
+        msg = 'Those goggles are broken. One splash was all they had!';
+      } else if (mod.type === 'pumpkin' && this.engine.wornMaskIds.some((id) => id.startsWith('pumpkin-'))) {
+        msg = 'No pumpkins on pumpkins! Take the worn one off first.';
+      } else {
+        msg = `Splot can only wear ${MAX_WORN} things at once. Take something off!`;
+      }
+      this.showConflictPopup(msg);
+      this.showRefusalCross(mod);
       this.splot?.setExpression('pain', 900);
       return;
     }
@@ -987,6 +1017,26 @@ export class Game extends Phaser.Scene {
 
     this.buildPalette();
     if (result.isWin) void this.handleWin();
+  }
+
+  // A red cross pops up above the refused tool's palette tile and fades — the
+  // conflict popup says why, this says where. Pumpkin/paint refusals arriving
+  // via their pickers point at the group tile.
+  private showRefusalCross(mod: ModifierDef) {
+    const key = mod.type === 'paint' ? 'paint' : mod.type === 'pumpkin' ? 'pumpkin' : mod.id;
+    const pos = this.slotPosById.get(key);
+    if (!pos) return;
+    const sz = Math.round(pos.cell * 0.34);
+    const cross = addDepthIcon(this, pos.x, pos.y - pos.cell * 0.30, 'icon-cross', sz, sz)
+      .setDepth(40).setAlpha(0);
+    this.tweens.add({
+      targets: cross, alpha: 1, y: pos.y - pos.cell * 0.62,
+      duration: 160, ease: 'Quad.easeOut',
+      onComplete: () => this.tweens.add({
+        targets: cross, alpha: 0, duration: 320, delay: 420,
+        onComplete: () => cross.destroy(),
+      }),
+    });
   }
 
   // Broken goggles tumble off the slime — they fall, spin, shrink and fade.
@@ -1094,6 +1144,7 @@ export class Game extends Phaser.Scene {
         nextLevelId: this.getNextLevelId(),
         actions: payload.actions,
         firstSplat, goalPalette, goalActions,
+        walkthrough: this.isWalkthrough,
       }, 300, 320);
     });
   }

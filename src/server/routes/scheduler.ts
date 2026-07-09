@@ -91,7 +91,7 @@ schedulerRoutes.post('/fitcheck-post', async (c) => {
 
     const post = await reddit.submitCustomPost({
       subredditName,
-      title: `Fit Check Friday ${week}: dress your Splot, drop the fit below. Top vote takes 500 Sparks + the crown flair 👑`,
+      title: `Fit Check Friday ${week}: dress your Splot, drop the fit below. Top vote takes 500 Sparks + the crown flair`,
       entry: 'default',
       postData: { fitcheck: week },
       styles: {

@@ -86,16 +86,21 @@ Each action id resolves against the level palette **plus the standard catalog**
 | stencil def, worn | take it off | 1 |
 | nose tap | wear it small / take it off at whatever size it grew to | 1 |
 | `__reset__` | clear everything (grid, worn, broken, spent) — logged, clock keeps running | 1 |
-| broken goggles / spent dip | refused — the tap is not logged, replays containing one are invalid | 0 |
+| refused tap | broken goggles, spent dip, or a wear the stacking rules forbid — not logged, replays containing one are invalid | 0 |
 
 **Splash side effects** (color paint and alpha dip, not the bubble): every worn pair
 of goggles snaps off into `broken`, and a worn nose grows one size (a splash on big
 knocks it off, re-wearable small).
 
-Aside from the goggle break there are no conflicts and no use counts — any other
-stencil can go on or off at any time, and any combination can be worn simultaneously.
-The puzzle is ordering plus goggle economy: which stencils are on when each coat
-lands, and which single splash each pair of goggles is spent on.
+**Wear-stacking rules** (`MAX_WORN` in `slimeSim.ts`): Splot wears at most **3
+stencils at once**, and a pumpkin never goes on top of another pumpkin — it's a
+full head-cover, one at a time; swap sizes instead. A wear that would break either
+rule is refused exactly like broken goggles (state untouched, nothing logged); the
+Game scene answers with a cross icon popping above the refused palette tile and a
+message saying why. Within those limits there are no other conflicts or use
+counts. The puzzle is ordering plus outfit economy: which (at most three) stencils
+are on when each coat lands, and which single splash each pair of goggles is spent
+on.
 
 **Win check** (`isCleanMatch`): every body cell displays the same effective color
 (hue + dip state — a dipped cell shows its color composited at 75% over white) as the
@@ -241,9 +246,11 @@ a transient failure costs an hour, not the whole day.
 (paint / stencil on / stencil off) appends to the action list, which becomes both the
 goal and the reference solution. Creators get the full 20-stencil catalog and the
 16-color rack, choose how many decoys (0–3) pad the published palette, and can attach
-an optional hint. Recordings are capped at `MAX_SOLUTION_STEPS` (20) — enforced while
-recording and re-checked by the server — so **every published level is provably
-solvable within 20 moves**, and that count is the level's advertised par. Publishing
+an optional hint. Recordings are capped at `MAX_SOLUTION_STEPS` (60 — roomy on
+purpose; an anti-abuse bound on stored size and replay cost, not a design cap) —
+enforced while recording and re-checked by the server — so **every published level is
+provably solvable within that many moves**, and the recording's length is the level's
+advertised par. Publishing
 requires the recording to end bare with paint on the slime; the server re-verifies,
 stores at `level:{id}` (90-day TTL), indexes in `ugc:index` plus the `ugc:titles`
 search registry (`GET /api/levels/community?q=` matches title or creator), and posts
@@ -258,9 +265,15 @@ Three dials make a level hard:
 1. **Solution length** — more coats and toggles, more orderings to consider.
 2. **Stencil stacking** — multiple stencils worn at once, partial mid-solution
    removals (`midRemove`) that expose a zone for a later coat.
-3. **Decoys** — palette stencils/colors the solution never uses. Star thresholds are
-   optimal-relative, so exploratory taps cost stars (never the attempt — everything
-   is removable, reset always available).
+3. **Decoys** — palette stencils/colors the solution never uses. Every generated
+   world level carries at least one (ramping to 3–4 in the late worlds), so the
+   palette never spells out the recipe. Star thresholds are optimal-relative, so
+   exploratory taps cost stars (never the attempt — everything is removable, reset
+   always available).
+
+Generated hints exist only through World 9. **Worlds 10+ ship without hints** —
+at the expert tier, cracking the recipe unaided is the whole point (the in-game
+help button hides itself on hintless levels).
 
 Counts below ramp from the world's first level to its last (see `WORLD_RAMPS`):
 

@@ -12,7 +12,7 @@ Splot is 10 images inside a single `Phaser.GameObjects.Container`. Depths are in
 container.
 
 ```
-depth  0/5  shadow   — splot-shadow (home screen) or char-shadow sprite (everywhere else) — see below
+depth  0   shadow    — splot-shadow (procedural soft ellipse, always) — see below
 depth 10  blob       — genuine overlay-blended texture (body; splash-screen green by default, tint overridable)
 depth 20  mouth      — char-mouth-*      (switches per expression; default char-mouth-smile)
 depth 22  blush      — char-blush        (fades in/out — visible only on excited/kiss)
@@ -25,8 +25,7 @@ depth 65  outline    — char-outline      (always visible)
 ```
 
 All images are set to `setDisplaySize(size, size)` where `size` is passed to the constructor,
-**except the shadow when the CSS-style variant is active** (see below), which is a flattened
-ellipse sized off `size` separately.
+**except the shadow**, which is a flattened ellipse sized off `size` separately (see below).
 
 ### Shine: genuine overlay blend
 
@@ -66,39 +65,29 @@ baking needed.
 | Layer | Source file | Source size | Notes |
 |-------|-------------|-------------|-------|
 | blob | `character/blob.png` | **512×512** | Higher res than all other layers |
-| shadow (sprite) | `character/shadow.png` | 128×128 | Default everywhere except the home screen |
-| shadow (CSS-style) | procedural, `Boot.ts` | 256×96 (source texture) | Home screen only — see "Shadow" below |
+| shadow | procedural, `Boot.ts` | 256×96 (source texture) | See "Shadow" below; `character/shadow.png` exists as art but is never loaded |
 | all others | `character/*.png` | **128×128** | Eyes, mouth, outline, shine, accessories |
 
 The blob is 512×512 so it stays sharp at large display sizes (240–440px). All other square layers
 are 128×128 and share the same coordinate space when displayed at the same `size`.
 
-### Shadow: sprite vs. CSS-style
+### Shadow: always the procedural CSS-style ellipse
 
-`SplotMascot`'s constructor takes a `useCssShadow` flag (last param, default `false`):
+Every Splot uses the same soft contact shadow — the `character/shadow.png` sprite is never loaded
+(it reads as a hard black blob against flat panel backgrounds). `Boot.ts#genSplotShadowTexture()`
+generates the `splot-shadow` texture once at boot: 8 concentric semi-transparent black ellipses
+(`fillEllipse`, alpha 0.05 each) drawn into a 256×96 `Graphics` object and baked with
+`generateTexture`. Overlapping alpha builds up toward the center and falls off toward the edges,
+faking the soft blur a CSS `box-shadow`/`drop-shadow` would produce. It's displayed as a flat
+ellipse under the character rather than a character-shaped silhouette, at depth 0:
 
 ```typescript
-new SplotMascot(scene, x, y, size, equipped, blobColor, useCssShadow)
+this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
+  .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
 ```
 
-- **Default (`false`)** — used by `Shop.ts` and `LevelComplete.ts`. Renders `character/shadow.png`
-  (key `char-shadow`) as a normal `size × size` layer at depth 5, like every other layer.
-- **`true`** — used only by `MainMenu.spawnMascot()` for the home-screen Splot. Instead of the
-  sprite, `Boot.ts#genSplotShadowTexture()` generates a `splot-shadow` texture once at boot: 8
-  concentric semi-transparent black ellipses (`fillEllipse`, alpha 0.05 each) drawn into a 256×96
-  `Graphics` object and baked with `generateTexture`. Overlapping alpha builds up toward the center
-  and falls off toward the edges, faking the soft blur a CSS `box-shadow`/`drop-shadow` would
-  produce. It's displayed as a flat ellipse under the character rather than a character-shaped
-  silhouette, at depth 0:
-
-  ```typescript
-  this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
-    .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
-  ```
-
-`setSize(s)` follows the same branch: the CSS-style shadow resizes/repositions as `s * 0.85` wide,
-`s * 0.30` tall, offset `s * 0.40` down from center; the sprite shadow just resizes to `s × s` like
-every other layer. Either way it scales correctly with the mascot at any display size.
+`setSize(s)` resizes/repositions it as `s * 0.85` wide, `s * 0.30` tall, offset `s * 0.40` down
+from center, so it scales correctly with the mascot at any display size.
 
 ---
 
@@ -112,8 +101,11 @@ const mascot = new SplotMascot(
   x,           // center X in world coords
   y,           // center Y in world coords
   size,        // display size in game units (e.g. 240)
-  equipped,    // Record<string, string> from user profile — see Equipped items below
-  0x6DD400,    // optional blob tint (Splot's default green)
+  equipped,    // OPTIONAL Record<string, string> — see Equipped items below.
+               // Omitted = the player's own equipped look, pulled from the
+               // cached /api/init (getCachedUserData). Pass explicitly only to
+               // preview something else (Shop try-on, the crowned Splot).
+  0x6DD400,    // optional blob tint fallback (Splot's default green)
 );
 
 mascot.container.setDepth(5);
@@ -318,7 +310,13 @@ scene.tweens.add({
 
 ## Equipped items
 
-The user can purchase cosmetics in the Shop. Equipped items are stored in `UserProfile.equippedItems` (a `Record<string, string>`) and passed to the constructor.
+The user can purchase cosmetics in the Shop. Equipped items are stored in `UserProfile.equippedItems`
+(a `Record<string, string>`). Constructors that omit the `equipped` argument get the player's own
+look automatically (from the cached `/api/init`), so every Splot in the game — home screen, in-game
+coach, win screen, tutorial modal — wears what the player bought. Passing a record explicitly
+overrides that (the Shop's try-on preview, the crowned first-splat Splot). The equipped face also
+becomes the mascot's RESTING face: expressions that revert to `happy` land back on the equipped
+eyes/mouth/eyebrows, not the stock ones.
 
 ### Slot keys and texture key formula
 
@@ -390,11 +388,9 @@ shutdown() {
 mascot.setSize(300);
 ```
 
-The shadow is the one exception, and only when the mascot was constructed with `useCssShadow: true`
-(home screen). In that case it isn't a `size × size` square like the other layers — it's resized as
-a flat ellipse (`s * 0.85` wide, `s * 0.30` tall) offset `s * 0.40` below center, so it keeps looking
-like a contact shadow instead of stretching into a circle at every size. Everywhere else the shadow
-sprite resizes to `s × s` along with the rest of the layers.
+The shadow is the one exception: it isn't a `size × size` square like the other layers — it's
+resized as a flat ellipse (`s * 0.85` wide, `s * 0.30` tall) offset `s * 0.40` below center, so it
+keeps looking like a contact shadow instead of stretching into a circle at every size.
 
 The bob tween targets the container `y`, so if you also move the container, stop and recreate the tween. A common pattern:
 

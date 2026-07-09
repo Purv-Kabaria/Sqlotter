@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { paintOverlayShine, paintGradientShine } from './overlayShine';
 import { getShopItem } from '../../shared/shop';
 import type { ShopColor } from '../../shared/shop';
+import { getCachedUserData } from '../userData';
 
 export type SplotExpression = 'happy' | 'excited' | 'sad' | 'shocked' | 'doubt' | 'pain' | 'kiss' | 'squiggle';
 
@@ -47,7 +48,11 @@ export class SplotMascot {
   private scene: Phaser.Scene;
   private size: number;
 
-  private useCssShadow: boolean;
+  // The equipped face — what "resting" looks like for THIS player. Expressions
+  // (win, shock, ...) override it temporarily; reverting to 'happy' must land
+  // back on these, not the stock face, or a reaction would silently strip the
+  // player's purchased eyes/mouth.
+  private restingFace = { eye: 'char-eye-normal', eyebrow: 'char-brow-normal', mouth: 'char-mouth-smile' };
 
   // Scenes rebuild their UI (destroying the mascot's container and images) while
   // scene-level timers scheduled by this mascot are still pending — e.g. the
@@ -64,14 +69,16 @@ export class SplotMascot {
   private sparkleImgs: Phaser.GameObjects.Image[] = [];
   private sparkleActive = false;
 
+  // `equipped` omitted = "the player's own Splot": every mascot defaults to the
+  // shop equipment from the cached /api/init, so Splot looks like the player's
+  // Splot everywhere. Pass a Record explicitly only to preview something else
+  // (Shop try-on, LevelComplete's crown).
   constructor(
     scene: Phaser.Scene, x: number, y: number, size: number,
-    equipped: Record<string, string> = {},
+    equipped?: Record<string, string>,
     blobColor?: number,
-    useCssShadow = false,
   ) {
     this.scene = scene;
-    this.useCssShadow = useCssShadow;
     this.size = size;
     this.defaultBlobColorNum = blobColor ?? DEFAULT_BLOB_COLOR;
 
@@ -79,15 +86,11 @@ export class SplotMascot {
     const mk = (key: string, depth: number, vis = true) =>
       scene.add.image(0, 0, key).setDisplaySize(s, s).setDepth(depth).setVisible(vis);
 
-    if (useCssShadow) {
-      // Soft procedural "CSS-style" contact shadow (see Boot.ts genSplotShadowTexture) —
-      // a flat blurred ellipse under the character instead of the shadow-shaped sprite,
-      // which reads as a hard black blob against flat panel backgrounds.
-      this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
-        .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
-    } else {
-      this.shadow = mk('char-shadow', 5);
-    }
+    // Soft procedural "CSS-style" contact shadow (see Boot.ts genSplotShadowTexture) —
+    // a flat blurred ellipse under the character instead of the shadow-shaped sprite,
+    // which reads as a hard black blob against flat panel backgrounds.
+    this.shadow = scene.add.image(0, s * 0.40, 'splot-shadow')
+      .setDisplaySize(s * 0.85, s * 0.30).setDepth(0);
     // Body is baked (tint + genuine overlay-blended shine) into a texture rather than
     // tinted live — see overlayShine.ts for why a plain Phaser tint + BlendModes.OVERLAY
     // can't do this under WebGL. Keyed by color (or gradient stops) and shared across
@@ -116,15 +119,8 @@ export class SplotMascot {
       this.revertTimer = null;
     });
 
-    this.applyEquipped(equipped);
+    this.applyEquipped(equipped ?? getCachedUserData()?.equippedItems ?? {});
     this.startIdleAnims();
-  }
-
-  // setTexture() on a key the Preloader never loaded renders Phaser's green
-  // "missing" square — guard every equip-driven swap so a stale/bad item id
-  // stored server-side can never break the mascot's face.
-  private setPartTexture(img: Phaser.GameObjects.Image, key: string, fallback: string) {
-    img.setTexture(this.scene.textures.exists(key) ? key : fallback);
   }
 
   // Resolves — baking and caching if needed — the blob texture for a color
@@ -147,9 +143,18 @@ export class SplotMascot {
   }
 
   private applyEquipped(items: Record<string, string>) {
-    if (items.eye)   this.setPartTexture(this.eye, `char-${items.eye}`, 'char-eye-normal');
-    this.setPartTexture(this.eyebrow, items.eyebrow ? `char-${items.eyebrow}` : 'char-brow-normal', 'char-brow-normal');
-    if (items.mouth) this.setPartTexture(this.mouth, `char-${items.mouth}`, 'char-mouth-smile');
+    // Resolve the resting face first (with missing-texture fallbacks), then
+    // wear it — setExpression('happy') reverts to these same keys later.
+    const resolve = (id: string | undefined, fallback: string) =>
+      id && this.scene.textures.exists(`char-${id}`) ? `char-${id}` : fallback;
+    this.restingFace = {
+      eye:     resolve(items.eye,     'char-eye-normal'),
+      eyebrow: resolve(items.eyebrow, 'char-brow-normal'),
+      mouth:   resolve(items.mouth,   'char-mouth-smile'),
+    };
+    this.eye.setTexture(this.restingFace.eye);
+    this.eyebrow.setTexture(this.restingFace.eyebrow);
+    this.mouth.setTexture(this.restingFace.mouth);
     if (items.accessory) {
       // item IDs are already prefixed: 'acc-crown' → 'char-acc-crown'
       const key = `char-${items.accessory}`;
@@ -172,9 +177,11 @@ export class SplotMascot {
   setExpression(expr: SplotExpression, revertAfterMs?: number) {
     if (this.destroyed) return;
     const cfg = EXPRESSIONS[expr];
-    this.eye.setTexture(cfg.eye);
-    this.eyebrow.setTexture(cfg.eyebrow);
-    this.mouth.setTexture(cfg.mouth);
+    // 'happy' is the resting state — it wears the player's equipped face, not
+    // the stock one, so reactions reverting to it don't strip shop purchases.
+    this.eye.setTexture(expr === 'happy' ? this.restingFace.eye : cfg.eye);
+    this.eyebrow.setTexture(expr === 'happy' ? this.restingFace.eyebrow : cfg.eyebrow);
+    this.mouth.setTexture(expr === 'happy' ? this.restingFace.mouth : cfg.mouth);
     this.animateFacePart(this.blush, cfg.blush === true);
     this.animateFacePart(this.cry, cfg.cry === true);
 
@@ -319,11 +326,7 @@ export class SplotMascot {
     [this.blob, this.mouth, this.blush, this.cry,
      this.eye, this.eyebrow, this.accessory, this.applied, this.outline]
       .forEach(img => img.setDisplaySize(s, s));
-    if (this.useCssShadow) {
-      this.shadow.setDisplaySize(s * 0.85, s * 0.30).setY(s * 0.40);
-    } else {
-      this.shadow.setDisplaySize(s, s);
-    }
+    this.shadow.setDisplaySize(s * 0.85, s * 0.30).setY(s * 0.40);
     // Sparkle positions/sizes are computed once from `size` at spawn time —
     // restart them so a rare color's shimmer stays anchored after a resize.
     if (this.sparkleActive) {

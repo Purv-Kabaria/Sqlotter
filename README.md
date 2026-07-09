@@ -105,11 +105,11 @@ Action rules (`applySimAction`):
 | paint | every exposed body cell ← this color at full opacity; then splash side effects | 1 |
 | alpha dip | every exposed cell → 75% opacity ("dipped"); splash side effects; **one dip per run** — a second tap is refused | 1 |
 | bubble | dips only exposed cells inside the bubble's inner circle; **reusable**, and gentle (no splash side effects) | 1 |
-| stencil, not worn | put it on | 1 |
+| stencil, not worn | put it on (max 3 worn at once; one pumpkin at a time) | 1 |
 | stencil, worn | take it off | 1 |
 | nose tap | wear it small / take it off (whatever size it grew to) | 1 |
 | reset | clear everything (grid, worn, broken, spent) — clock and step count keep running | 1 |
-| broken goggles / spent dip | refused — not logged; replays containing one are invalid | 0 |
+| refused tap | broken goggles, spent dip, or a wear the stacking rules forbid — not logged; replays containing one are invalid | 0 |
 
 **Splash side effects** (color paint and alpha dip, not the bubble): every worn pair of
 goggles snaps off into `broken`, and a worn nose grows one size — small → medium → big,
@@ -156,14 +156,17 @@ Magenta, Pink, Maroon, Olive, Gray, Black. A level's palette lists which pots it
 | Glasses | h-thick, h-thin, v-thick, v-thin | 16–24% eye band | splash-proof twins of the goggles — and great decoys |
 | Belt | h-thick, h-thin, v-thick, v-thin | 15–34% middle band/column | |
 | Pendant | h, v | ~19% chest charm | |
-| Pumpkin | 25, 50, 75 | ~17% / ~48% / ~92% from the top down | all three sizes always available; pumpkins stack |
+| Pumpkin | 25, 50, 75 | ~17% / ~48% / ~92% from the top down | all three sizes always available; **one pumpkin at a time** — swap sizes, never stack |
 | Underwear | — | ~27% hips | |
 | Plate | — | large dish shape | |
 | Cone | — | rainbow snow-cone shape | |
 | Scarf | left / right | wrap-around band | one coverage mask; the variant mirrors the art and the palette tile's arrow shows the direction |
 
-Any combination can be worn simultaneously — there are no slot conflicts. The puzzle
-is ordering plus the goggle economy.
+**Wear-stacking rules** (`MAX_WORN`): Splot wears at most **3 stencils at once**,
+and never a pumpkin over a pumpkin. A forbidden wear is refused — nothing is
+logged, no step is spent, and a cross icon pops above the refused palette tile.
+Within those limits any combination can be worn simultaneously. The puzzle is
+ordering plus the outfit and goggle economy.
 
 ### Specials
 
@@ -186,9 +189,11 @@ wipes level progress when it changes.
 
 - **World 0 — Splash Course**: 16 hand-authored tutorial lessons whose solutions
   collectively exercise **all 26 modifiers plus paint**. Highlights: Stripe Trick
-  (stencils protect), Goggle Band (goggles break), Pumpkin Parfait (stacking),
-  Bubble Trouble, Big Shapes (plate/cone/scarf), and the finale Goggle Pileup —
-  five worn goggles, all snapped off by one black splash.
+  (stencils protect), Goggle Band (goggles break), Pumpkin Parfait (swap sizes —
+  no stacking), Bubble Trouble, Big Shapes (plate/cone/scarf), and the finale
+  Goggle Pileup — a full three-goggle outfit snapped off by one black splash,
+  with two decoy goggles teaching the 3-at-once limit. The home page's "?"
+  button runs the first three lessons as a guided walkthrough.
 - **Worlds 1–10**: the main ramp — Splat School → Dress-Up Dell → Goggle Grove →
   Pumpkin Patch → Two-Tone Tarn → Layer Lagoon → Decoy Dunes → Trap Tundra →
   Expert Estuary → Master Marsh.
@@ -253,11 +258,12 @@ action list, which becomes both the goal and the reference solution. Creators ge
 full stencil catalog and the 16-color rack, pick 0–3 decoys to pad the published
 palette, and can attach a hint.
 
-Recordings are capped at `MAX_SOLUTION_STEPS` (20), enforced while recording and
-re-verified server-side — so **every published level is provably solvable within 20
-moves**, and that count is its advertised par. Publishing requires the recording to
-end bare with paint on the slime. The server stores the level (90-day TTL), indexes it
-for search, and posts a **Beat the Creator** challenge post to the subreddit.
+Recordings are capped at `MAX_SOLUTION_STEPS` (60 — a roomy anti-abuse bound, not a
+design cap), enforced while recording and re-verified server-side — so **every
+published level is provably solvable**, and the recording's length is its advertised
+par. Publishing requires the recording to end bare with paint on the slime. The server
+stores the level (90-day TTL), indexes it for search, and posts a **Beat the Creator**
+challenge post to the subreddit.
 
 Discovery: the **Find** button (home page) opens the level finder — search community
 levels by title or creator (`GET /api/levels/community?q=`), browse the newest, or

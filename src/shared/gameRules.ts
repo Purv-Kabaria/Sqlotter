@@ -4,7 +4,14 @@ import { isCleanMatch, isPainted, replaySim } from './slimeSim';
 // Every published level must be provably solvable within this many moves —
 // the creator's own recording is the proof, and it doubles as the level's
 // par. Enforced in the Editor while recording and again by /api/level/create.
-export const MAX_SOLUTION_STEPS = 20;
+// Deliberately roomy: creators build epics, and the ceiling exists only as an
+// anti-abuse bound on stored-level size and replay cost, not as a design cap.
+export const MAX_SOLUTION_STEPS = 60;
+
+// Upper bound on a submitted ATTEMPT (/api/complete, share cards) — players
+// fumble well past par, so this scales off the level ceiling rather than
+// capping anyone's genuine (if messy) solve.
+export const MAX_ATTEMPT_ACTIONS = MAX_SOLUTION_STEPS * 5;
 
 // Star thresholds are optimal-relative: match the target = 3, within 2x = 2.
 export function calcStars(steps: number, optimalSteps: number): Stars {

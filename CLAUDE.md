@@ -201,9 +201,13 @@ type SimState = {
 - Bubble: dips only exposed cells inside its inner-circle region; reusable, NOT a
   splash (goggles and noses are safe)
 - Stencil action: toggle — on if off, off if on. Broken goggles refuse the tap
-  (nothing logged; replays containing one are invalid). Everything else is a free
-  toggle — no conflicts, no counts. Reset (`__reset__`) is itself a logged,
-  step-costing action that clears grid/worn/broken/spent
+  (nothing logged; replays containing one are invalid). Reset (`__reset__`) is
+  itself a logged, step-costing action that clears grid/worn/broken/spent
+- Wear-stacking rules (`MAX_WORN` in slimeSim.ts): at most **3 stencils worn at
+  once**, and never a pumpkin over a pumpkin (one head-cover at a time — swap
+  sizes instead). A wear that would break either rule is REFUSED like broken
+  goggles: state untouched, nothing logged, and the Game scene pops a cross
+  icon above the refused palette tile plus a message saying why
 - Action ids resolve against the palette PLUS the standard catalog
   (`resolveActionDef`): the 16 paints (`PAINT_COLORS_16`) and the 3 pumpkin sizes are
   always available — the color picker always offers the full 16-color rack, the
@@ -225,9 +229,11 @@ then per paint op a color-tinted body stamp with the then-worn stencils punched 
 above `border.png` — they sit ON the slime, so the outline must not cut across their
 art. Goal previews are `setPattern(palette, optimalSolution)`.
 
-For the **Splot mascot** in menus/shop (not puzzle):
+For the **Splot mascot** in menus/shop (not puzzle) — every instance defaults to
+the player's shop-equipped look (cached /api/init) and ALWAYS uses the procedural
+`splot-shadow` ellipse (Boot.ts) — `character/shadow.png` is never loaded:
 ```
-depth  5 — character/shadow.png
+depth  0 — splot-shadow (procedural soft ellipse)
 depth 10 — character/blob.png (tinted for customization)
 depth 20 — character/mouth/*.png  +  blush/cry effects
 depth 30 — character/eyes/*.png
@@ -501,9 +507,14 @@ POST /api/share/fit               → Fit Check Friday comment
 ## Daily Sqlot System
 
 A daily level is a **Sqlot** — that's the player-facing name everywhere (post
-titles, menu button, in-game subtitle). Post titles stay minimal, no emojis:
+titles, menu button, in-game subtitle). Sqlot titles stay minimal:
 `Sqlot 2026-07-09: The Grumpy Goggle Job` (see `dailyPostTitle` in
 `src/server/core/post.ts`).
+
+**HARD RULE: NO post title ever contains an emoji** — not the game post, not
+duels, not Fit Check Friday. Every composed title that embeds user text goes
+through `cleanPostTitle` (src/server/core/post.ts), which strips pictographs.
+(Comment bodies — Splat Cards, duel scoreboards — may keep theirs.)
 
 Declare in `devvit.json`:
 ```json

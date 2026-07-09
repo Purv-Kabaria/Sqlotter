@@ -5,6 +5,7 @@ import {
 } from '../components/PixelUI';
 import type { LeaderboardEntry } from '../../shared/types';
 import type { LeaderboardResponse } from '../../shared/api';
+import { DEFERRED_IMG } from './Preloader';
 
 const PIXELIFY = BODY_FONT;
 // Press Start 2P's numerals stay legible at small sizes (Pixelify's "5" reads
@@ -86,6 +87,15 @@ export class Leaderboard extends Phaser.Scene {
     this.dragState = { active: false, startPointerY: 0, startOffset: 0, moved: 0 };
   }
 
+  // Safety net for the deferred night-sky set (bg1) — normally MainMenu has
+  // already streamed it in the background and this queues nothing.
+  preload() {
+    this.load.setPath('assets');
+    for (const { key, path } of DEFERRED_IMG) {
+      if (!this.textures.exists(key)) this.load.image(key, path);
+    }
+  }
+
   create() {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG);
@@ -101,11 +111,12 @@ export class Leaderboard extends Phaser.Scene {
     this.scale.on('resize', this.onResize, this);
   }
 
-  // ── Background — same drifting pink-cloud technique as MainMenu/Shop ─────
+  // ── Background — bg1 night sky (starfield → moon → clouds): trophies under
+  // the stars, and distinct from the home screen it's reached from (bg4 day) ─
   private buildBackground() {
     const { width, height } = this.scale;
-    const keys   = ['bg4-1', 'bg4-2', 'bg4-3', 'bg4-4'];
-    const alphas = [1, 0.80, 0.55, 0.30];
+    const keys   = ['bg1-1', 'bg1-2', 'bg1-3', 'bg1-4'];
+    const alphas = [1, 1, 0.90, 0.85];
 
     this.bgLayers.forEach(img => img.destroy());
     this.bgLayers = [];

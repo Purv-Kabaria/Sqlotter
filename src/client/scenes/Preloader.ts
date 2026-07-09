@@ -49,9 +49,10 @@ const IMG: AssetDef[] = [
   { key: 'mod-scarf',       path: 'modifiers/scarf-right.png' },
 
   // ── Character / Splot ─────────────────────────────
+  // character/shadow.png is intentionally NOT loaded — every Splot uses the
+  // procedural 'splot-shadow' ellipse Boot.ts bakes (see genSplotShadowTexture).
   { key: 'char-blob',    path: 'character/blob.png' },
   { key: 'char-outline', path: 'character/outline.png' },
-  { key: 'char-shadow',  path: 'character/shadow.png' },
   { key: 'char-shine',   path: 'character/overlay-normal.png' },
   { key: 'char-applied', path: 'character/overlay-applied.png' },
 
@@ -148,9 +149,9 @@ const IMG: AssetDef[] = [
   { key: 'icon-sparkle', path: 'icons/misc/sparkle.png' },
 
   // ── Backgrounds ───────────────────────────────────
-  // bg2 (Shop/Editor) is NOT here — those scenes sit behind a click, so
-  // MainMenu warms it in the background and the scenes preload it as a
-  // safety net (see DEFERRED_IMG). There is no bg1 user anywhere.
+  // bg2 (Shop/Editor) and bg1 (LevelSelect/Leaderboard) are NOT here — those
+  // scenes sit behind a click, so MainMenu warms them in the background and
+  // the scenes preload them as a safety net (see DEFERRED_IMG).
   { key: 'bg3-1', path: 'background/background 3/1.png' },
   { key: 'bg3-2', path: 'background/background 3/2.png' },
   { key: 'bg3-3', path: 'background/background 3/3.png' },
@@ -165,13 +166,19 @@ const IMG: AssetDef[] = [
 ];
 
 // Assets no scene needs before the player clicks through the menu. MainMenu
-// streams these in the background once it is interactive; Shop/Editor also
-// declare them in their own preload() so a fast click still can't outrun them.
+// streams these in the background once it is interactive; the scenes that use
+// them also declare them in their own preload() so a fast click can't outrun them.
 export const DEFERRED_IMG: AssetDef[] = [
+  // bg2 — pink clouds (Shop, Editor)
   { key: 'bg2-1', path: 'background/background 2/1.png' },
   { key: 'bg2-2', path: 'background/background 2/2.png' },
   { key: 'bg2-3', path: 'background/background 2/3.png' },
   { key: 'bg2-4', path: 'background/background 2/4.png' },
+  // bg1 — night sky with crescent moon (LevelSelect, Leaderboard)
+  { key: 'bg1-1', path: 'background/background 1/1.png' },
+  { key: 'bg1-2', path: 'background/background 1/2.png' },
+  { key: 'bg1-3', path: 'background/background 1/3.png' },
+  { key: 'bg1-4', path: 'background/background 1/4.png' },
 ];
 
 // ── Reserved slots: dedicated puzzle icons for the newer modifiers ──────────

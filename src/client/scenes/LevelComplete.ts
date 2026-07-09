@@ -23,7 +23,14 @@ type CompleteData = {
   levelId: string; title?: string; steps: number; timeMs: number; stars: number;
   sparks: number; streakDays?: number; actions?: string[]; firstSplat?: boolean;
   goalPalette?: ModifierDef[]; goalActions?: readonly string[];
+  // Home-page walkthrough chain: Next runs through the first Splash Course
+  // lessons, then the final lesson's button leads back home.
+  walkthrough?: boolean;
 };
+
+// The walkthrough covers the first three Splash Course lessons — enough to
+// know paints, repaints and the stencil trick before free play.
+const WALKTHROUGH_LAST_LEVEL = 'w00-l03';
 
 // What the Splat Card preview needs to render itself — a subset of the win
 // data, plus the palette the player's own `actions` (ShareCardRequest) replay
@@ -285,9 +292,22 @@ export class LevelComplete extends Phaser.Scene {
     const nextId = this.getNextLevelId(levelId);
     const hasNext = nextId !== null;
 
-    this.buildBtn(navCx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
-      this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
-    });
+    // Walkthrough chain: lessons 1-2 lead into the next lesson (still in
+    // walkthrough mode); finishing the last one graduates back home.
+    const walkDone = data?.walkthrough === true && (levelId === WALKTHROUGH_LAST_LEVEL || !hasNext);
+    if (data?.walkthrough === true && !walkDone) {
+      this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Next', 'icon-arrow', () => {
+        this.goToScene('Game', { levelId: nextId, walkthrough: true });
+      });
+    } else if (walkDone) {
+      this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Ready!', 'icon-home', () => {
+        this.goToScene('MainMenu');
+      });
+    } else {
+      this.buildBtn(navCx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
+        this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
+      });
+    }
     this.buildBtn(navCx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
       this.goToScene('Leaderboard', { levelId });
     });

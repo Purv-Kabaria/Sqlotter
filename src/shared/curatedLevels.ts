@@ -1,7 +1,8 @@
 import type { LevelData, ModifierDef, PumpkinCoverage } from './types';
 import type { PaintColor } from './slimeSim';
 import {
-  isBreakableMask, isPainted, PAINT_COLORS_16, paintDefOf, patternsEqual, replaySim, structureKey,
+  isBreakableMask, isPainted, MAX_WORN, PAINT_COLORS_16, paintDefOf, patternsEqual, replaySim,
+  structureKey,
 } from './slimeSim';
 
 // ── Curated level set — stencil-painting puzzles ────────────────────────────
@@ -18,7 +19,7 @@ import {
 // Bump when the level set changes incompatibly — the app-upgrade trigger wipes
 // level progress (completions/stars/streaks/level leaderboards) on a mismatch
 // so nobody keeps stars for levels that no longer exist.
-export const LEVELS_VERSION = '7-full-tutorial';
+export const LEVELS_VERSION = '8-wear-limit';
 
 export const LEVELS_PER_WORLD = 16; // max per world (grid capacity)
 
@@ -148,16 +149,26 @@ export function buildGeneratedLevel(
     // Each paint after the first needs a stencil change to stay visible, so
     // more paints than stencils+1 can never all matter — lift the stencil
     // count to match instead of burning every attempt on necessity rejections
-    // (which would ship un-deduped fallback shapes).
+    // (which would ship un-deduped fallback shapes). The wear rules cap the
+    // lift: Splot wears at most MAX_WORN stencils at once, and this recipe
+    // shape keeps everything worn until the end-cleanup.
     const maskCount = Math.min(
       Math.max(intIn(rng, cfg.masks), paintCount - 1),
       cfg.maskPool.length,
+      MAX_WORN,
     );
-    const masks = pickDistinct(rng, cfg.maskPool, maskCount);
-    const baseFirst = maskCount === 0 || rng() < cfg.baseFirst;
+    let masks = pickDistinct(rng, cfg.maskPool, maskCount);
+    // One pumpkin per outfit — the sim refuses a pumpkin over a pumpkin, so a
+    // draw with two would build a solution that can't replay. Keep the first.
+    const pumpkinAt = masks.findIndex((m) => m.startsWith('pumpkin-'));
+    masks = masks.filter((m, i) => i === pumpkinAt || !m.startsWith('pumpkin-'));
+    // With the stencil count clamped by the wear rules, surplus paints would
+    // just repaint the whole slime and fail the necessity check — clamp them too.
+    paintCount = Math.min(paintCount, masks.length + 1);
+    const baseFirst = masks.length === 0 || rng() < cfg.baseFirst;
     // Every after-base paint needs a stencil in play (a bare repaint would just
     // wipe the pattern), so with stencils there must be at least one such paint.
-    if (maskCount > 0 && paintCount - (baseFirst ? 1 : 0) < 1) paintCount++;
+    if (masks.length > 0 && paintCount - (baseFirst ? 1 : 0) < 1) paintCount++;
     const colors = pickDistinct(rng, GEN_COLORS, paintCount);
 
     const actions: string[] = [];
@@ -334,10 +345,10 @@ const TUTORIAL_LEVELS: LevelData[] = [
     ],
     optimalSteps: 6,
     optimalSolution: [
-      'pumpkin-50', 'paint-green', 'pumpkin-75', 'paint-orange', 'pumpkin-75', 'pumpkin-50',
+      'pumpkin-50', 'paint-green', 'pumpkin-50', 'pumpkin-75', 'paint-orange', 'pumpkin-75',
     ],
-    hint: 'Half-pumpkin first — stack the bigger one on top before the orange.',
-    tutorial: 'Pumpkins cover Splot from the TOP down — 25%, 50% or 75%. Covered means protected, and they STACK! Half-pumpkin on, splash green, pile the 75% pumpkin over it, splash orange — then lift both.',
+    hint: 'Half-pumpkin for the green, then swap to the big one for the orange.',
+    tutorial: 'Pumpkins cover Splot from the TOP down — 25%, 50% or 75%. Covered means protected, but only ONE pumpkin fits at a time (no pumpkins on pumpkins!). Half-pumpkin on, splash green, then SWAP it for the 75% pumpkin before the orange.',
   },
   {
     id: 'w00-l07', title: 'Double Stencil', difficulty: 3,
@@ -473,7 +484,7 @@ const TUTORIAL_LEVELS: LevelData[] = [
     tutorial: 'Three BIG stencils: the PLATE, the CONE and the SCARF. They protect just like belts. Wear all three on bare Splot, splash purple ONCE, then clear them off — white shapes, zero extra coats.',
   },
   {
-    id: 'w00-l16', title: 'Goggle Pileup', difficulty: 4,
+    id: 'w00-l16', title: 'Goggle Pileup', difficulty: 3,
     palette: [
       { id: 'paint-red', type: 'paint', color: '#FF4136' },
       { id: 'goggles-h-thin', type: 'goggles', variant: 'h-thin' },
@@ -483,13 +494,12 @@ const TUTORIAL_LEVELS: LevelData[] = [
       { id: 'goggles-v-mono', type: 'goggles', variant: 'v-mono' },
       { id: 'paint-black', type: 'paint', color: '#111111' },
     ],
-    optimalSteps: 7,
+    optimalSteps: 5,
     optimalSolution: [
-      'paint-red', 'goggles-h-thin', 'goggles-h-mono', 'goggles-v-thick',
-      'goggles-v-thin', 'goggles-v-mono', 'paint-black',
+      'paint-red', 'goggles-h-thin', 'goggles-v-thick', 'goggles-v-mono', 'paint-black',
     ],
-    hint: 'Wear all five — the splash takes them off for you.',
-    tutorial: 'Graduation day: every goggle style at once — thin, MONOCLE, upright, the lot! Red coat, pile all FIVE on, then one black splash snaps them all off broken together. Fragile, but they save you the removals!',
+    hint: 'Three goggles is a full outfit — one splash clears them all.',
+    tutorial: 'Graduation day! Splot wears THREE things at most — try a fourth and he refuses. Red coat, pile on the thin band, the upright band and the upright MONOCLE (the other two goggles are decoys!), then one black splash snaps all three off broken together.',
   },
 ];
 
@@ -860,7 +870,9 @@ function buildOneWorld(w: number, usedShapes: Set<string>): LevelData[] {
       palette: recipe.palette,
       optimalSteps: steps,
       optimalSolution: recipe.solution,
-      hint: hintFor(recipe),
+      // Worlds 10+ are the expert tier: no hints — cracking the recipe
+      // unaided IS the puzzle there.
+      ...(worldNum < 10 ? { hint: hintFor(recipe) } : {}),
     };
   });
 }

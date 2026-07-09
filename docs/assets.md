@@ -225,8 +225,7 @@ Splot is a separate 11-layer system from the puzzle slime. See `docs/splot-masco
 |------|-----|------|-------|
 | `character/blob.png` | `char-blob` | **512×512** | The blob body — tinted `0x6DD400` (splash-screen green) by default, tint overridable |
 | `character/outline.png` | `char-outline` | 128×128 | Black outline, always on top |
-| `character/shadow.png` | `char-shadow` | 128×128 | Sprite contact shadow, depth 5 — default everywhere except the home screen |
-| — (procedural, `Boot.ts`) | `splot-shadow` | 256×96 | Soft blurred contact-shadow ellipse, depth 0 — generated at boot from concentric `fillEllipse` calls; used only on the home screen (`MainMenu`) in place of `char-shadow`; see `docs/splot-mascot.md` |
+| — (procedural, `Boot.ts`) | `splot-shadow` | 256×96 | Soft blurred contact-shadow ellipse, depth 0 — generated at boot from concentric `fillEllipse` calls; the ONLY Splot shadow. `character/shadow.png` exists as art but is never loaded (it reads as a hard black blob against flat panels). See `docs/splot-mascot.md` |
 | `character/overlay-normal.png` | `char-shine` | 128×128 | Gloss highlight — genuine OVERLAY blend baked via `color-blend`, amount 0.5 |
 | `character/overlay-applied.png` | `char-applied` | 128×128 | Flash on interaction, ADD blend, tweened to alpha 0 |
 

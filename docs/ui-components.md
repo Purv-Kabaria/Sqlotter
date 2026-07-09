@@ -369,7 +369,20 @@ The 10ms delay after the fade-out gives the camera effect time to complete befor
 
 ## Background parallax system
 
-Each scene can use any of the four background sets (`bg1-*` through `bg4-*`). Layers are stacked with decreasing alpha and drift in alternating directions:
+All four background sets are in use, one mood per destination — arriving anywhere
+reads as a place change:
+
+| Set | Art | Scenes |
+|-----|-----|--------|
+| `bg1-*` | night sky, crescent moon | LevelSelect (incl. the finder), Leaderboard |
+| `bg2-*` | pink clouds | Shop, Editor |
+| `bg3-*` | purple dusk clouds | Game (and its portrait header) |
+| `bg4-*` | bright day, big cumulus | MainMenu |
+
+bg3/bg4 load in the Preloader; bg1/bg2 are DEFERRED (`DEFERRED_IMG`) — MainMenu
+streams them once interactive, and the scenes that use them re-declare them in
+their own `preload()` so a fast click can't outrun the download. Layers are
+stacked with decreasing alpha and drift in alternating directions:
 
 ```typescript
 const keys   = ['bg4-1', 'bg4-2', 'bg4-3', 'bg4-4'];
@@ -395,7 +408,7 @@ keys.forEach((key, i) => {
 
 `1.05` scale headroom ensures the 18px drift never reveals the edge. Each layer drifts at a slightly different speed (3500ms offset per layer), creating a parallax depth illusion.
 
-**Changing background set:** replace the `keys` array with a different `bg{N}-*` set. All four layer alpha values and drift parameters are shared across sets.
+**Changing background set:** replace the `keys` array with a different `bg{N}-*` set. Alphas are tuned per set — the day/pink sets fade upper layers (`[1, 0.80, 0.55, 0.30]`); the bg1 night set keeps its layers near-solid (`[1, 1, 0.90, 0.85]`) because a dimmed moon just looks broken and the night must stay dark.
 
 ---
 

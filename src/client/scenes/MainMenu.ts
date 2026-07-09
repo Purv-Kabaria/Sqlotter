@@ -175,21 +175,23 @@ export class MainMenu extends Phaser.Scene {
     const pill = this.buildSparksPill(w - 8, titleH / 2, pillH, 12);
     els.push(pill.container);
 
-    // Settings gear mirrors the pill on the strip's left. Only for logged-in
-    // players — its lone setting (Splotter Flair) is meaningless to guests.
-    // The logo's 2×pillW cap already reserves this slot on both sides.
+    // Strip's left: the walkthrough "?" (always — it's how new players learn
+    // the game, see startWalkthrough), then the settings gear for logged-in
+    // players (its lone setting, Splotter Flair, is meaningless to guests).
+    els.push(this.buildIconButton(8 + pillH / 2, titleH / 2, pillH, 'icon-help',
+      () => this.startWalkthrough()).setDepth(12));
     if (this.userData?.username) {
-      els.push(this.buildIconButton(8 + pillH / 2, titleH / 2, pillH, 'icon-settings',
+      els.push(this.buildIconButton(8 + pillH + 8 + pillH / 2, titleH / 2, pillH, 'icon-settings',
         () => this.showSettingsPopup()).setDepth(12));
     }
 
-    // SQLOTTER logo centered in the gap the gear and pill actually leave —
-    // the old symmetric 2×pillW reservation shrank it to a ~34px speck on
-    // 280px-wide screens even though ~95px of real gap existed. Skipped
+    // SQLOTTER logo centered in the gap the corner buttons and pill actually
+    // leave — the old symmetric 2×pillW reservation shrank it to a ~34px speck
+    // on 280px-wide screens even though ~95px of real gap existed. Skipped
     // entirely when even that gap can't fit a legible wordmark.
     if (this.textures.exists('title')) {
-      const gearW = this.userData?.username ? pillH : 0;
-      const gapL = 8 + gearW + (gearW ? 10 : 0);
+      const gearW = pillH + (this.userData?.username ? 8 + pillH : 0);
+      const gapL = 8 + gearW + 10;
       const gapR = w - 8 - pill.width - 10;
       const logoW = Math.max(0, Math.min(w * 0.58, 260, gapR - gapL));
       if (logoW >= 72) {
@@ -273,12 +275,16 @@ export class MainMenu extends Phaser.Scene {
     const pill = this.buildSparksPill(w - 10, pillTop + pillH / 2, pillH, 12);
     els.push(pill.container);
 
-    // Settings gear beside the pill, same row (the logo starts below this row,
-    // so nothing else competes for the corner). Logged-in players only.
+    // Walkthrough "?" and (logged-in only) settings gear beside the pill, same
+    // row — the logo starts below this row, so nothing else competes for the corner.
+    let cornerX = w - pill.width - 10 - 8 - pillH / 2;
     if (this.userData?.username) {
-      els.push(this.buildIconButton(w - pill.width - 10 - 8 - pillH / 2, pillTop + pillH / 2, pillH,
+      els.push(this.buildIconButton(cornerX, pillTop + pillH / 2, pillH,
         'icon-settings', () => this.showSettingsPopup()).setDepth(12));
+      cornerX -= pillH + 8;
     }
+    els.push(this.buildIconButton(cornerX, pillTop + pillH / 2, pillH,
+      'icon-help', () => this.startWalkthrough()).setDepth(12));
 
     // SQLOTTER title — placed below the pill's row with guaranteed clearance.
     let logoBottom = pillTop + pillH;
@@ -326,12 +332,7 @@ export class MainMenu extends Phaser.Scene {
     x: number, y: number, size: number,
     els: Phaser.GameObjects.GameObject[],
   ) {
-    this.mascot = new SplotMascot(
-      this, x, y, size,
-      this.userData?.equippedItems ?? {},
-      undefined,
-      true, // home screen uses the CSS-style procedural shadow instead of the sprite
-    );
+    this.mascot = new SplotMascot(this, x, y, size, this.userData?.equippedItems ?? {});
     this.mascot.container.setDepth(5);
 
     this.mascot.container.setInteractive(
@@ -556,6 +557,13 @@ export class MainMenu extends Phaser.Scene {
     this.time.delayedCall(260, () => {
       this.scene.start(scene, data);
     });
+  }
+
+  // The "?" button: a guided walkthrough through the first three Splash
+  // Course lessons (paint → repaint → the stencil trick). The walkthrough
+  // flag makes the win screens chain the lessons and land back home.
+  private startWalkthrough() {
+    this.goToScene('Game', { levelId: 'w00-l01', walkthrough: true });
   }
 
   private buildStreakBadge(x: number, y: number, days: number): Phaser.GameObjects.Container {
