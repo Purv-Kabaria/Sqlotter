@@ -277,7 +277,7 @@ All five shipped (see `docs/reddit-engagement.md` for design rationale):
 
 | Feature | What it does |
 |---------|--------------|
-| **Splat Card** | One-tap, spoiler-safe result comment on the post you just played — moves, time, par delta, streak — with an optional image snapshot and player caption. The Wordle-grid loop, native to the comment section. |
+| **Splat Card** | One-tap brag comment on the post you just played — star meter, moves vs par, time, streak, an optional image snapshot and player caption. Kaomoji voice (`(⌐■‿■)` / `ヽ(・∀・)ノ` / `╮(ツ)╭` by star tier), never emojis, and it **never reveals the moves** — solutions stay secret. The Wordle loop, native to the comment section. |
 | **First Splat Crown** | The first-ever solver of a Sqlot can claim a one-time 👑 trophy comment (image card or text). Stored per level; claimed forever. |
 | **Splotter Flair** | Auto-synced subreddit flair showing streak 🔥 and lifetime-Sparks tier; opt-out per player. |
 | **Beat the Creator** | Every published community level is a public duel post: the creator's par is the challenge. |

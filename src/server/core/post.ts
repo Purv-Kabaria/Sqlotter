@@ -23,6 +23,17 @@ export function dailyPostTitle(level: LevelData, date: string): string {
   return cleanPostTitle(`Sqlot ${date}: ${level.title}`);
 }
 
+// Reddit-COMMENT voice: kaomoji, never emojis — same product rule as titles,
+// and the text-art fits the pixel-art game better than stock emoji anyway.
+// Every entry is markdown-safe: no `_` `\` `*` `^` `~`, which Reddit markdown
+// would eat mid-sentence (that rules out the classic shrug's exact spelling).
+export const KAOMOJI = {
+  flawless: '(⌐■‿■)',      // sunglasses — flawless flexes, certified drip
+  cheer:    'ヽ(・∀・)ノ',  // celebration
+  shrug:    '╮(ツ)╭',       // the got-there-eventually war story
+  fight:    '(ง•̀ω•́)ง',      // duel challenge
+} as const;
+
 export const createPost = async () => {
   return await reddit.submitCustomPost({
     subredditName: context.subredditName ?? '',

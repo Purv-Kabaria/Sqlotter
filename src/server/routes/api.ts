@@ -27,17 +27,14 @@ import type {
   LevelsListResponse,
   LevelResponse,
 } from '../../shared/api';
-import type { LevelData, ModifierDef, ModifierType, Stars } from '../../shared/types';
+import type { LevelData, ModifierDef, Stars } from '../../shared/types';
 import { generateDailyLevel, getCuratedLevels } from '../../shared/levelData';
-import {
-  isBreakableMask, maskIdOf, PAINT_COLORS_16, resolveActionDef, RESET_ACTION_ID,
-} from '../../shared/slimeSim';
 import { calcStars, isValidSolution, MAX_ATTEMPT_ACTIONS, MAX_SOLUTION_STEPS, verifyLevelIntegrity } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
 import { flairTierName, ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import { clearUserFlair, syncUserFlair } from '../core/flair';
 import { createDuelComment, recordDuelResult } from '../core/duel';
-import { cleanPostTitle } from '../core/post';
+import { cleanPostTitle, KAOMOJI } from '../core/post';
 import { isPostId } from '../core/tid';
 
 type Err = { status: 'error'; message: string };
@@ -467,113 +464,16 @@ const CARD_PNG_SIGNATURE = `${CARD_IMAGE_PREFIX}iVBORw0KGgo`;
 const CARD_IMAGE_MAX_CHARS = 1_500_000;
 
 // ── /api/share/card ───────────────────────────────────────────
-// One-tap "Splat Card": posts a spoiler-tagged result comment (with an
-// in-game rendered card image, when the client supplies one) on the post the
-// player is playing in. Strictly user-triggered (never automatic), once per
-// level per user plus a short cooldown, and always posted by the app account
-// crediting the player — never impersonating them.
-const MOD_EMOJI: Record<ModifierType, string> = {
-  paint: '🎨',
-  goggles: '🥽',
-  glasses: '👓',
-  belt: '🧷',
-  pendant: '📿',
-  pumpkin: '🎃',
-  underwear: '🩲',
-  plate: '🍽️',
-  cone: '🍦',
-  scarf: '🧣',
-  nose: '👃',
-  alpha: '🌫️',
-  bubble: '🫧',
-};
-
-const MOD_NAME: Record<Exclude<ModifierType, 'paint'>, string> = {
-  goggles: 'Goggles',
-  glasses: 'Glasses',
-  belt: 'Belt',
-  pendant: 'Pendant',
-  pumpkin: 'Pumpkin',
-  underwear: 'Undies',
-  plate: 'Plate',
-  cone: 'Cone',
-  scarf: 'Scarf',
-  nose: 'Nose',
-  alpha: 'Alpha dip',
-  bubble: 'Bubble',
-};
-
+// One-tap "Splat Card": posts a short brag comment (with an in-game rendered
+// card image, when the client supplies one) on the post the player is playing
+// in. Strictly user-triggered (never automatic), once per level per user plus
+// a short cooldown, and always posted by the app account crediting the player
+// — never impersonating them. The card NEVER prints the move list: solutions
+// stay secret (even behind a spoiler tag, a recipe kills the puzzle for
+// everyone who peeks) — the stats line is the whole tease.
 function formatCardTime(timeMs: number): string {
   const secs = Math.floor(timeMs / 1000);
   return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
-}
-
-// The level's paint rack as emoji squares — the card's feed-visible identity,
-// like Wordle's grid. Spoiler-safe: the rack is on the color picker for anyone
-// who opens the level (and may include decoys), so it reveals nothing about
-// the solution.
-const COLOR_SQUARE: Record<string, string> = {
-  '#FF4136': '🟥', '#FF851B': '🟧', '#FFDC00': '🟨',
-  '#2ECC40': '🟩', '#01FF70': '🟩', '#3D9970': '🟩',
-  '#39CCCC': '🟦', '#7FDBFF': '🟦', '#0074D9': '🟦', '#003AB4': '🟦',
-  '#B10DC9': '🟪', '#F012BE': '🟪', '#FF69B4': '🟪', '#85144B': '🟫',
-  '#AAAAAA': '⬜', '#111111': '⬛',
-};
-
-function paletteStrip(palette: readonly ModifierDef[]): string {
-  const squares = new Set<string>();
-  for (const mod of palette) {
-    if (mod.type !== 'paint') continue;
-    const square = COLOR_SQUARE[(mod.color ?? '').toUpperCase()];
-    if (square) squares.add(square);
-  }
-  return [...squares].join('');
-}
-
-function colorNameOf(hex: string | undefined): string {
-  const upper = (hex ?? '').toUpperCase();
-  return PAINT_COLORS_16.find((c) => c.hex === upper)?.name ?? (hex ?? 'White');
-}
-
-// The spelled-out recipe: every move by name, in order. Wear/remove state is
-// tracked so stencil taps read "on"/"off", and a splash that lands on goggles
-// gets the 💥 (they break and pop off without their own action).
-function describeMoves(palette: readonly ModifierDef[], actions: readonly string[]): string {
-  const worn = new Set<string>();
-  const parts: string[] = [];
-  for (const id of actions) {
-    if (id === RESET_ACTION_ID) {
-      worn.clear();
-      parts.push('🔄 Reset');
-      continue;
-    }
-    const mod = resolveActionDef(palette, id);
-    if (!mod) continue;
-    if (mod.type === 'paint') {
-      const burst = [...worn].some(isBreakableMask) ? ' 💥' : '';
-      for (const wornId of [...worn]) if (isBreakableMask(wornId)) worn.delete(wornId);
-      parts.push(`${MOD_EMOJI.paint} ${colorNameOf(mod.color)} splash${burst}`);
-      continue;
-    }
-    // The alpha dip and the bubble are one-shot splashes, not worn toggles.
-    // The alpha dip is a paint splash, so it also pops any worn goggles.
-    if (mod.type === 'alpha' || mod.type === 'bubble') {
-      const burst = mod.type === 'alpha' && [...worn].some(isBreakableMask) ? ' 💥' : '';
-      if (mod.type === 'alpha') for (const wornId of [...worn]) if (isBreakableMask(wornId)) worn.delete(wornId);
-      parts.push(`${MOD_EMOJI[mod.type]} ${MOD_NAME[mod.type]}${burst}`);
-      continue;
-    }
-    const maskId = maskIdOf(mod) ?? mod.id;
-    const name = mod.type === 'pumpkin' ? `Pumpkin ${mod.coverage ?? 50}%` : MOD_NAME[mod.type];
-    if (worn.has(maskId)) {
-      worn.delete(maskId);
-      parts.push(`${MOD_EMOJI[mod.type]} ${name} off`);
-    } else {
-      worn.add(maskId);
-      parts.push(`${MOD_EMOJI[mod.type]} ${name} on`);
-    }
-  }
-  return parts.join(' → ');
 }
 
 // User text onto Reddit markdown: keep it one line, strip the spoiler-tag
@@ -635,30 +535,27 @@ api.post('/share/card', async (c) => {
 
   const steps = actions.length;
   const stars = calcStars(steps, level.optimalSteps);
-  const recipe = describeMoves(level.palette, actions);
   const caption = sanitizeCardTitle(body.cardTitle);
 
   let streakLine = '';
   if (level.isDaily) {
     const streak = parseInt((await redis.hGet(`user:${username}`, 'daily:streak')) ?? '0', 10);
-    if (streak > 1) streakLine = ` · 🔥 ${streak}-day streak`;
+    if (streak > 1) streakLine = ` · ${streak}-day streak`;
   }
 
   // UGC titles are user text — keep them to a single markdown line.
   const safeTitle = level.title.replace(/[\r\n]+/g, ' ').trim();
   // Star-tiered voice: a flawless card reads like a flex, a scrappy one like
   // a war story. Identical cards are wallpaper, and wallpaper gets scrolled
-  // past instead of replied to.
+  // past instead of replied to. Kaomoji, never emojis (see KAOMOJI).
   const par = level.optimalSteps;
   const headline = stars === 3
-    ? `🏆 **FLAWLESS SPLAT: u/${username} painted “${safeTitle}” move-perfect!**`
+    ? `**FLAWLESS SPLAT ${KAOMOJI.flawless} u/${username} painted “${safeTitle}” move-perfect!**`
     : stars === 2
-      ? `🎯 **u/${username} splatted “${safeTitle}”!**`
-      : `🫠 **u/${username} wrestled “${safeTitle}” into submission!**`;
-  const strip = paletteStrip(level.palette);
+      ? `**u/${username} splatted “${safeTitle}”! ${KAOMOJI.cheer}**`
+      : `**u/${username} wrestled “${safeTitle}” into submission ${KAOMOJI.shrug}**`;
   const statsLine = [
-    ...(strip ? [strip] : []),
-    '⭐'.repeat(stars),
+    '★'.repeat(stars) + '☆'.repeat(3 - stars),
     `${steps}/${par} moves`,
     formatCardTime(timeMs),
   ].join(' · ') + streakLine;
@@ -667,9 +564,8 @@ api.post('/share/card', async (c) => {
     : `^(Splat Card: par is ${par}. Play this post and out-splat this card.)`;
   const text = [
     headline,
-    ...(caption ? [`💬 *“${caption}”*`] : []),
+    ...(caption ? [`*“${caption}”*`] : []),
     statsLine,
-    `Recipe: >!${recipe}!<`,
     footer,
   ].join('\n\n');
 
@@ -679,20 +575,17 @@ api.post('/share/card', async (c) => {
       try {
         const asset = await media.upload({ url: imageDataUrl, type: 'image' });
         // Same richtext document shape as /api/share/first-splat below, plus
-        // the caption/stats/footer lines the plain-text card also carries —
-        // the recipe stays wrapped in a real spoilertext node so the image
-        // path doesn't leak the solution any more than the text path does.
+        // the caption/stats/footer lines the plain-text card also carries.
+        // No recipe node — solutions stay secret on both paths.
         await reddit.submitComment({
           id: postId,
           richtext: {
             document: [
-              { e: 'img', mediaUrl: asset.mediaUrl, c: headline },
-              ...(caption ? [{ e: 'par', c: [{ e: 'text', t: `💬 “${caption}”` }] }] : []),
+              // Richtext nodes are plain text (no markdown pass) — strip the
+              // bold markers so the image caption doesn't show literal `**`.
+              { e: 'img', mediaUrl: asset.mediaUrl, c: headline.replace(/\*\*/g, '') },
+              ...(caption ? [{ e: 'par', c: [{ e: 'text', t: `“${caption}”` }] }] : []),
               { e: 'par', c: [{ e: 'text', t: statsLine }] },
-              { e: 'par', c: [
-                { e: 'text', t: 'Recipe: ' },
-                { e: 'spoilertext', c: [{ e: 'text', t: recipe }] },
-              ] },
               { e: 'par', c: [{ e: 'text', t: footer }] },
             ],
           },
@@ -777,7 +670,9 @@ api.post('/share/first-splat', async (c) => {
   const statsBit = fsSteps && fsTimeMs
     ? ` (${fsSteps} ${fsSteps === 1 ? 'move' : 'moves'}, ${formatCardTime(fsTimeMs)}, before anyone else on Reddit)`
     : '';
-  const headline = `👑 FIRST SPLAT! u/${username} drew first paint on "${safeTitle}"${statsBit}.`;
+  // ♛ is a text glyph (chess queen), not an emoji — the comment voice is
+  // kaomoji/text-art only.
+  const headline = `♛ FIRST SPLAT! u/${username} drew first paint on "${safeTitle}"${statsBit}.`;
   const footer = 'This crown is claimed forever, but the leaderboard isn\'t. Play this post and take the top spot.';
 
   try {
@@ -872,9 +767,9 @@ api.post('/share/fit', async (c) => {
   const lifetime = Math.max(parseInt(allFields['sparks:lifetime'] ?? '0', 10) || 0, 0);
   const tier = flairTierName(lifetime, allFields[`owned:${ROYAL_TIER_ITEM_ID}`] === '1');
   const statsBits = [tier, `${solved} ${solved === 1 ? 'level' : 'levels'} solved`];
-  if (streak > 1) statsBits.push(`🔥 ${streak}-day streak`);
+  if (streak > 1) statsBits.push(`${streak}-day streak`);
   const text = [
-    `📸 **u/${username}'s Splot walked in wearing:** ${describeFit(equipped)}`,
+    `**u/${username}'s Splot walked in wearing:** ${describeFit(equipped)} ${KAOMOJI.flawless}`,
     `^(${statsBits.join(' · ')}. Upvote the drip! Top fit takes 500 Sparks and the crown on Sunday.)`,
   ].join('\n\n');
 

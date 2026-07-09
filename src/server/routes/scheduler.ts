@@ -3,7 +3,7 @@ import { context, redis, reddit } from '@devvit/web/server';
 import type { TaskResponse } from '@devvit/web/server';
 import { generateDailyLevel } from '../../shared/levelData';
 import { syncUserFlair } from '../core/flair';
-import { dailyPostTitle } from '../core/post';
+import { dailyPostTitle, KAOMOJI } from '../core/post';
 import { isCommentId, isPostId } from '../core/tid';
 
 export const schedulerRoutes = new Hono();
@@ -155,7 +155,8 @@ schedulerRoutes.post('/fitcheck-award', async (c) => {
       try {
         await reddit.submitComment({
           id: winningCommentId,
-          text: `👑 **CROWNED!** u/${winner} takes Fit Check ${week}: +500 Sparks, the Fit crown flair, and a full week of drip supremacy. See you next Friday!`,
+          // ♛ is a text glyph, not an emoji — comment voice is kaomoji/text-art.
+          text: `♛ **CROWNED!** u/${winner} takes Fit Check ${week}: +500 Sparks, the Fit crown flair, and a full week of drip supremacy. See you next Friday! ${KAOMOJI.cheer}`,
         });
       } catch {
         // The Sparks and flair already landed; the shout-out is a bonus.

@@ -1,5 +1,6 @@
 import { redis, reddit } from '@devvit/web/server';
 import type { LevelData } from '../../shared/types';
+import { KAOMOJI } from './post';
 import { isCommentId, isPostId } from './tid';
 
 // Beat the Creator: every UGC level post carries one app-maintained duel
@@ -24,7 +25,7 @@ function duelCommentText(level: LevelData, stats: DuelStats): string {
   const moves = `${level.optimalSteps} ${level.optimalSteps === 1 ? 'move' : 'moves'}`;
   const author = level.authorName ? `u/${level.authorName}` : 'the creator';
   if (stats.attempts === 0) {
-    return `⚔️ **THE DUEL IS OPEN.** ${author} painted this slime in ${moves} and left it here as a dare. `
+    return `${KAOMOJI.fight} **THE DUEL IS OPEN.** ${author} painted this slime in ${moves} and left it here as a dare. `
       + 'Nobody has answered yet. Be the first challenger and put your name on this scoreboard. Splot believes in you.';
   }
   const parts = [
@@ -40,7 +41,7 @@ function duelCommentText(level: LevelData, stats: DuelStats): string {
   const rally = stats.matched === 0
     ? 'The record stands. Splot believes in you.'
     : 'Splot believes in you.';
-  return `⚔️ **The Duel so far:** ${parts.join(' · ')}. ${rally}`;
+  return `${KAOMOJI.fight} **The Duel so far:** ${parts.join(' · ')}. ${rally}`;
 }
 
 // Posts the initial duel scoreboard on a freshly created UGC level post.

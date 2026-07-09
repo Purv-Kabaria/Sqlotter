@@ -511,10 +511,14 @@ titles, menu button, in-game subtitle). Sqlot titles stay minimal:
 `Sqlot 2026-07-09: The Grumpy Goggle Job` (see `dailyPostTitle` in
 `src/server/core/post.ts`).
 
-**HARD RULE: NO post title ever contains an emoji** — not the game post, not
-duels, not Fit Check Friday. Every composed title that embeds user text goes
-through `cleanPostTitle` (src/server/core/post.ts), which strips pictographs.
-(Comment bodies — Splat Cards, duel scoreboards — may keep theirs.)
+**HARD RULE: NO post title or comment ever contains an emoji** — not the game
+post, not duels, not Fit Check Friday, not Splat Cards. Titles that embed user
+text go through `cleanPostTitle` (src/server/core/post.ts); comments speak in
+**kaomoji** instead (the `KAOMOJI` map next to it — all markdown-safe, no
+`_ \ * ^ ~`) plus plain text glyphs like ★ and ♛. Second comment rule: **a
+comment never prints a solution/move list** — not even spoiler-tagged; stats
+(stars, moves vs par, time, streak) are the only tease. User flair strings
+(shared/flair.ts) are the one surface that keeps its emojis.
 
 Declare in `devvit.json`:
 ```json

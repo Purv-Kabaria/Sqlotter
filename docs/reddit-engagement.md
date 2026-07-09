@@ -19,25 +19,29 @@ and Redis. No new permissions beyond what `devvit.json` already grants for posti
 
 ## 1. Splat Card — one-tap Wordle-style result comment ✅ IMPLEMENTED
 
-**The gimmick.** After a win, `LevelComplete` shows a "💬 Drop your Splat Card" button.
-One tap posts a compact, spoiler-safe result comment **on the post the player is already
-in** — the same viral loop that made Wordle's emoji grid a cultural artifact, but living
-natively in the comment section instead of being pasted there.
+**The gimmick.** After a win, `LevelComplete` shows a "Drop your Splat Card" button.
+One tap posts a short brag comment **on the post the player is already in** — the same
+viral loop that made Wordle's grid a cultural artifact, but living natively in the
+comment section instead of being pasted there.
 
 ```
-🏆 FLAWLESS SPLAT — u/splatfan painted “Goggle Band” move-perfect!
-💬 "one splash. one pair of goggles. no regrets."
-🟦🟥⬜ · ⭐⭐⭐ · 5/5 moves · 0:12 · 🔥 6-day streak
-Recipe: >!🎃 Pumpkin 25% on → 🎨 Green splash → 🥽 Goggles on → 🎨 Red splash 💥 → 🎃 Pumpkin 25% off!<
-^(Splat Card — that recipe can't be beaten, only matched. Play this post and prove you can.)
+FLAWLESS SPLAT (⌐■‿■) u/splatfan painted “Goggle Band” move-perfect!
+"one splash. one pair of goggles. no regrets."
+★★★ · 5/5 moves · 0:12 · 6-day streak
+^(Splat Card: that recipe can't be beaten, only matched. Play this post and prove you can.)
 ```
 
-The card's voice is star-tiered (🏆 FLAWLESS on par, 🎯 for a clean solve, 🫠 for a
-scrappy one — identical cards are wallpaper), the color-square strip is the level's
-paint rack (feed-visible identity, Wordle-grid style, spoiler-safe since the rack is
-on the picker anyway), and the full move-by-move recipe is wrapped in Reddit spoiler
-markdown `>!…!<`, so it teases the solution without ruining it — reading someone
-else's recipe is itself a puzzle ("pumpkin *before* the second paint? oh no. OH.").
+Two hard voice rules (see `KAOMOJI` in `src/server/core/post.ts`):
+
+1. **Kaomoji, never emojis** — same rule as post titles. The card's voice is
+   star-tiered so identical cards aren't wallpaper: `(⌐■‿■)` FLAWLESS on par,
+   `ヽ(・∀・)ノ` for a clean solve, `╮(ツ)╭` for a scrappy one. Every kaomoji is
+   markdown-safe (no `_` `\` `*` `^` `~`), which is why the classic shrug's exact
+   spelling isn't used.
+2. **The card never prints the move list.** Even behind a spoiler tag, a recipe
+   kills the puzzle for everyone who peeks — the stats line (stars, moves vs par,
+   time, streak) is the whole tease. Solutions stay secret, period.
+
 Players can prepend their own 60-char caption line.
 
 **Why it works on Reddit.** Comments are the scoreboard. Every card is social proof that
@@ -151,10 +155,10 @@ will not want to break — retention mechanics disguised as vanity.
 
 **The gimmick.** Reframe every user-created level from "here's my level" into a
 challenge with a scoreboard. The auto-generated post title becomes
-**"⚔️ u/maker built this slime in 4 moves — beat that."**, and the app maintains one
+**"u/maker built this slime in 4 moves. Beat that."**, and the app maintains one
 pinned comment on the post:
 
-> ⚔️ **The Duel so far:** 38 challengers · 12 matched u/maker's 4 moves · fastest
+> (ง•̀ω•́)ง **The Duel so far:** 38 challengers · 12 matched u/maker's 4 moves · fastest
 > splat: u/quickdraw (0:09). Splot believes in you.
 
 While nobody has matched the creator, the comment bolds the tension instead
@@ -190,12 +194,11 @@ the "Best Use of User Contributions" prize.
 
 **The gimmick.** The Shop already lets players dress Splot (colors, eyes, brows, hats,
 crowns) — but only the owner ever sees it. Every Friday the scheduler posts a **Fit
-Check** thread, and a "📸 Show off my Splot" button (in the Shop / main menu) posts the
-player's current fit as a comment — Splot rendered in emoji-adjacent text plus the
-loadout, e.g.:
+Check** thread, and a "Show off my Splot" button (in the Shop / main menu) posts the
+player's current fit as a comment, e.g.:
 
-> 📸 **u/fitfan's Splot walked in wearing:** Rainbow body · Cute Eyes · Kiss Mouth · Party Hat
-> *(Mega-Blob · 347 levels solved · 🔥 12-day streak — upvote the drip.)*
+> **u/fitfan's Splot walked in wearing:** Rainbow body · Cute Eyes · Kiss Mouth · Party Hat (⌐■‿■)
+> *(Mega-Blob · 347 levels solved · 12-day streak — upvote the drip.)*
 
 The stats footer leads with the player's flair tier — the fit thread is where the
 Sparks economy gets to be socially visible.
@@ -253,10 +256,10 @@ guards), and behind a player-visible action or a milestone — the app should fe
 hype-man in the thread, never a spam bot.
 
 **Post titles** (`src/server/core/post.ts`): titles are the only surface non-players
-ever see in their feed, so none of them are announcements. The pinned game post dares
-("Sqlotter 🎨 — paint the slime. Mind the goggles. Beat the par."), dailies tease the
-day's difficulty with par in the title ("🎨 Daily Splat 2026-07-04 — a devious one,
-par 7. First solver takes the crown 👑" — weekday tier → flavor ladder), and UGC posts
-open the duel ("⚔️ u/maker built “…” in 4 moves — beat that."). The First Splat crown
+ever see in their feed, so none of them are announcements — and **no title or comment
+ever carries an emoji** (kaomoji/text glyphs only; `cleanPostTitle` scrubs user text).
+The pinned game post dares ("Sqlotter — paint the slime, mind the goggles, beat the
+par"), dailies stay minimal ("Sqlot 2026-07-09: The Grumpy Goggle Job"), and UGC posts
+open the duel ("u/maker built “…” in 4 moves. Beat that."). The First Splat crown
 comment likewise cites the verified first-solve stats ("5 moves, 0:42, before anyone
 else on Reddit") from `level:first-stats`, written by `/api/complete`.
