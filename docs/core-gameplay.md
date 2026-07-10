@@ -84,18 +84,22 @@ Each action id resolves against the level palette **plus the standard catalog**
 | `bubble` | exposed cells inside the bubble's inner circle → dipped; reusable, no splash side effects | 1 |
 | stencil def, not worn | put it on (protects its cells from now on) | 1 |
 | stencil def, worn | take it off | 1 |
+| pumpkin def, another size worn | swap: the new size replaces the worn one in place | 1 |
 | nose tap | wear it small / take it off at whatever size it grew to | 1 |
 | `__reset__` | clear everything (grid, worn, broken, spent) — logged, clock keeps running | 1 |
-| refused tap | broken goggles, spent dip, or a wear the stacking rules forbid — not logged, replays containing one are invalid | 0 |
+| refused tap | broken goggles, spent dip, or a wear past the 3-stencil limit — not logged, replays containing one are invalid | 0 |
 
 **Splash side effects** (color paint and alpha dip, not the bubble): every worn pair
 of goggles snaps off into `broken`, and a worn nose grows one size (a splash on big
 knocks it off, re-wearable small).
 
 **Wear-stacking rules** (`MAX_WORN` in `slimeSim.ts`): Splot wears at most **3
-stencils at once**, and a pumpkin never goes on top of another pumpkin — it's a
-full head-cover, one at a time; swap sizes instead. A wear that would break either
-rule is refused exactly like broken goggles (state untouched, nothing logged); the
+stencils at once**. Pumpkins are full head-covers, so only one fits — tapping a
+different size while one is worn **swaps it in place as a single action** (the
+`'swap'` ActionKind; worn count unchanged, so the limit can never refuse it, and
+the Game scene teaches it in the moment: the picker title flips to "Tap a size to
+swap" and the first swap gets an info popup). A wear that would exceed the limit
+is refused exactly like broken goggles (state untouched, nothing logged); the
 Game scene answers with a cross icon popping above the refused palette tile and a
 message saying why. Within those limits there are no other conflicts or use
 counts. The puzzle is ordering plus outfit economy: which (at most three) stencils

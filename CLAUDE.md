@@ -204,10 +204,12 @@ type SimState = {
   (nothing logged; replays containing one are invalid). Reset (`__reset__`) is
   itself a logged, step-costing action that clears grid/worn/broken/spent
 - Wear-stacking rules (`MAX_WORN` in slimeSim.ts): at most **3 stencils worn at
-  once**, and never a pumpkin over a pumpkin (one head-cover at a time — swap
-  sizes instead). A wear that would break either rule is REFUSED like broken
-  goggles: state untouched, nothing logged, and the Game scene pops a cross
-  icon above the refused palette tile plus a message saying why
+  once**. Pumpkins are full head-covers — only one fits, and tapping a
+  DIFFERENT size while one is worn **swaps it in place as a single action**
+  ('swap' ActionKind, worn count unchanged, so the limit can't refuse it). A
+  wear that would exceed `MAX_WORN` is REFUSED like broken goggles: state
+  untouched, nothing logged, and the Game scene pops a cross icon above the
+  refused palette tile plus a message saying why
 - Action ids resolve against the palette PLUS the standard catalog
   (`resolveActionDef`): the 16 paints (`PAINT_COLORS_16`) and the 3 pumpkin sizes are
   always available — the color picker always offers the full 16-color rack, the

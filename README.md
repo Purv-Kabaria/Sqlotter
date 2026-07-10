@@ -156,17 +156,18 @@ Magenta, Pink, Maroon, Olive, Gray, Black. A level's palette lists which pots it
 | Glasses | h-thick, h-thin, v-thick, v-thin | 16–24% eye band | splash-proof twins of the goggles — and great decoys |
 | Belt | h-thick, h-thin, v-thick, v-thin | 15–34% middle band/column | |
 | Pendant | h, v | ~19% chest charm | |
-| Pumpkin | 25, 50, 75 | ~17% / ~48% / ~92% from the top down | all three sizes always available; **one pumpkin at a time** — swap sizes, never stack |
+| Pumpkin | 25, 50, 75 | ~17% / ~48% / ~92% from the top down | all three sizes always available; **one pumpkin at a time** — tapping another size swaps it in a single move |
 | Underwear | — | ~27% hips | |
 | Plate | — | large dish shape | |
 | Cone | — | rainbow snow-cone shape | |
 | Scarf | left / right | wrap-around band | one coverage mask; the variant mirrors the art and the palette tile's arrow shows the direction |
 
-**Wear-stacking rules** (`MAX_WORN`): Splot wears at most **3 stencils at once**,
-and never a pumpkin over a pumpkin. A forbidden wear is refused — nothing is
-logged, no step is spent, and a cross icon pops above the refused palette tile.
-Within those limits any combination can be worn simultaneously. The puzzle is
-ordering plus the outfit and goggle economy.
+**Wear-stacking rules** (`MAX_WORN`): Splot wears at most **3 stencils at once**.
+Pumpkins are full head-covers — only one fits, and tapping a different size while
+one is worn swaps it in place as a single move. A wear past the 3-stencil limit
+is refused — nothing is logged, no step is spent, and a cross icon pops above the
+refused palette tile. Within those limits any combination can be worn
+simultaneously. The puzzle is ordering plus the outfit and goggle economy.
 
 ### Specials
 
@@ -189,8 +190,9 @@ wipes level progress when it changes.
 
 - **World 0 — Splash Course**: 16 hand-authored tutorial lessons whose solutions
   collectively exercise **all 26 modifiers plus paint**. Highlights: Stripe Trick
-  (stencils protect), Goggle Band (goggles break), Pumpkin Parfait (swap sizes —
-  no stacking), Bubble Trouble, Big Shapes (plate/cone/scarf), and the finale
+  (stencils protect), Goggle Band (goggles break), Pumpkin Parfait (one pumpkin
+  at a time — tap another size to swap), Bubble Trouble, Big Shapes
+  (plate/cone/scarf), and the finale
   Goggle Pileup — a full three-goggle outfit snapped off by one black splash,
   with two decoy goggles teaching the 3-at-once limit. The home page's "?"
   button runs the first three lessons as a guided walkthrough.

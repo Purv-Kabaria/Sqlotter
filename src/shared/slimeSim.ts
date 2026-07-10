@@ -119,21 +119,22 @@ export function isBreakableMask(maskId: string): boolean {
 }
 
 // ── Wear-stacking rules ─────────────────────────────────────────────────────
-// Splot is small: at most MAX_WORN stencils fit on him at once, and a pumpkin
-// never goes on top of another pumpkin (it's a full head-cover — one at a
-// time; swap sizes instead). A wear that would break either rule is REFUSED
-// exactly like a tap on broken goggles: state untouched, nothing logged, the
-// 'broken' ActionKind returned — so replays containing one are invalid.
+// Splot is small: at most MAX_WORN stencils fit on him at once. Pumpkins are
+// full head-covers, so only one fits — tapping a different size while one is
+// worn SWAPS it in place as a single action ('swap' kind, worn count
+// unchanged, so MAX_WORN can never refuse it). A wear that would exceed
+// MAX_WORN is REFUSED exactly like a tap on broken goggles: state untouched,
+// nothing logged, the 'broken' ActionKind returned — so replays containing
+// one are invalid.
 export const MAX_WORN = 3;
 
 function isPumpkinMaskId(id: string): boolean {
   return id.startsWith('pumpkin-');
 }
 
-/** True when wearing `maskId` now would violate the stacking rules. */
-function wearRefused(state: SimState, maskId: string): boolean {
-  if (state.worn.length >= MAX_WORN) return true;
-  return isPumpkinMaskId(maskId) && state.worn.some(isPumpkinMaskId);
+/** True when wearing one MORE stencil now would exceed the wear limit. */
+function wearRefused(state: SimState): boolean {
+  return state.worn.length >= MAX_WORN;
 }
 
 // Environment-free base64 decoder (no atob on the server, no Buffer types on
@@ -229,10 +230,11 @@ export type SimState = {
   spent: string[];
 };
 
+// 'swap' = a pumpkin size change in one action (see wear-stacking rules).
 // 'broken' = a refused tap (broken goggles, or an already-spent one-shot like
 // the alpha dip); the state is untouched and the tap must NOT be logged as an
 // action (replays reject sequences containing one).
-export type ActionKind = 'paint' | 'wear' | 'remove' | 'reset' | 'broken';
+export type ActionKind = 'paint' | 'wear' | 'swap' | 'remove' | 'reset' | 'broken';
 
 // Reset is part of the action log (it must be — the server replays the log to
 // verify wins, and moves made before a reset still count toward the total).
@@ -344,7 +346,7 @@ export function applySimAction(state: SimState, mod: ModifierDef, ops?: PaintOp[
     case 'nose': {
       const at = state.worn.findIndex(isNoseMaskId);
       if (at >= 0) { state.worn.splice(at, 1); return 'remove'; } // take it off (re-wearable small)
-      if (wearRefused(state, 'nose-small')) return 'broken';
+      if (wearRefused(state)) return 'broken';
       state.worn.push('nose-small');
       return 'wear';
     }
@@ -354,7 +356,13 @@ export function applySimAction(state: SimState, mod: ModifierDef, ops?: PaintOp[
       const at = state.worn.indexOf(maskId);
       if (at >= 0) { state.worn.splice(at, 1); return 'remove'; }
       if (state.broken.includes(maskId)) return 'broken';
-      if (wearRefused(state, maskId)) return 'broken';
+      // One head-cover at a time: a different pumpkin size swaps in place —
+      // a single action that keeps the worn count (and wear order) unchanged.
+      if (isPumpkinMaskId(maskId)) {
+        const p = state.worn.findIndex(isPumpkinMaskId);
+        if (p >= 0) { state.worn[p] = maskId; return 'swap'; }
+      }
+      if (wearRefused(state)) return 'broken';
       state.worn.push(maskId);
       return 'wear';
     }

@@ -18,6 +18,10 @@ import { BASE_COLOR, MAX_WORN, standardPaints, standardPumpkins } from '../../sh
 // replaying a lesson or resetting it doesn't re-interrupt the player.
 const tutorialShownThisSession = new Set<string>();
 
+// The pumpkin swap explainer also shows once per page load — the first swap
+// teaches the mechanic; every later one is self-evident from the slime.
+let pumpkinSwapExplained = false;
+
 const PIXELIFY = BODY_FONT;
 
 // ── Colour constants ───────────────────────────────────────────────────────
@@ -735,7 +739,7 @@ export class Game extends Phaser.Scene {
     // Popup card + title — the same beige-shell look as the menu popups
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, Math.max(popH, 66), false).container);
     items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pick a Color', {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.DARK_BROWN,
+      fontFamily: PIXELIFY, fontSize: '15px', fontStyle: 'bold', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -812,8 +816,11 @@ export class Game extends Phaser.Scene {
     overlay.on('pointerup', () => this.closeActivePopup());
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, popH, false).container);
-    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pumpkin size', {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: C.DARK_BROWN,
+    // With a pumpkin already on, the title teaches the mechanic at the moment
+    // it matters: tapping any other size swaps it in one move.
+    const anyPumpkinWorn = (this.engine?.wornMaskIds ?? []).some((id) => id.startsWith('pumpkin-'));
+    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, anyPumpkinWorn ? 'Tap a size to swap' : 'Pumpkin size', {
+      fontFamily: PIXELIFY, fontSize: '15px', fontStyle: 'bold', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -838,7 +845,9 @@ export class Game extends Phaser.Scene {
       // Pumpkin above the border — worn stencils sit ON the slime (same
       // layering as SlimeRenderer), so the outline must not cut across it.
       const pum = this.add.image(0, -slotSz * 0.08, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
-      const lbl = this.add.text(0, slotSz * 0.30, worn ? `${cov}% ON` : `${cov}%`, {
+      // Worn size reads ON; while one is on, the other sizes read SWAP — the
+      // pumpkin rule (one at a time, tap to trade) is visible right on the tiles.
+      const lbl = this.add.text(0, slotSz * 0.30, worn ? `${cov}% ON` : anyPumpkinWorn ? `${cov}% SWAP` : `${cov}%`, {
         // #1E3D08, not the lighter #2E5C0A — this sits on the beige button
         // shell, where the lighter green was too close to it to read.
         fontFamily: PIXEL_FONT, fontSize: '8px', color: worn ? '#1E3D08' : C.DARK_BROWN,
@@ -876,14 +885,18 @@ export class Game extends Phaser.Scene {
     // is body copy the player actually reads, so it uses Pixelify (rounder, far
     // more legible at size) rather than the blocky display face — the card height
     // is derived from txt.height below, so the taller lines fit automatically.
-    const txt = this.add.text(0, 0, text, {
-      fontFamily: PIXELIFY, fontSize: '12px', color: C.DARK_BROWN,
-      align: 'center', lineSpacing: 4,
-      wordWrap: { width: popW - 36 },
-    }).setOrigin(0.5, 0);
-
     const splotSz = 62;
     const btnH = 44;
+    const txt = this.add.text(0, 0, text, {
+      fontFamily: PIXELIFY, fontSize: '15px', color: C.DARK_BROWN,
+      align: 'center', lineSpacing: 6,
+      wordWrap: { width: popW - 36 },
+    }).setOrigin(0.5, 0);
+    // Short landscape viewports: step the body down before the card clips.
+    if (20 + splotSz + 14 + txt.height + 16 + btnH + 16 > height - 12) {
+      txt.setFontSize(13);
+      txt.setLineSpacing(4);
+    }
     const popH = 20 + splotSz + 14 + txt.height + 16 + btnH + 16;
     const cx = width / 2;
     const cy = height / 2;
@@ -925,22 +938,28 @@ export class Game extends Phaser.Scene {
     });
   }
 
-  // ── Conflict popup ─────────────────────────────────────────────────────────
-  private showConflictPopup(message: string) {
+  // ── Conflict / info popup ──────────────────────────────────────────────────
+  // Transient message strip above the palette: refusals and snap-offs ('warn'),
+  // hints and mechanic explainers ('info'). Body copy, so it speaks Pixelify at
+  // a readable size — the panel grows to fit the wrapped text, and the hold
+  // time scales with message length so long hints can actually be read.
+  private showConflictPopup(message: string, tone: 'warn' | 'info' = 'warn') {
     this.conflictPopup?.destroy(true);
     const { width, height } = this.scale;
     const isPortrait = height > width;
     const popY = isPortrait ? height * 0.82 : height * 0.88;
-    const popW = Math.min(width - 24, 320);
-    const bg   = addDarkPanel(this, width / 2, popY, popW, 44);
-    const icon = this.add.image(width / 2 - popW / 2 + 22, popY, 'icon-warning').setDisplaySize(18, 18);
-    const txt  = this.add.text(width / 2 - popW / 2 + 38, popY, message, {
-      fontFamily: PIXEL_FONT, fontSize: '7px', color: '#FFB3B3',
-      wordWrap: { width: popW - 52 },
+    const popW = Math.min(width - 24, 340);
+    const txt  = this.add.text(width / 2 - popW / 2 + 40, popY, message, {
+      fontFamily: PIXELIFY, fontSize: '13px', color: tone === 'warn' ? '#FFB9B9' : '#F0E2C0',
+      wordWrap: { width: popW - 56 }, lineSpacing: 3,
     }).setOrigin(0, 0.5);
+    const popH = Math.max(46, Math.ceil(txt.height) + 20);
+    const bg   = addDarkPanel(this, width / 2, popY, popW, popH);
+    const icon = this.add.image(width / 2 - popW / 2 + 23, popY, tone === 'warn' ? 'icon-warning' : 'icon-help')
+      .setDisplaySize(19, 19);
     this.conflictPopup = this.add.container(0, 0, [bg, icon, txt]).setDepth(40).setAlpha(0);
     this.tweens.add({ targets: this.conflictPopup, alpha: 1, duration: 150 });
-    this.time.delayedCall(2200, () => {
+    this.time.delayedCall(Math.min(4500, 1800 + message.length * 28), () => {
       this.tweens.add({ targets: this.conflictPopup, alpha: 0, duration: 200,
         onComplete: () => this.conflictPopup?.destroy(true) });
     });
@@ -953,8 +972,8 @@ export class Game extends Phaser.Scene {
     const bg   = addDarkPanel(this, 0, 0, panelW, 160).setDepth(80);
     const icon = this.add.image(0, -48, 'icon-warning').setDisplaySize(32, 32).setDepth(81);
     const txt  = this.add.text(0, -10, message, {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: '#ffb3b3',
-      align: 'center', wordWrap: { width: panelW - 36 },
+      fontFamily: PIXELIFY, fontSize: '14px', color: '#FFB9B9',
+      align: 'center', wordWrap: { width: panelW - 36 }, lineSpacing: 3,
     }).setOrigin(0.5).setDepth(81);
     const btn  = addBeigeButton(this, {
       x: 0, y: 59, width: 148, height: 44, label: buttonLabel,
@@ -979,14 +998,13 @@ export class Game extends Phaser.Scene {
     // A refused tap (broken goggles / a spent one-shot / a wear the stacking
     // rules forbid) logs nothing and spends no step. The message says WHY and
     // the cross badge above the tapped tile says WHICH tool was refused.
+    // (A different pumpkin size is never refused — it swaps, see below.)
     if (result.kind === 'broken') {
       let msg: string;
       if (mod.type === 'alpha') {
         msg = 'The alpha dip is used up. One dip per level!';
       } else if (this.engine.isBroken(mod)) {
         msg = 'Those goggles are broken. One splash was all they had!';
-      } else if (mod.type === 'pumpkin' && this.engine.wornMaskIds.some((id) => id.startsWith('pumpkin-'))) {
-        msg = 'No pumpkins on pumpkins! Take the worn one off first.';
       } else {
         msg = `Splot can only wear ${MAX_WORN} things at once. Take something off!`;
       }
@@ -1008,6 +1026,14 @@ export class Game extends Phaser.Scene {
         this.playGoggleDropAnim(result.broke);
         this.showConflictPopup('The goggles snapped off. Goggles break after one splash!');
         this.splot?.setExpression('shocked', 1200);
+      }
+    } else if (result.kind === 'swap') {
+      // One head-cover at a time: the new size replaced the worn one in a
+      // single move. Say so the first time — after that the visual carries it.
+      this.splot?.setExpression('excited', 900);
+      if (!pumpkinSwapExplained) {
+        pumpkinSwapExplained = true;
+        this.showConflictPopup('Pumpkin swapped! One fits at a time — tapping another size swaps it in one move.', 'info');
       }
     } else {
       this.splot?.setExpression(result.kind === 'wear' ? 'doubt' : 'excited', 900);
@@ -1166,7 +1192,7 @@ export class Game extends Phaser.Scene {
   }
 
   private showHint() {
-    if (this.level?.hint) this.showConflictPopup(this.level.hint);
+    if (this.level?.hint) this.showConflictPopup(this.level.hint, 'info');
   }
 
   // Reset wipes the slime back to white but the RUN continues: moves made are

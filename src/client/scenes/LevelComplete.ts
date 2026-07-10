@@ -292,28 +292,32 @@ export class LevelComplete extends Phaser.Scene {
     const nextId = this.getNextLevelId(levelId);
     const hasNext = nextId !== null;
 
+    // Row order: Levels (back out) on the LEFT, Ranks center, and the
+    // forward action — Next / Ready! / All Done! — on the RIGHT, where a
+    // "continue" button is expected to live.
+    this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
+      this.goToScene('LevelSelect');
+    });
+    this.buildBtn(navCx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
+      this.goToScene('Leaderboard', { levelId });
+    });
+
     // Walkthrough chain: lessons 1-2 lead into the next lesson (still in
     // walkthrough mode); finishing the last one graduates back home.
     const walkDone = data?.walkthrough === true && (levelId === WALKTHROUGH_LAST_LEVEL || !hasNext);
     if (data?.walkthrough === true && !walkDone) {
-      this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Next', 'icon-arrow', () => {
+      this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Next', 'icon-arrow', () => {
         this.goToScene('Game', { levelId: nextId, walkthrough: true });
       });
     } else if (walkDone) {
-      this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Ready!', 'icon-home', () => {
+      this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Ready!', 'icon-home', () => {
         this.goToScene('MainMenu');
       });
     } else {
-      this.buildBtn(navCx - btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
+      this.buildBtn(navCx + btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
         this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
       });
     }
-    this.buildBtn(navCx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
-      this.goToScene('Leaderboard', { levelId });
-    });
-    this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
-      this.goToScene('LevelSelect');
-    });
 
     // First Splat Crown — the server says this player holds the level's
     // first-solve record and the crown comment hasn't been posted yet. Let

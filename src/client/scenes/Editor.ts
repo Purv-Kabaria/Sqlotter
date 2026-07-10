@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import type { ModifierDef } from '../../shared/types';
-import { isBreakableMask, replayOps, standardPaints } from '../../shared/slimeSim';
+import { isBreakableMask, MAX_WORN, replayOps, standardPaints } from '../../shared/slimeSim';
 import { MAX_SOLUTION_STEPS } from '../../shared/gameRules';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
@@ -668,7 +668,7 @@ export class Editor extends Phaser.Scene {
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, Math.max(popH, 66), false).container);
     items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 6, 'Pick a color', {
-      fontFamily: PIXEL_FONT, fontSize: `${Math.round(10 * t)}px`, color: C.DARK_BROWN,
+      fontFamily: PIXELIFY, fontSize: `${Math.round(15 * t)}px`, fontStyle: 'bold', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -719,8 +719,11 @@ export class Editor extends Phaser.Scene {
     overlay.on('pointerup', () => this.closeActivePopup());
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, popH, false).container);
-    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, 'Pumpkin size', {
-      fontFamily: PIXEL_FONT, fontSize: `${Math.round(10 * t)}px`, color: C.DARK_BROWN,
+    // Same in-the-moment teaching as the Game picker: with a pumpkin on, the
+    // title says the tap swaps rather than stacks.
+    const anyPumpkinWorn = worn.some((id) => id.startsWith('pumpkin-'));
+    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, anyPumpkinWorn ? 'Tap a size to swap' : 'Pumpkin size', {
+      fontFamily: PIXELIFY, fontSize: `${Math.round(15 * t)}px`, fontStyle: 'bold', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
 
@@ -745,7 +748,7 @@ export class Editor extends Phaser.Scene {
       const brd = this.add.image(0, -slotSz * 0.08, 'slime-border').setDisplaySize(slimeSz, slimeSz);
       // Pumpkin above the border — worn stencils sit ON the slime.
       const pum = this.add.image(0, -slotSz * 0.08, `mod-pumpkin-${cov}`).setDisplaySize(slimeSz, slimeSz);
-      const lbl = this.add.text(0, slotSz * 0.30, isWorn ? `${cov}% ON` : `${cov}%`, {
+      const lbl = this.add.text(0, slotSz * 0.30, isWorn ? `${cov}% ON` : anyPumpkinWorn ? `${cov}% SWAP` : `${cov}%`, {
         // #1E3D08, not the lighter #2E5C0A — this sits on the beige button
         // shell, where the lighter green was too close to it to read.
         fontFamily: PIXEL_FONT, fontSize: `${Math.round(9 * t)}px`, color: isWorn ? '#1E3D08' : C.DARK_BROWN,
@@ -845,6 +848,20 @@ export class Editor extends Phaser.Scene {
     const brokeGoggles = before.worn.some(isBreakableMask);
     const noseWorn = before.worn.some((id) => id.startsWith('nose-'));
     const wasWorn = before.worn.includes(mod.id);
+    // Wear rules, same as in play — a recording must replay strictly at
+    // publish, so a tap the sim would refuse must not be recorded either.
+    // A different pumpkin size is a SWAP (one action, worn count unchanged);
+    // only a wear that would push Splot past MAX_WORN is refused.
+    const isPumpkinSwap = mod.type === 'pumpkin' && !wasWorn
+      && before.worn.some((id) => id.startsWith('pumpkin-'));
+    const wearsNewSlot = mod.type === 'nose'
+      ? !noseWorn
+      : mod.type !== 'paint' && mod.type !== 'alpha' && mod.type !== 'bubble'
+        && !wasWorn && !isPumpkinSwap;
+    if (wearsNewSlot && before.worn.length >= MAX_WORN) {
+      this.showFeedback(`Splot can only wear ${MAX_WORN} things at once. Take something off!`, true);
+      return;
+    }
     this.actions.push(mod.id);
     this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.goalRenderer?.playApplyAnim(this);
@@ -860,6 +877,8 @@ export class Editor extends Phaser.Scene {
       this.showFeedback(noseWorn ? 'Nose off.' : 'Nose on (small). Each paint grows it; big + a splash pops it off!', false);
     } else if (mod.type === 'goggles' && !wasWorn) {
       this.showFeedback(`${modLabel(mod)} on. Breaks off after one splash!`, false);
+    } else if (isPumpkinSwap) {
+      this.showFeedback(`Swapped to ${modLabel(mod)} — one pumpkin at a time.`, false);
     } else {
       this.showFeedback(
         wasWorn ? `${modLabel(mod)} off.` : `${modLabel(mod)} on, protects what it covers.`,

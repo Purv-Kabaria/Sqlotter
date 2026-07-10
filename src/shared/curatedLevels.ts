@@ -19,7 +19,7 @@ import {
 // Bump when the level set changes incompatibly — the app-upgrade trigger wipes
 // level progress (completions/stars/streaks/level leaderboards) on a mismatch
 // so nobody keeps stars for levels that no longer exist.
-export const LEVELS_VERSION = '8-wear-limit';
+export const LEVELS_VERSION = '9-pumpkin-swap';
 
 export const LEVELS_PER_WORLD = 16; // max per world (grid capacity)
 
@@ -158,8 +158,9 @@ export function buildGeneratedLevel(
       MAX_WORN,
     );
     let masks = pickDistinct(rng, cfg.maskPool, maskCount);
-    // One pumpkin per outfit — the sim refuses a pumpkin over a pumpkin, so a
-    // draw with two would build a solution that can't replay. Keep the first.
+    // One pumpkin per outfit — wearing a second size SWAPS in the sim rather
+    // than stacking, so a draw with two would build wear/remove pairs that
+    // replay as swaps and paint a different pattern. Keep the first.
     const pumpkinAt = masks.findIndex((m) => m.startsWith('pumpkin-'));
     masks = masks.filter((m, i) => i === pumpkinAt || !m.startsWith('pumpkin-'));
     // With the stencil count clamped by the wear rules, surplus paints would
@@ -343,12 +344,12 @@ const TUTORIAL_LEVELS: LevelData[] = [
       { id: 'paint-green', type: 'paint', color: '#2ECC40' },
       { id: 'paint-orange', type: 'paint', color: '#FF851B' },
     ],
-    optimalSteps: 6,
+    optimalSteps: 5,
     optimalSolution: [
-      'pumpkin-50', 'paint-green', 'pumpkin-50', 'pumpkin-75', 'paint-orange', 'pumpkin-75',
+      'pumpkin-50', 'paint-green', 'pumpkin-75', 'paint-orange', 'pumpkin-75',
     ],
-    hint: 'Half-pumpkin for the green, then swap to the big one for the orange.',
-    tutorial: 'Pumpkins cover Splot from the TOP down — 25%, 50% or 75%. Covered means protected, but only ONE pumpkin fits at a time (no pumpkins on pumpkins!). Half-pumpkin on, splash green, then SWAP it for the 75% pumpkin before the orange.',
+    hint: 'Half-pumpkin for the green, then tap the 75% to swap before the orange.',
+    tutorial: 'Pumpkins cover Splot from the TOP down — 25%, 50% or 75%. Covered means protected, but only ONE fits at a time: tapping another size SWAPS it in a single move. Half-pumpkin on, splash green, swap to the 75%, splash orange, then lift it off.',
   },
   {
     id: 'w00-l07', title: 'Double Stencil', difficulty: 3,
