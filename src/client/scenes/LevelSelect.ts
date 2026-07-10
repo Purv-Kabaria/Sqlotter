@@ -17,7 +17,7 @@ let communityCache: CommunityLevelSummary[] | null = null;
 
 // The grid reserves layout space for a full world (see buildPage's grid geometry):
 // 8 rows × 2 cols portrait, 4 rows × 4 cols desktop. Worlds may hold fewer
-// levels than the cap (the tutorial world has 8) — the grid just leaves the
+// levels than the cap (the tutorial world has 5) — the grid just leaves the
 // remaining cells empty.
 const WORLD_CAPACITY = LEVELS_PER_WORLD;
 
@@ -68,6 +68,9 @@ export class LevelSelect extends Phaser.Scene {
   // Set when MainMenu's Find button opened this scene — jump straight to the
   // finder page (and put the caret in the search box) once pages exist.
   private openFinder = false;
+  // Set when another scene asked for a specific world page (the guided
+  // lessons' Skip button lands on World 1) — applied once pages exist.
+  private startWorld: number | null = null;
 
   // Scratch shapes reused by buildFrame() every call — RenderTexture.draw()/erase()
   // only *queue* the draw for the next render pass rather than rendering synchronously,
@@ -91,7 +94,7 @@ export class LevelSelect extends Phaser.Scene {
     }
   }
 
-  init(data?: { page?: string }) {
+  init(data?: { page?: string; world?: number }) {
     // Phaser re-delivers a scene's LAST init data when it's started with none,
     // so after Find passes { page: 'finder' } a plain Play would land on the
     // finder again. Consume the data so every start says what it means.
@@ -108,6 +111,7 @@ export class LevelSelect extends Phaser.Scene {
     this.searchToken = 0;
     this.searchPending = false;
     this.openFinder = data?.page === 'finder';
+    this.startWorld = typeof data?.world === 'number' ? data.world : null;
     this.frameSolid = null;
     this.frameHole = null;
     this.navigating = false;
@@ -141,7 +145,11 @@ export class LevelSelect extends Phaser.Scene {
     }
 
     this.buildPages();
-    if (this.openFinder) this.pageIndex = this.pages.length - 1;
+    if (this.openFinder) {
+      this.pageIndex = this.pages.length - 1;
+    } else if (this.startWorld !== null) {
+      this.pageIndex = Phaser.Math.Clamp(this.startWorld, 0, this.pages.length - 1);
+    }
     this.buildPage();
     // Arriving via the home page's Find button: the player came here to type,
     // so hand the search box the caret right away.
@@ -422,9 +430,9 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private buildGridItems(page: WorldPage, maxItems: number): GridItem[] {
-    return page.levels.slice(0, maxItems).map((level, i) => {
+    const items: GridItem[] = page.levels.slice(0, maxItems).map((level, i) => {
       const locked = this.isLevelLocked(level);
-      // Tutorial buttons carry their lesson name ("One-Shot Goggles");
+      // Tutorial buttons carry their lesson name ("Pumpkin Parfait");
       // regular worlds number within the world, matching the page title.
       return {
         label: page.meta.num === 0 ? level.title : `Level ${i + 1}`,
@@ -432,6 +440,12 @@ export class LevelSelect extends Phaser.Scene {
         onClick: locked ? undefined : () => this.openLevel(level.id),
       };
     });
+    // The Splash Course is optional — a standing tile says so and pages
+    // straight to World 1 (nothing there is locked behind the lessons).
+    if (page.meta.num === 0 && items.length < maxItems) {
+      items.push({ label: 'Skip to World 1', disabled: false, onClick: () => this.changePage(1) });
+    }
+    return items;
   }
 
   // ── Finder page result list ──────────────────────────────────────────────
@@ -781,11 +795,14 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private isLevelLocked(level: LevelData): boolean {
+    // The Splash Course is optional: lessons are free to play in any order,
+    // and finishing them is never required — World 1 starts unlocked.
+    if (level.id.startsWith('w00-')) return false;
     const curated = getCuratedLevels();
     const idx = curated.findIndex(l => l.id === level.id);
     if (idx === 0) return false;
     const prev = curated[idx - 1];
-    if (!prev) return false;
+    if (!prev || prev.id.startsWith('w00-')) return false;
     return !this.completedLevels[prev.id];
   }
 

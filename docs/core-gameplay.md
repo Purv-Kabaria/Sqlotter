@@ -208,16 +208,22 @@ provably solvable before they're stored.
 
 ## Level sources
 
-**Curated — 16 tutorial + 384 generated (25 worlds, 400 levels).** `curatedLevels.ts`
-hand-authors the Splash Course — 16 lessons whose solutions collectively exercise all
-26 modifiers plus paint, from First Splash up to Goggle Pileup (a full three-goggle
-outfit snapped off by one black splash, with two decoys teaching the wear limit).
+**Curated — 5 tutorial + 384 generated (25 worlds, 389 levels).** `curatedLevels.ts`
+hand-authors the Splash Course — five dense lessons that together cover every rule:
+First Splash (paint / last coat wins / stencil toggle / finish bare), Full Outfit
+(stacking, the three-wear limit with an invited refusal, white counts as a color),
+Fragile & Tough (goggles break on a splash, glasses don't), Pumpkin Parfait
+(top-down cover, one at a time, tap-to-swap) and Grand Finale (the growing nose,
+the one-shot alpha dip — itself a splash — and the reusable bubble).
 Every lesson is a GUIDED tutorial: `LevelData.guide` carries one coach line per
 solution step, and the Game scene runs the lesson step-by-step — the next expected
 tile glows gold (down into the color/pumpkin pickers), a persistent coach panel
 narrates the step (`STEP n/m`), off-script taps are nudged back without costing a
-move, and taps the sim would refuse anyway (a 4th wear in Goggle Pileup) get the
-real refusal so the rule lands. Reset restarts the script. `curatedLevels.ts` also
+move, and taps the sim would refuse anyway (a 4th wear in Full Outfit) get the
+real refusal so the rule lands. Reset restarts the script. The course is OPTIONAL:
+lessons never lock, World 1 is never gated behind them, the coach panel carries a
+standing Skip button, and the course page ends in a "Skip to World 1" tile.
+`curatedLevels.ts` also
 generates worlds 1–24 on first access
 (`getCuratedLevels()`, memoized) with a fixed-seed PRNG — identical on client and
 server, no build step. Generation is lazy so it never blocks the client's boot script

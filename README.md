@@ -188,19 +188,21 @@ seed — identical on client and server, no build step, generated lazily on firs
 so it never blocks boot. `LEVELS_VERSION` stamps the set; the app-upgrade trigger
 wipes level progress when it changes.
 
-- **World 0 — Splash Course**: 16 hand-authored, **step-by-step guided** tutorial
-  lessons whose solutions collectively exercise **all 26 modifiers plus paint**.
-  Each lesson ships a per-step coach script (`LevelData.guide`): the next tile
-  glows gold, a coach panel narrates every move (`STEP n/m`), off-script taps are
-  nudged back for free, and deliberately invited rule-breaks (Goggle Pileup dares
-  you to wear a 4th thing) hit the real refusal. Highlights: Stripe Trick
-  (stencils protect), Goggle Band (goggles break), Pumpkin Parfait (one pumpkin
-  at a time — tap another size to swap), Bubble Trouble, Big Shapes
-  (plate/cone/scarf), and the finale
-  Goggle Pileup — a full three-goggle outfit snapped off by one black splash,
-  with two decoy goggles teaching the 3-at-once limit. The home page's "?"
-  button runs the first three lessons as a walkthrough. Every palette tile also
-  carries a hover/long-press tooltip explaining what the tool does.
+- **World 0 — Splash Course**: 5 hand-authored, **step-by-step guided** lessons
+  that together cover **every rule in the game**. Each lesson ships a per-step
+  coach script (`LevelData.guide`): the next tile glows gold, a coach panel
+  narrates every move (`STEP n/m`), off-script taps are nudged back for free,
+  and deliberately invited rule-breaks (Full Outfit dares you to wear a 4th
+  thing) hit the real refusal. The five: First Splash (paint, last coat wins,
+  stencils protect, finish bare), Full Outfit (stacking + the 3-at-once limit +
+  white counts as a color), Fragile & Tough (goggles break on a splash, glasses
+  don't), Pumpkin Parfait (one pumpkin at a time — tap another size to swap),
+  Grand Finale (the growing nose, the one-shot alpha dip, the reusable bubble).
+  **The course is optional**: lessons never lock, World 1 is never gated behind
+  them, the coach panel carries a standing Skip button, and the course page ends
+  in a "Skip to World 1" tile. The home page's "?" button runs all five lessons
+  as a walkthrough. Every palette tile also carries a hover/long-press tooltip
+  explaining what the tool does.
 - **Worlds 1–10**: the main ramp — Splat School → Dress-Up Dell → Goggle Grove →
   Pumpkin Patch → Two-Tone Tarn → Layer Lagoon → Decoy Dunes → Trap Tundra →
   Expert Estuary → Master Marsh.

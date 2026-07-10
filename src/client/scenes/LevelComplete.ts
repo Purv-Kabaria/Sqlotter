@@ -28,9 +28,9 @@ type CompleteData = {
   walkthrough?: boolean;
 };
 
-// The walkthrough covers the first three Splash Course lessons — enough to
-// know paints, repaints and the stencil trick before free play.
-const WALKTHROUGH_LAST_LEVEL = 'w00-l03';
+// The walkthrough runs the whole five-lesson Splash Course — every lesson is
+// guided and every coach panel carries a Skip, so length is never a trap.
+const WALKTHROUGH_LAST_LEVEL = 'w00-l05';
 
 // What the Splat Card preview needs to render itself — a subset of the win
 // data, plus the palette the player's own `actions` (ShareCardRequest) replay

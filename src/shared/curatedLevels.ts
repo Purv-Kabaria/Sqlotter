@@ -19,7 +19,7 @@ import {
 // Bump when the level set changes incompatibly — the app-upgrade trigger wipes
 // level progress (completions/stars/streaks/level leaderboards) on a mismatch
 // so nobody keeps stars for levels that no longer exist.
-export const LEVELS_VERSION = '10-true-cone';
+export const LEVELS_VERSION = '11-five-lesson-course';
 
 export const LEVELS_PER_WORLD = 16; // max per world (grid capacity)
 
@@ -276,91 +276,86 @@ function hintFor(recipe: GeneratedRecipe): string {
 
 // ── Tutorial world — Splash Course (hand-authored) ──────────────────────────
 
+// Five dense lessons, each guided step-by-step (see LevelData.guide), that
+// together cover every rule in the game:
+//   l01 — paint splashes / last coat wins / stencils protect + toggle / finish bare
+//   l02 — stencils stack / MAX_WORN limit + refusal / white counts as a color
+//         (undies + pendant + scarf worn; plate + cone invited as the refused 4th)
+//   l03 — goggles are fragile (break on splash) vs glasses are tough (remove yourself)
+//   l04 — pumpkins cover top-down / only one fits / another size swaps in one move
+//   l05 — nose grows per splash / alpha dip one-shot + counts as a splash / bubble
+//         reusable + gentle
+// The course is OPTIONAL: lessons never lock and never gate World 1 (see
+// LevelSelect.isLevelLocked), and guided lessons carry a Skip button.
 const TUTORIAL_LEVELS: LevelData[] = [
   {
     id: 'w00-l01', title: 'First Splash', difficulty: 1,
     palette: [
       { id: 'paint-green', type: 'paint', color: '#2ECC40' },
-      { id: 'paint-pink', type: 'paint', color: '#FF69B4' },
-    ],
-    optimalSteps: 1,
-    optimalSolution: ['paint-green'],
-    hint: 'Tap the paint pot, then the green swatch!',
-    tutorial: 'Meet Splot! Copy the GOAL pattern to win. Tap the paint pot below and pick GREEN to give Splot a fresh coat.',
-    guide: [
-      'Tap the glowing PAINT POT and pick GREEN. Paint splashes over every part of Splot that nothing is protecting.',
-    ],
-  },
-  {
-    id: 'w00-l02', title: 'Fresh Coat', difficulty: 1,
-    palette: [
-      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
-      { id: 'paint-red', type: 'paint', color: '#FF4136' },
-      { id: 'paint-blue', type: 'paint', color: '#0074D9' },
-    ],
-    optimalSteps: 1,
-    optimalSolution: ['paint-blue'],
-    hint: 'Only the last coat counts — Splot wants blue.',
-    tutorial: 'Painted the wrong color? A fresh coat covers everything that is not protected. Extra coats cost extra steps, though!',
-    guide: [
-      'Splot wants BLUE. A fresh coat paints right over the old one — only the LAST coat shows, but every coat costs a move.',
-    ],
-  },
-  {
-    id: 'w00-l03', title: 'Stripe Trick', difficulty: 2,
-    palette: [
-      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
       { id: 'belt-h-thin', type: 'belt', variant: 'h-thin' },
       { id: 'paint-purple', type: 'paint', color: '#B10DC9' },
     ],
     optimalSteps: 4,
-    optimalSolution: ['paint-yellow', 'belt-h-thin', 'paint-purple', 'belt-h-thin'],
-    hint: 'Yellow first — then protect the stripe you want to keep.',
-    tutorial: 'Accessories are STENCILS — paint cannot touch what they cover, and a second tap takes them off. Paint Splot yellow FIRST, belt ON to guard a stripe, splash purple, belt OFF. Splot must finish BARE, exactly like the goal.',
+    optimalSolution: ['paint-green', 'belt-h-thin', 'paint-purple', 'belt-h-thin'],
+    hint: 'Green first, belt on, purple over, belt off.',
+    tutorial: 'Meet Splot! Copy the GOAL pattern to win. Paint splashes over everything unprotected, and accessories are STENCILS that guard what they cover. Wear, splash, remove — Splot must finish BARE.',
     guide: [
-      'Splash YELLOW first — lay down the color you want to KEEP before the cover coat.',
-      'Now wear the BELT. Stencils protect whatever they cover from every splash that follows.',
-      'Splash PURPLE — it colors everything EXCEPT the stripe hiding under the belt.',
-      'Tap the belt again to take it OFF. Splot must finish bare, exactly like the goal!',
+      'Tap the glowing PAINT POT and pick GREEN. Paint splashes over every part of Splot that nothing protects — and only the LAST coat shows.',
+      'Now wear the BELT. Stencils guard whatever they cover from every splash that follows — a second tap takes them off again.',
+      'Splash PURPLE. It colors everything EXCEPT the green stripe hiding under the belt.',
+      'Tap the BELT again to take it off. Splot must finish BARE to match the goal — and there it is!',
     ],
   },
   {
-    id: 'w00-l04', title: 'Undies Print', difficulty: 2,
+    id: 'w00-l02', title: 'Full Outfit', difficulty: 2,
     palette: [
       { id: 'underwear', type: 'underwear' },
-      { id: 'paint-orange', type: 'paint', color: '#FF851B' },
-      { id: 'paint-red', type: 'paint', color: '#FF4136' },
+      { id: 'pendant-v', type: 'pendant', variant: 'v' },
+      { id: 'scarf', type: 'scarf' },
+      { id: 'paint-purple', type: 'paint', color: '#B10DC9' },
+      { id: 'plate', type: 'plate' },
+      { id: 'cone', type: 'cone' },
     ],
-    optimalSteps: 4,
-    optimalSolution: ['paint-orange', 'underwear', 'paint-red', 'underwear'],
-    hint: 'Orange, undies on, red, undies off.',
-    tutorial: "Undies stencil Splot's bottom half. Paint orange, pull them on, splash red, pull them off — orange briefs forever.",
+    optimalSteps: 7,
+    optimalSolution: [
+      'underwear', 'pendant-v', 'scarf', 'paint-purple', 'underwear', 'pendant-v', 'scarf',
+    ],
+    hint: 'Wear all three, one splash, then strip back to bare.',
+    tutorial: 'Stencils STACK — but Splot wears THREE things at most; a fourth gets refused. Dress him up, splash once, strip it all off. White counts as a color, so no base coat needed!',
     guide: [
-      "Splash ORANGE — the future color of Splot's briefs.",
-      "Pull the UNDIES on. They stencil Splot's whole bottom half.",
-      'Splash RED over the top — the undies keep the orange underneath safe.',
-      'Undies OFF. Orange briefs on a red Splot — match!',
+      "Pull on the UNDIES — no base coat needed, white counts as a color! They stencil Splot's whole bottom half.",
+      'Add the PENDANT — its chain and charm stencil too. Different stencils STACK.',
+      "And the SCARF — a diagonal band. That's THREE worn: Splot's limit. Try the PLATE or CONE if you like — he refuses a fourth!",
+      'One PURPLE splash around all three at once.',
+      'Now undress: UNDIES off...',
+      '...PENDANT off...',
+      '...and SCARF off. Three white shapes for the price of one splash!',
     ],
   },
   {
-    id: 'w00-l05', title: 'Goggle Band', difficulty: 2,
+    id: 'w00-l03', title: 'Fragile & Tough', difficulty: 2,
     palette: [
       { id: 'paint-sky', type: 'paint', color: '#7FDBFF' },
+      { id: 'glasses-v-thick', type: 'glasses', variant: 'v-thick' },
       { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick' },
       { id: 'paint-navy', type: 'paint', color: '#003AB4' },
     ],
-    optimalSteps: 3,
-    optimalSolution: ['paint-sky', 'goggles-h-thick', 'paint-navy'],
-    hint: 'The goggles guard a band right across the middle.',
-    tutorial: 'Goggles stencil a band straight across Splot — but they are FRAGILE! One splash and they snap off broken, all by themselves. Sky blue first, goggles on, navy over the top.',
+    optimalSteps: 5,
+    optimalSolution: [
+      'paint-sky', 'glasses-v-thick', 'goggles-h-thick', 'paint-navy', 'glasses-v-thick',
+    ],
+    hint: 'Sky under both bands — the goggles leave on their own.',
+    tutorial: 'Two kinds of eyewear! GOGGLES are fragile — the first splash that lands knocks them off broken, free of charge. GLASSES are tough — splashes never break them, so you take them off yourself.',
     guide: [
-      "Splash SKY BLUE first — that's the color the band will keep.",
-      "Goggles ON. They guard a band across the middle — but they're FRAGILE: one splash will knock them off for good.",
-      'Splash NAVY. The goggles protect their band, then snap off broken all by themselves — no extra move needed.',
+      'Splash SKY BLUE — the color both bands will keep.',
+      'Wear the GLASSES. Glasses are TOUGH — splashes never break them.',
+      'Now the GOGGLES. They look similar but are FRAGILE: the first splash that lands knocks them off broken.',
+      'Splash NAVY. Both guard their bands — then the goggles snap off broken, all by themselves. The glasses hold on!',
+      'Tough stencils never leave on their own — take the GLASSES off yourself. A sky cross!',
     ],
   },
   {
-    id: 'w00-l06', title: 'Pumpkin Parfait', difficulty: 3,
+    id: 'w00-l04', title: 'Pumpkin Parfait', difficulty: 3,
     palette: [
       { id: 'pumpkin-50', type: 'pumpkin', coverage: 50 },
       { id: 'pumpkin-75', type: 'pumpkin', coverage: 75 },
@@ -382,228 +377,28 @@ const TUTORIAL_LEVELS: LevelData[] = [
     ],
   },
   {
-    id: 'w00-l07', title: 'Double Stencil', difficulty: 3,
-    palette: [
-      { id: 'pumpkin-25', type: 'pumpkin', coverage: 25 },
-      { id: 'paint-green', type: 'paint', color: '#2ECC40' },
-      { id: 'goggles-h-thick', type: 'goggles', variant: 'h-thick' },
-      { id: 'paint-red', type: 'paint', color: '#FF4136' },
-    ],
-    optimalSteps: 5,
-    optimalSolution: [
-      'pumpkin-25', 'paint-green', 'goggles-h-thick', 'paint-red', 'pumpkin-25',
-    ],
-    hint: 'Pumpkin, green, goggles, red — then the pumpkin off.',
-    tutorial: 'Stack stencils! Pumpkin on, splash GREEN. Goggles on too, splash RED — the goggles break off on their own, so just lift the pumpkin.',
-    guide: [
-      "Wear the 25% PUMPKIN — it guards Splot's cap.",
-      'Splash GREEN everywhere else.',
-      'Add the GOGGLES on top — different stencils STACK, up to three at once.',
-      'Splash RED. The goggles guard their band... then snap off broken on their own.',
-      'Lift the PUMPKIN off — white cap, green band, red body!',
-    ],
-  },
-  {
-    id: 'w00-l08', title: 'Growing Nose', difficulty: 3,
+    id: 'w00-l05', title: 'Grand Finale', difficulty: 3,
     palette: [
       { id: 'paint-red', type: 'paint', color: '#FF4136' },
       { id: 'nose', type: 'nose' },
       { id: 'paint-orange', type: 'paint', color: '#FF851B' },
-      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
-      { id: 'paint-green', type: 'paint', color: '#2ECC40' },
-    ],
-    optimalSteps: 5,
-    optimalSolution: ['paint-red', 'nose', 'paint-orange', 'paint-yellow', 'paint-green'],
-    hint: 'Red, nose on, then orange, yellow, green — the nose does the rest.',
-    tutorial: "The NOSE starts small — but every splash GROWS it one size, locking a ring of the old colour underneath. After three splashes the big nose pops off on its own. Red, nose on, then orange, yellow and green for a bullseye!",
-    guide: [
-      "Splash RED — the bullseye's center color.",
-      'Wear the NOSE. It starts SMALL — and every splash from now on GROWS it one size.',
-      'Splash ORANGE. The small nose keeps a red dot safe, and the splash grows it to MEDIUM.',
-      'Splash YELLOW. The medium nose locks in an orange ring and grows to BIG.',
-      'Splash GREEN. The big nose guards the whole bullseye — then pops off on its own. Done!',
-    ],
-  },
-  {
-    id: 'w00-l09', title: 'Alpha Dip', difficulty: 2,
-    palette: [
-      { id: 'paint-blue', type: 'paint', color: '#0074D9' },
-      { id: 'belt-h-thick', type: 'belt', variant: 'h-thick' },
       { id: 'alpha-dip', type: 'alpha' },
-    ],
-    optimalSteps: 4,
-    optimalSolution: ['paint-blue', 'belt-h-thick', 'alpha-dip', 'belt-h-thick'],
-    hint: 'Blue, belt on, DIP, belt off — the band stays bold.',
-    tutorial: 'The ALPHA DIP fades everything exposed to 75% opacity — same colour, softer. It works ONCE per level, so time it. Blue, belt on, DIP (the band stays bold), belt off.',
-    guide: [
-      'Splash BLUE all over.',
-      'Belt ON — its stripe is going to stay bold.',
-      'Tap the ALPHA DIP. Everything exposed fades to 75% — and it only works ONCE per level, so time it well.',
-      'Belt OFF. A soft blue Splot with one bold stripe!',
-    ],
-  },
-  {
-    id: 'w00-l10', title: 'Bubble Trouble', difficulty: 2,
-    palette: [
-      { id: 'paint-green', type: 'paint', color: '#2ECC40' },
+      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
       { id: 'bubble', type: 'bubble' },
     ],
-    optimalSteps: 2,
-    optimalSolution: ['paint-green', 'bubble'],
-    hint: 'Paint green, then pop the bubble.',
-    tutorial: "The BUBBLE fades only its INNER circle to 75%, leaving the rim solid — and you can reuse it as much as you like. Splash green, then bubble for a soft glowing core.",
-    guide: [
-      'Splash GREEN.',
-      'Pop the BUBBLE. It fades only its INNER circle to 75% and leaves the rim bold — and unlike the dip, you can reuse it all you like.',
-    ],
-  },
-  {
-    id: 'w00-l11', title: 'Nested Stripes', difficulty: 4,
-    palette: [
-      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
-      { id: 'belt-v-thin', type: 'belt', variant: 'v-thin' },
-      { id: 'paint-red', type: 'paint', color: '#FF4136' },
-      { id: 'belt-v-thick', type: 'belt', variant: 'v-thick' },
-      { id: 'paint-blue', type: 'paint', color: '#0074D9' },
-    ],
-    optimalSteps: 7,
-    optimalSolution: [
-      'paint-yellow', 'belt-v-thin', 'paint-red', 'belt-v-thin',
-      'belt-v-thick', 'paint-blue', 'belt-v-thick',
-    ],
-    hint: 'Yellow under the thin belt, red under the thick one.',
-    tutorial: 'Belts come thin and thick, sideways and UPRIGHT. Nest them: yellow coat, the THIN belt guards a slim stripe through the red, then the THICK belt guards both stripes through the blue.',
-    guide: [
-      'Splash YELLOW — the color of the skinniest stripe.',
-      'Wear the THIN upright belt to guard that stripe.',
-      'Splash RED around it.',
-      'Thin belt OFF — its yellow stripe is locked in.',
-      'Now the THICK upright belt. It covers the yellow stripe AND a red margin either side.',
-      'Splash BLUE around it.',
-      'Thick belt OFF. Nested stripes: yellow inside red inside blue!',
-    ],
-  },
-  {
-    id: 'w00-l12', title: 'Criss-Cross Frames', difficulty: 4,
-    palette: [
-      { id: 'paint-yellow', type: 'paint', color: '#FFDC00' },
-      { id: 'glasses-h-thick', type: 'glasses', variant: 'h-thick' },
-      { id: 'paint-red', type: 'paint', color: '#FF4136' },
-      { id: 'glasses-v-thick', type: 'glasses', variant: 'v-thick' },
-      { id: 'paint-blue', type: 'paint', color: '#0074D9' },
-    ],
-    optimalSteps: 7,
-    optimalSolution: [
-      'paint-yellow', 'glasses-h-thick', 'paint-red',
-      'glasses-v-thick', 'paint-blue', 'glasses-h-thick', 'glasses-v-thick',
-    ],
-    hint: 'Glasses survive splashes — take both pairs off yourself.',
-    tutorial: 'GLASSES look like goggles but are TOUGH — splashes never break them, so you remove them yourself. Yellow first, sideways glasses on through the red, add the upright pair through the blue, then take both off.',
-    guide: [
-      'Splash YELLOW first.',
-      'Wear the SIDEWAYS glasses. Glasses look like goggles but are TOUGH — splashes never break them.',
-      'Splash RED — the sideways frames keep a yellow band.',
-      'Add the UPRIGHT glasses — two stencils worn at once.',
-      'Splash BLUE around both pairs.',
-      "Tough stencils don't leave on their own — take the sideways pair off yourself...",
-      '...and the upright pair too. Criss-cross!',
-    ],
-  },
-  {
-    id: 'w00-l13', title: 'Skinny Cross', difficulty: 3,
-    palette: [
-      { id: 'paint-lime', type: 'paint', color: '#01FF70' },
-      { id: 'glasses-h-thin', type: 'glasses', variant: 'h-thin' },
-      { id: 'glasses-v-thin', type: 'glasses', variant: 'v-thin' },
-      { id: 'paint-maroon', type: 'paint', color: '#85144B' },
-    ],
     optimalSteps: 6,
     optimalSolution: [
-      'paint-lime', 'glasses-h-thin', 'glasses-v-thin',
-      'paint-maroon', 'glasses-h-thin', 'glasses-v-thin',
+      'paint-red', 'nose', 'paint-orange', 'alpha-dip', 'paint-yellow', 'bubble',
     ],
-    hint: 'Lime under, both thin pairs on, one dark splash.',
-    tutorial: 'Thin glasses guard skinnier frames. Wear BOTH pairs at once — a single maroon splash paints around the whole cross, then off they come.',
+    hint: 'Red, nose on — then let every splash grow it.',
+    tutorial: 'Graduation day — three finale tools! The NOSE grows one size with every splash, locking rings of old color under it. The ALPHA DIP fades everything exposed (ONCE per level — and it counts as a splash). The gentle BUBBLE fades just its inner circle, reusable forever.',
     guide: [
-      'Splash LIME.',
-      'Wear the THIN sideways glasses — thin frames guard skinnier bands.',
-      'And the THIN upright pair — together they make a cross.',
-      'One MAROON splash paints around the whole cross at once.',
-      'Glasses off — the sideways pair first...',
-      '...then the upright pair. Skinny lime cross!',
-    ],
-  },
-  {
-    id: 'w00-l14', title: 'Charm School', difficulty: 3,
-    palette: [
-      { id: 'paint-sky', type: 'paint', color: '#7FDBFF' },
-      { id: 'pendant-h', type: 'pendant', variant: 'h' },
-      { id: 'pendant-v', type: 'pendant', variant: 'v' },
-      { id: 'paint-navy', type: 'paint', color: '#003AB4' },
-    ],
-    optimalSteps: 6,
-    optimalSolution: [
-      'paint-sky', 'pendant-h', 'pendant-v',
-      'paint-navy', 'pendant-h', 'pendant-v',
-    ],
-    hint: 'Both pendants guard their chains through the navy.',
-    tutorial: 'PENDANTS drape a chain and charm over Splot — sideways or straight down. Sky coat, both pendants on, splash navy, then slip them off to leave sky-blue jewellery.',
-    guide: [
-      'Splash SKY BLUE — jewellery color goes down first.',
-      'Wear the SIDEWAYS pendant — its chain and charm stencil too.',
-      'And the UPRIGHT pendant on top.',
-      'Splash NAVY around both.',
-      'Slip the sideways pendant off...',
-      '...and the upright one. Sky-blue jewellery on a navy Splot!',
-    ],
-  },
-  {
-    id: 'w00-l15', title: 'Big Shapes', difficulty: 4,
-    palette: [
-      { id: 'plate', type: 'plate' },
-      { id: 'cone', type: 'cone' },
-      { id: 'scarf', type: 'scarf' },
-      { id: 'paint-purple', type: 'paint', color: '#B10DC9' },
-    ],
-    optimalSteps: 7,
-    optimalSolution: [
-      'plate', 'cone', 'scarf', 'paint-purple', 'plate', 'cone', 'scarf',
-    ],
-    hint: 'No base coat needed — white is a colour too.',
-    tutorial: 'Three BIG stencils: the PLATE, the CONE and the SCARF. They protect just like belts. Wear all three on bare Splot, splash purple ONCE, then clear them off — white shapes, zero extra coats.',
-    guide: [
-      'Wear the PLATE on bare Splot — white counts as a color, so no base coat needed!',
-      'Add the CONE...',
-      "...and the SCARF. Three stencils at once — that's Splot's MAXIMUM outfit.",
-      'One PURPLE splash around all three.',
-      'Plate off...',
-      'Cone off...',
-      'Scarf off. Three white shapes for the price of a single splash!',
-    ],
-  },
-  {
-    id: 'w00-l16', title: 'Goggle Pileup', difficulty: 3,
-    palette: [
-      { id: 'paint-red', type: 'paint', color: '#FF4136' },
-      { id: 'goggles-h-thin', type: 'goggles', variant: 'h-thin' },
-      { id: 'goggles-h-mono', type: 'goggles', variant: 'h-mono' },
-      { id: 'goggles-v-thick', type: 'goggles', variant: 'v-thick' },
-      { id: 'goggles-v-thin', type: 'goggles', variant: 'v-thin' },
-      { id: 'goggles-v-mono', type: 'goggles', variant: 'v-mono' },
-      { id: 'paint-black', type: 'paint', color: '#111111' },
-    ],
-    optimalSteps: 5,
-    optimalSolution: [
-      'paint-red', 'goggles-h-thin', 'goggles-v-thick', 'goggles-v-mono', 'paint-black',
-    ],
-    hint: 'Three goggles is a full outfit — one splash clears them all.',
-    tutorial: 'Graduation day! Splot wears THREE things at most — try a fourth and he refuses. Red coat, pile on the thin band, the upright band and the upright MONOCLE (the other two goggles are decoys!), then one black splash snaps all three off broken together.',
-    guide: [
-      'Splash RED — the base coat.',
-      'Wear the thin SIDEWAYS goggles. (Two of these five goggles are decoys — palettes can lie!)',
-      'Add the thick UPRIGHT goggles...',
-      "...and the upright MONOCLE. That's THREE things worn — Splot's limit. Try a fourth if you like: he refuses!",
-      'Splash BLACK. All three goggles guard their bands, then snap off broken together. Graduation!',
+      "Splash RED — the bullseye's center color.",
+      'Wear the NOSE. It starts SMALL — and every splash from now on grows it one size, locking a ring of old color underneath.',
+      'Splash ORANGE. The small nose keeps a red dot safe and grows to MEDIUM.',
+      'Tap the ALPHA DIP. Everything exposed fades to 75% — it works ONCE per level, and it counts as a splash: the nose grows to BIG!',
+      'Splash YELLOW. The big nose guards the whole bullseye... then pops off on its own — a splash on the big nose is one too many.',
+      'Pop the BUBBLE. It fades only its inner circle, never breaks a thing, and you can reuse it all you like. Graduation!',
     ],
   },
 ];

@@ -182,7 +182,7 @@ export class Game extends Phaser.Scene {
   // index of the NEXT expected optimalSolution action (-1 = not guided). The
   // expected tile glows, the coach panel narrates the step, and any other tap
   // is gently nudged back — except taps the sim would refuse anyway, which
-  // fall through to the real refusal UX (lesson 16 invites trying a 4th wear).
+  // fall through to the real refusal UX (lesson 2 invites trying a 4th wear).
   private guideStep = -1;
   private guidePanel: Phaser.GameObjects.Container | null = null;
   private guideHighlight: Phaser.GameObjects.Rectangle | null = null;
@@ -1105,7 +1105,7 @@ export class Game extends Phaser.Scene {
 
     // Guided lesson gate: only the scripted next action goes through. Taps
     // the sim would refuse anyway fall through to the real refusal UX below —
-    // a lesson may be inviting exactly that refusal (Goggle Pileup's "try a
+    // a lesson may be inviting exactly that refusal (Full Outfit's "try a
     // fourth"), and the cross + reason teach more than a follow-the-glow nudge.
     if (this.guideStep >= 0
         && this.level.optimalSolution[this.guideStep] !== mod.id
@@ -1258,10 +1258,13 @@ export class Game extends Phaser.Scene {
     const popW = Math.min((isPortrait ? width : pal.x - 14) - 24, 340);
     const popCx = isPortrait ? width / 2 : (pal.x - 14) / 2 + 14;
     const contentX = popCx - popW / 2 + 40;
+    // The course is optional — a standing Skip lives on the panel's right
+    // edge, so the text column ends before it.
+    const skipW = 58;
 
     const txt = this.add.text(contentX, 0, message, {
       fontFamily: PIXELIFY, fontSize: '13px', color,
-      wordWrap: { width: popW - 56 }, lineSpacing: 3,
+      wordWrap: { width: popW - 56 - skipW - 8 }, lineSpacing: 3,
     }).setOrigin(0, 0);
     const stepH = showStep ? 14 : 0;
     const contentH = stepH + txt.height;
@@ -1282,7 +1285,21 @@ export class Game extends Phaser.Scene {
       }).setOrigin(0, 0));
     }
     items.push(txt);
+    items.push(addBeigeButton(this, {
+      x: popCx + popW / 2 - skipW / 2 - 8, y: popY, width: skipW, height: 36,
+      label: 'Skip', fontSize: 11, fontFamily: PIXELIFY,
+      onClick: () => this.skipCourse(),
+    }));
     this.guidePanel = this.add.container(0, 0, items).setDepth(40);
+  }
+
+  // The guided course is optional — Skip drops the player where the real game
+  // starts. The walkthrough came from home, so it returns there; otherwise
+  // land on the World 1 page (never locked behind the lessons).
+  private skipCourse() {
+    this.closeActivePopup();
+    if (this.isWalkthrough) this.goToScene('MainMenu');
+    else this.goToScene('LevelSelect', { world: 1 });
   }
 
   // Off-script (but legal) tap: wiggle the glow, flash a nudge, keep the step.

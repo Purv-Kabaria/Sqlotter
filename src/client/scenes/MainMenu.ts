@@ -559,9 +559,9 @@ export class MainMenu extends Phaser.Scene {
     });
   }
 
-  // The "?" button: a guided walkthrough through the first three Splash
-  // Course lessons (paint → repaint → the stencil trick). The walkthrough
-  // flag makes the win screens chain the lessons and land back home.
+  // The "?" button: the guided five-lesson Splash Course. The walkthrough
+  // flag makes the win screens chain the lessons and land back home; every
+  // lesson's coach panel carries a Skip for players who'd rather just play.
   private startWalkthrough() {
     this.goToScene('Game', { levelId: 'w00-l01', walkthrough: true });
   }

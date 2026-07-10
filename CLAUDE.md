@@ -175,12 +175,15 @@ backgrounds/       background 1/, background 2/, background 3/, background 4/
 4. Each logged tap = 1 step (wearing, removing, and painting all cost a step); order matters
 5. When the painted pattern matches the goal AND nothing is worn → level complete → earn Sparks
 
-**Guided tutorials**: every Splash Course lesson carries `LevelData.guide` — one
-coach line per solution step. With a guide present the Game scene runs step-by-step:
-the expected tile glows gold (down into the color/pumpkin pickers), a persistent
-coach panel narrates (`STEP n/m`), off-script taps nudge back at zero cost, and taps
-the sim would refuse anyway play the real refusal (lessons invite them on purpose).
-Reset restarts the script. **Tooltips**: every palette tile shows a one-line blurb
+**Guided tutorials**: the Splash Course is FIVE dense lessons covering every rule;
+each carries `LevelData.guide` — one coach line per solution step. With a guide
+present the Game scene runs step-by-step: the expected tile glows gold (down into
+the color/pumpkin pickers), a persistent coach panel narrates (`STEP n/m`),
+off-script taps nudge back at zero cost, and taps the sim would refuse anyway play
+the real refusal (lessons invite them on purpose). Reset restarts the script. The
+course is OPTIONAL: lessons never lock, World 1 is never gated behind them, the
+coach panel has a standing Skip button, and the course page ends in a "Skip to
+World 1" tile. **Tooltips**: every palette tile shows a one-line blurb
 on hover (desktop) or long-press (touch — the release is swallowed, never a move).
 
 ### Simulation Model (src/shared/slimeSim.ts)
