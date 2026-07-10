@@ -164,6 +164,15 @@ icons/misc/        plus, minus, dot, sparkle
 backgrounds/       background 1/, background 2/, background 3/, background 4/
 ```
 
+### Sounds (`public/sounds/`, loaded from `sounds/` — NOT under assets/)
+Mono 16-bit WAVs, silence-trimmed (originals in git history at b8ddd7c), plus
+`bgm.mp3` (84s music loop). `src/client/audio.ts` is the single owner of the
+event→file mapping (SFX_FILES), the SFX/music enable state (persisted via
+POST /api/user/settings for logged-in players, seeded from /api/init), and the
+music loop (a marker skips the MP3's silent head/tail so the wrap is seamless).
+Every beige button clicks on pointerdown via PixelUI; game events play through
+`playSfx(name)`. Unused files (guns/sirens/screams etc.) ship but never load.
+
 ---
 
 ## Game Mechanics
@@ -482,6 +491,7 @@ GET  /api/user/profile            → ProfileResponse
 POST /api/user/buy                → BuyRequest → BuyResponse (server-priced)
 POST /api/user/equip              → EquipRequest → EquipResponse
 POST /api/user/flair              → FlairPrefRequest → FlairPrefResponse
+POST /api/user/settings           → SoundSettingsRequest → SoundSettingsResponse
 POST /api/share/card              → ShareCardRequest (Splat Card comment)
 POST /api/share/first-splat       → FirstSplatRequest (crown claim)
 POST /api/share/fit               → Fit Check Friday comment

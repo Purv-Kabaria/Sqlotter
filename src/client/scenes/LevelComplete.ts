@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
+import { playSfx } from '../audio';
 import { addBeigeButton, addDarkPanel, addPixelPanel, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import { SplotMascot } from '../components/SplotMascot';
 import { SlimeRenderer } from '../components/SlimeRenderer';
@@ -153,6 +154,8 @@ export class LevelComplete extends Phaser.Scene {
 
       if (filled) {
         this.time.delayedCall(850 + s * 180, () => {
+          // Each earned star pips a semitone-ish higher than the last.
+          playSfx('star', { rate: 1 + s * 0.14 });
           this.tweens.add({ targets: starImg, scale: starScale * 1.2, duration: 100, yoyo: true });
         });
       }
@@ -644,6 +647,7 @@ export class LevelComplete extends Phaser.Scene {
   }
 
   private markShared(x: number, y: number, w: number) {
+    playSfx('confirm');
     this.shareDone = true;
     this.shareBtn?.destroy();
     this.shareBtn = addBeigeButton(this, {
@@ -842,6 +846,7 @@ export class LevelComplete extends Phaser.Scene {
   }
 
   private markCrowned() {
+    playSfx('confirm');
     this.crownDone = true;
     const row = this.crownBtnRow;
     const layer = this.crownLayer;

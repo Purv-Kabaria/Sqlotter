@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { playSfx } from '../audio';
 import { addBeigeButton, addPixelPanel, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 
 const PIXELIFY = BODY_FONT;
@@ -13,6 +14,7 @@ export class GameOver extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(0x1a0a2e);
     this.cameras.main.fadeIn(400);
+    playSfx('lose', { volume: 0.6 });
 
     const panelW = Math.min(width - 32, 360);
     addPixelPanel(this, cx, cy, panelW, 140);

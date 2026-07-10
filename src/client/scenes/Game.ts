@@ -13,6 +13,8 @@ import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { getCuratedLevels } from '../../shared/levelData';
 import { recordCompletion } from '../levelProgress';
 import { BASE_COLOR, maskIdOf, MAX_WORN, standardPaints, standardPumpkins } from '../../shared/slimeSim';
+import type { ActionKind } from '../../shared/slimeSim';
+import { playSfx, startMusic } from '../audio';
 
 // Tutorial modals ("Splash Course" levels) show once per page load per level —
 // replaying a lesson or resetting it doesn't re-interrupt the player.
@@ -226,6 +228,9 @@ export class Game extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(C.HEADER_BG);
     this.cameras.main.fadeIn(300, 10, 5, 14);
     this.scale.on('resize', this.onResize, this);
+    // Deep-linked level posts land here without passing MainMenu — the music
+    // loop starts from whichever scene the player reaches first (no-op if on).
+    startMusic();
 
     this.buildBackground();
 
@@ -284,6 +289,9 @@ export class Game extends Phaser.Scene {
     this.buildHUD();
     this.buildGameArea();
     this.buildPalette();
+
+    // Dailies skew devious on purpose — they get to gloat about it.
+    if (this.level.isDaily) playSfx('daily', { volume: 0.55 });
 
     const tutorial = this.level.tutorial;
     // The walkthrough exists to teach — its lesson modals always show, even
@@ -567,6 +575,7 @@ export class Game extends Phaser.Scene {
         Phaser.Geom.Circle.Contains,
       );
       this.splot.container.on('pointerdown', () => {
+        playSfx('squish');
         this.splot?.playSquishAnim();
         this.splot?.setExpression('excited', 1200);
       });
@@ -791,6 +800,7 @@ export class Game extends Phaser.Scene {
   // via slimeSim's standard-catalog fallback.
   private showColorPicker(paintMods: ModifierDef[]) {
     this.closeActivePopup();
+    playSfx('menuIn');
     const { width, height } = this.scale;
 
     const byColor = new Map<string, ModifierDef>();
@@ -817,7 +827,7 @@ export class Game extends Phaser.Scene {
 
     // Full-screen dim overlay — tap outside the card to dismiss
     const overlay = this.add.rectangle(pcx, pcy, width, height, 0x000000, 0.55).setInteractive();
-    overlay.on('pointerup', () => this.closeActivePopup());
+    overlay.on('pointerup', () => { playSfx('menuOut'); this.closeActivePopup(); });
     items.push(overlay);
 
     // Popup card + title — the same beige-shell look as the menu popups
@@ -888,6 +898,7 @@ export class Game extends Phaser.Scene {
   // palette defs win their id slot, catalog ids resolve in replay.
   private showPumpkinPicker(pumpkinMods: ModifierDef[]) {
     this.closeActivePopup();
+    playSfx('menuIn');
     const { width, height } = this.scale;
 
     const byId = new Map<string, ModifierDef>();
@@ -907,7 +918,7 @@ export class Game extends Phaser.Scene {
     const items: Phaser.GameObjects.GameObject[] = [];
 
     const overlay = this.add.rectangle(pcx, pcy, width, height, 0x000000, 0.55).setInteractive();
-    overlay.on('pointerup', () => this.closeActivePopup());
+    overlay.on('pointerup', () => { playSfx('menuOut'); this.closeActivePopup(); });
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, popH, false).container);
     // With a pumpkin already on, the title teaches the mechanic at the moment
@@ -968,6 +979,8 @@ export class Game extends Phaser.Scene {
     this.tweens.add({ targets: this.activePopup, alpha: { from: 0, to: 1 }, duration: 150 });
   }
 
+  // Sound: dismissals whoosh (menuOut) at their call sites — not here, where a
+  // swatch pick would stack a whoosh onto the action sound that follows it.
   private closeActivePopup() {
     if (!this.activePopup) return;
     const p = this.activePopup;
@@ -980,6 +993,9 @@ export class Game extends Phaser.Scene {
   // string). The attempt timer is held until dismissal — see beginLevel().
   private showTutorialModal(text: string, onDismiss: () => void) {
     this.closeActivePopup();
+    // Re-shown on resize/rotate with activeTutorial already set — only a
+    // genuinely new modal gets the entrance whoosh.
+    if (!this.activeTutorial) playSfx('menuIn');
     this.activeTutorial = { text, onDismiss };
     const { width, height } = this.scale;
     const popW = Math.min(width - 28, 330);
@@ -1008,6 +1024,7 @@ export class Game extends Phaser.Scene {
     const dismiss = () => {
       if (dismissed) return;
       dismissed = true;
+      playSfx('menuOut');
       this.activeTutorial = null;
       this.closeActivePopup();
       onDismiss();
@@ -1076,6 +1093,7 @@ export class Game extends Phaser.Scene {
 
   // ── Load error ─────────────────────────────────────────────────────────────
   private showLoadError(message: string, retry: () => void, buttonLabel = 'Try Again') {
+    playSfx('lose', { volume: 0.6 });
     const { width, height } = this.scale;
     const panelW = Math.min(width - 40, 320);
     const bg   = addDarkPanel(this, 0, 0, panelW, 160).setDepth(80);
@@ -1110,6 +1128,7 @@ export class Game extends Phaser.Scene {
     if (this.guideStep >= 0
         && this.level.optimalSolution[this.guideStep] !== mod.id
         && !this.wouldBeRefused(mod)) {
+      playSfx('nudge');
       this.guideNudge();
       return;
     }
@@ -1129,12 +1148,14 @@ export class Game extends Phaser.Scene {
       } else {
         msg = `Splot can only wear ${MAX_WORN} things at once. Take something off!`;
       }
+      playSfx('refuse');
       this.showConflictPopup(msg);
       this.showRefusalCross(mod);
       this.splot?.setExpression('pain', 900);
       return;
     }
 
+    this.playActionSfx(mod, result.kind);
     this.currentRenderer.setPattern(this.level.palette, this.engine.actions);
     this.currentRenderer.playApplyAnim(this);
     if (result.kind === 'paint') {
@@ -1143,6 +1164,7 @@ export class Game extends Phaser.Scene {
       if (result.broke.length > 0 && !result.isWin) {
         // The snap-off gets physical feedback, not just words: the slime
         // recoils and the broken goggles visibly tumble off it.
+        playSfx('breakOff');
         this.currentRenderer.playShakeAnim(this);
         this.playGoggleDropAnim(result.broke);
         this.showConflictPopup('The goggles snapped off. Goggles break after one splash!');
@@ -1169,6 +1191,24 @@ export class Game extends Phaser.Scene {
     if (this.guideStep >= 0) this.guideStep += 1;
     this.updateGuide();
     if (result.isWin) void this.handleWin();
+  }
+
+  // The sound of an action that LANDED — keyed off what the sim said happened,
+  // so it never disagrees with the visuals. Paint-like taps split by tool:
+  // splash for paint, a glug for the alpha dip, a pop for the bubble.
+  // ('broken' returned above; 'reset' can't come from a modifier tap.)
+  private playActionSfx(mod: ModifierDef, kind: ActionKind) {
+    if (kind === 'paint') {
+      if (mod.type === 'alpha')       playSfx('dip');
+      else if (mod.type === 'bubble') playSfx('bubble');
+      else                            playSfx('splash');
+    } else if (kind === 'swap' || (kind === 'wear' && mod.type === 'pumpkin')) {
+      playSfx('pumpkin');
+    } else if (kind === 'wear') {
+      playSfx('wear');
+    } else if (kind === 'remove') {
+      playSfx('remove');
+    }
   }
 
   // Exact mirror of the sim's refusal rules (applySimAction) — the guided
@@ -1297,6 +1337,7 @@ export class Game extends Phaser.Scene {
   // starts. The walkthrough came from home, so it returns there; otherwise
   // land on the World 1 page (never locked behind the lessons).
   private skipCourse() {
+    playSfx('cancel');
     this.closeActivePopup();
     if (this.isWalkthrough) this.goToScene('MainMenu');
     else this.goToScene('LevelSelect', { world: 1 });
@@ -1411,6 +1452,7 @@ export class Game extends Phaser.Scene {
     if (!this.engine || !this.level || this.winHandled) return;
     this.winHandled = true;
     this.timerEvent?.destroy();
+    playSfx('win');
 
     const elapsed = this.engine.elapsedMs();
     const steps   = this.engine.steps;
@@ -1497,6 +1539,7 @@ export class Game extends Phaser.Scene {
   // kept (the reset costs one more), and the clock keeps ticking.
   private handleReset() {
     if (!this.engine) return;
+    playSfx('reset');
     this.engine.reset();
     this.currentRenderer?.setPattern(this.level?.palette ?? [], []);
     this.updateStepsDisplay();

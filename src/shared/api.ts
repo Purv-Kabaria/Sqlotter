@@ -12,6 +12,9 @@ export type InitResponse = {
   levelsCompleted?: string[];
   // Splotter Flair sync preference (defaults on; players can be flair-precious).
   flairEnabled?: boolean;
+  // Sound preferences (default on; Redis-backed for logged-in players).
+  sfxEnabled?: boolean;
+  musicEnabled?: boolean;
   count?: number;
 };
 
@@ -95,6 +98,10 @@ export type ShareFitResponse = { posted: boolean };
 // ── Splotter Flair opt-in/out ─────────────────────────────
 export type FlairPrefRequest  = { enabled: boolean };
 export type FlairPrefResponse = { enabled: boolean };
+
+// ── Sound settings (SFX / music toggles on the home page) ─
+export type SoundSettingsRequest  = { sfx: boolean; music: boolean };
+export type SoundSettingsResponse = { sfx: boolean; music: boolean };
 
 // ── Leaderboard ───────────────────────────────────────────
 export type LeaderboardResponse = {

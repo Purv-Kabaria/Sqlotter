@@ -14,6 +14,8 @@ import type {
   ShareFitResponse,
   FlairPrefRequest,
   FlairPrefResponse,
+  SoundSettingsRequest,
+  SoundSettingsResponse,
   LeaderboardResponse,
   ProfileResponse,
   EquipRequest,
@@ -208,6 +210,8 @@ api.get('/init', async (c) => {
     let streakDays = 0;
     let equippedItems: Record<string, string> = {};
     let flairEnabled = true;
+    let sfxEnabled = true;
+    let musicEnabled = true;
 
     if (username) {
       // Registry write, board seeding, and the two profile reads are all
@@ -220,13 +224,15 @@ api.get('/init', async (c) => {
         redis.zAdd('users:all', { score: Date.now(), member: username }),
         seedGlobalBoards(username),
         redis.get(`sparks:${username}`),
-        redis.hMGet(`user:${username}`, ['daily:streak', 'equipped', 'flair:optOut']),
+        redis.hMGet(`user:${username}`, ['daily:streak', 'equipped', 'flair:optOut', 'sound:sfxOff', 'sound:musicOff']),
       ]);
-      const [streakRaw, equippedRaw, flairOptOut] = profileFields;
+      const [streakRaw, equippedRaw, flairOptOut, sfxOff, musicOff] = profileFields;
       sparks = parseInt(sparksRaw ?? '0', 10);
       streakDays = parseInt(streakRaw ?? '0', 10);
       equippedItems = parseStringRecord(equippedRaw ?? undefined);
       flairEnabled = flairOptOut !== '1';
+      sfxEnabled = sfxOff !== '1';
+      musicEnabled = musicOff !== '1';
     }
 
     return c.json<InitResponse>({
@@ -239,6 +245,8 @@ api.get('/init', async (c) => {
       streakDays,
       equippedItems,
       flairEnabled,
+      sfxEnabled,
+      musicEnabled,
     });
   } catch (e) {
     return c.json<Err>({ status: 'error', message: String(e) }, 500);
@@ -1012,6 +1020,25 @@ api.post('/user/flair', async (c) => {
   }
 
   return c.json<FlairPrefResponse>({ enabled: body.enabled });
+});
+
+// ── /api/user/settings ────────────────────────────────────────
+// Sound preferences (SFX / music). Stored inverted ('1' = off) so the absent
+// field defaults ON — matching every player who predates the setting.
+api.post('/user/settings', async (c) => {
+  const username = (await reddit.getCurrentUsername()) ?? '';
+  if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
+
+  const body = await readJsonBody<SoundSettingsRequest>(c);
+  if (!body || typeof body.sfx !== 'boolean' || typeof body.music !== 'boolean') {
+    return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
+  }
+
+  await redis.hSet(`user:${username}`, {
+    'sound:sfxOff':   body.sfx   ? '0' : '1',
+    'sound:musicOff': body.music ? '0' : '1',
+  });
+  return c.json<SoundSettingsResponse>({ sfx: body.sfx, music: body.music });
 });
 
 // ── /api/level/create ─────────────────────────────────────────

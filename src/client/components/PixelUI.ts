@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { playSfx } from '../audio';
 
 // ── Typography ────────────────────────────────────────────────────────────
 // Two families, both loaded via the Google Fonts <link> in game.html/splash.html
@@ -290,6 +291,9 @@ export function addBeigeButtonShell(
         scene.tweens.add({ targets: visual, y: 0, duration: 90, ease: 'Quad.easeOut' });
       })
       .on('pointerdown', () => {
+        // The one press sound for every beige button in the game — on DOWN,
+        // not up-with-onClick, so the click lands the instant the finger does.
+        playSfx('click');
         swapBg('btn-press');
         scene.tweens.add({ targets: visual, y: 2, scaleX: 0.97, scaleY: 0.97, duration: 60 });
       })

@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { playSfx } from '../audio';
 import type { ModifierDef } from '../../shared/types';
 import { isBreakableMask, MAX_WORN, replayOps, standardPaints } from '../../shared/slimeSim';
 import { MAX_SOLUTION_STEPS } from '../../shared/gameRules';
@@ -831,17 +832,20 @@ export class Editor extends Phaser.Scene {
     // The publish cap, enforced while recording: every level ships with a
     // proof it's beatable in at most MAX_SOLUTION_STEPS moves.
     if (this.actions.length >= MAX_SOLUTION_STEPS) {
+      playSfx('refuse');
       this.showFeedback(`Max ${MAX_SOLUTION_STEPS} moves. Levels must stay beatable! Undo or Reset.`, true);
       return;
     }
     const before = replayOps(EDITOR_DEFS, this.actions);
     // Same rule as in play: goggles a splash landed on are broken for the run.
     if (before.broken.includes(mod.id)) {
+      playSfx('refuse');
       this.showFeedback(`${modLabel(mod)} broke. Goggles are one-time use! (Undo or Reset restores them.)`, true);
       return;
     }
     // The alpha dip is one per level.
     if (mod.type === 'alpha' && before.spent.includes(mod.id)) {
+      playSfx('refuse');
       this.showFeedback('Alpha dip already used — one per level! (Undo or Reset.)', true);
       return;
     }
@@ -859,10 +863,19 @@ export class Editor extends Phaser.Scene {
       : mod.type !== 'paint' && mod.type !== 'alpha' && mod.type !== 'bubble'
         && !wasWorn && !isPumpkinSwap;
     if (wearsNewSlot && before.worn.length >= MAX_WORN) {
+      playSfx('refuse');
       this.showFeedback(`Splot can only wear ${MAX_WORN} things at once. Take something off!`, true);
       return;
     }
     this.actions.push(mod.id);
+    // Same action → sound mapping as play (see Game.playActionSfx) so the
+    // editor's goal-painting feels like the same toybox.
+    if (mod.type === 'paint')       playSfx('splash');
+    else if (mod.type === 'alpha')  playSfx('dip');
+    else if (mod.type === 'bubble') playSfx('bubble');
+    else if (mod.type === 'pumpkin' && !wasWorn) playSfx('pumpkin');
+    else if (wasWorn)               playSfx('remove');
+    else                            playSfx('wear');
     this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.goalRenderer?.playApplyAnim(this);
     this.updateMeta();
@@ -889,12 +902,14 @@ export class Editor extends Phaser.Scene {
 
   private undo() {
     if (this.actions.length === 0) return;
+    playSfx('remove');
     this.actions.pop();
     this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.updateMeta();
   }
 
   private reset() {
+    if (this.actions.length > 0) playSfx('reset');
     this.actions = [];
     this.goalRenderer?.setPattern(EDITOR_DEFS, this.actions);
     this.updateMeta();
@@ -1004,6 +1019,7 @@ export class Editor extends Phaser.Scene {
       }
 
       const data = await res.json() as LevelCreateResponse;
+      playSfx('confirm');
       this.showFeedback('Published! Sharing your level…', false);
       this.time.delayedCall(1800, () => {
         this.goToScene('Game', { levelId: data.levelId });

@@ -565,6 +565,14 @@ game's home subreddit, and hackathon submission — is documented step by step i
 Design tenets: time-to-fun under 5 seconds, mobile-first, Splot reacts to everything,
 no dead ends, celebrate wins loudly.
 
+**Audio** (`src/client/audio.ts`): every game event has a matched retro SFX —
+splashes splash, goggles shatter like glass, pumpkins crunch, refusals buzz, wins
+power up, stars pip at rising pitch, dailies open with an evil laugh — plus an 84s
+music loop that plays seamlessly across scenes. All SFX are silence-trimmed mono
+WAVs decoded into Web Audio buffers at load, so playback is zero-latency. SFX and
+Music each have a toggle in the home page's settings popup (shown to guests too);
+preferences persist to Redis for logged-in players.
+
 ---
 
 ## 17. Further Docs

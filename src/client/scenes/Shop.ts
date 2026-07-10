@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
+import { playSfx } from '../audio';
 import { SplotMascot } from '../components/SplotMascot';
 import {
   addBeigeButton, addBeigeButtonShell, addBeigeCard, addBeigeSolidCard, addDarkPanel, addDepthIcon, addPanel9,
@@ -760,6 +761,7 @@ export class Shop extends Phaser.Scene {
       const res = await fetch('/api/share/fit', { method: 'POST', signal: AbortSignal.timeout(6000) });
       if (this.navigating) return;
       if (res.ok) {
+        playSfx('confirm');
         this.showToast('Fit posted — good luck on Sunday!', C.GREEN);
         this.splot?.setExpression('excited', 1500);
         this.splot?.playAppliedFlash();
@@ -1155,6 +1157,7 @@ export class Shop extends Phaser.Scene {
         return;
       }
       const data: EquipResponse = await res.json();
+      playSfx('wear');
       this.equippedItems = data.equippedItems;
       this.storeProfileCache();
       if (!quiet) this.showToast(`Equipped ${item.label}!`, C.GREEN);
@@ -1175,6 +1178,7 @@ export class Shop extends Phaser.Scene {
     this.pendingItemIds.add(item.id);
     try {
       if (this.sparks < item.price) {
+        playSfx('refuse');
         this.splot?.setExpression('sad', 1200);
         this.showToast('Not enough Sparks!', C.RED);
         return;
@@ -1189,6 +1193,7 @@ export class Shop extends Phaser.Scene {
       if (this.navigating) return;
       if (!res.ok) { this.showToast('Purchase failed.', C.RED); return; }
       const data: BuyResponse = await res.json();
+      playSfx('confirm');
       this.sparks = data.sparks;
       this.unlockedItems = new Set(data.unlockedItems);
       this.storeProfileCache();

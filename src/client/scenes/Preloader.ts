@@ -5,6 +5,7 @@ import { paintOverlayShine } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
 import { prefetchUserData } from '../userData';
 import { loadGameFonts } from '../fonts';
+import { applyStoredSettings, initAudio, SFX_FILES } from '../audio';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -254,6 +255,18 @@ export class Preloader extends Scene {
     // the 65px floor the 32px-corner assets require (e.g. the HUD sparks pill)
     for (const pos of slicePos) this.load.image(`btn-open-sm-${pos}`, `ui/slices/btn-open-sm-${pos}.png`);
 
+    // ── Sounds — only the files audio.ts actually maps get downloaded. WAVs
+    // decode into Web Audio buffers here, up-front, so every playSfx() later
+    // starts on the exact audio tick (no fetch, no decode, no latency). The
+    // music is one MP3 loop; audio.ts loops a marker inside it to skip the
+    // encoder-delay silence at its head/tail.
+    this.load.setPath('sounds');
+    for (const [name, file] of Object.entries(SFX_FILES)) {
+      this.load.audio(`sfx-${name}`, file);
+    }
+    this.load.audio('bgm', 'bgm.mp3');
+    this.load.setPath('assets');
+
     this.load.on('progress', (p: number) => {
       this.currentProgress = p;
       if (this.filler) {
@@ -425,6 +438,7 @@ export class Preloader extends Scene {
   create() {
     this.scale.off('resize', this.onResize, this);
     this.makeZoomIcon('mod-nose-big', 'icon-nose');
+    initAudio(this.game);
     const launchLevelId = getLaunchLevelId();
 
     // Start chewing through the curated-level build while we wait on the
@@ -448,6 +462,12 @@ export class Preloader extends Scene {
         ]),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
       ]);
+      // Sound prefs ride the same init fetch. If the race timed out, the
+      // late-landing promise still applies them (first writer wins — a toggle
+      // the player presses meanwhile takes precedence, see audio.ts).
+      void this.userDataPromise?.then((init) => {
+        if (init) applyStoredSettings(init.sfxEnabled, init.musicEnabled);
+      });
       if (this.tipText) this.tipText.setText('Ready!');
       this.time.delayedCall(200, () => {
         if (launchLevelId) {

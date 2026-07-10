@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
+import { applyStoredSettings, isMusicOn, isSfxOn, playSfx, setMusicOn, setSfxOn, startMusic } from '../audio';
 import { SplotMascot } from '../components/SplotMascot';
 import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
@@ -59,6 +60,9 @@ export class MainMenu extends Phaser.Scene {
     this.buildBackground();
     this.buildUI();
     this.scale.on('resize', this.onResize, this);
+    // The music loop is game-global — started here (or by a deep-linked Game
+    // scene) it keeps playing across every scene until toggled off.
+    startMusic();
 
     void this.loadUserData();
     this.warmDeferredAssets();
@@ -88,6 +92,9 @@ export class MainMenu extends Phaser.Scene {
       const prev = this.userData;
       this.userData = fresh;
       setCachedUserData(fresh);
+      // Safety net for sound prefs: no-op if the Preloader's prefetch already
+      // applied them or the player has touched a toggle (first writer wins).
+      applyStoredSettings(fresh.sfxEnabled, fresh.musicEnabled);
 
       // Full rebuild only when something the layout depends on changed (username
       // label, streak badge, Splot's equipment). Rebuilding unconditionally here is
@@ -176,21 +183,19 @@ export class MainMenu extends Phaser.Scene {
     els.push(pill.container);
 
     // Strip's left: the walkthrough "?" (always — it's how new players learn
-    // the game, see startWalkthrough), then the settings gear for logged-in
-    // players (its lone setting, Splotter Flair, is meaningless to guests).
+    // the game, see startWalkthrough), then the settings gear — also always:
+    // the sound toggles matter to guests too (flair stays login-gated inside).
     els.push(this.buildIconButton(8 + pillH / 2, titleH / 2, pillH, 'icon-help',
       () => this.startWalkthrough()).setDepth(12));
-    if (this.userData?.username) {
-      els.push(this.buildIconButton(8 + pillH + 8 + pillH / 2, titleH / 2, pillH, 'icon-settings',
-        () => this.showSettingsPopup()).setDepth(12));
-    }
+    els.push(this.buildIconButton(8 + pillH + 8 + pillH / 2, titleH / 2, pillH, 'icon-settings',
+      () => this.showSettingsPopup()).setDepth(12));
 
     // SQLOTTER logo centered in the gap the corner buttons and pill actually
     // leave — the old symmetric 2×pillW reservation shrank it to a ~34px speck
     // on 280px-wide screens even though ~95px of real gap existed. Skipped
     // entirely when even that gap can't fit a legible wordmark.
     if (this.textures.exists('title')) {
-      const gearW = pillH + (this.userData?.username ? 8 + pillH : 0);
+      const gearW = pillH + 8 + pillH; // "?" + settings gear, both always shown
       const gapL = 8 + gearW + 10;
       const gapR = w - 8 - pill.width - 10;
       const logoW = Math.max(0, Math.min(w * 0.58, 260, gapR - gapL));
@@ -275,14 +280,13 @@ export class MainMenu extends Phaser.Scene {
     const pill = this.buildSparksPill(w - 10, pillTop + pillH / 2, pillH, 12);
     els.push(pill.container);
 
-    // Walkthrough "?" and (logged-in only) settings gear beside the pill, same
-    // row — the logo starts below this row, so nothing else competes for the corner.
+    // Walkthrough "?" and the settings gear beside the pill, same row — the
+    // logo starts below this row, so nothing else competes for the corner.
+    // The gear shows for guests too: sound toggles aren't login-gated.
     let cornerX = w - pill.width - 10 - 8 - pillH / 2;
-    if (this.userData?.username) {
-      els.push(this.buildIconButton(cornerX, pillTop + pillH / 2, pillH,
-        'icon-settings', () => this.showSettingsPopup()).setDepth(12));
-      cornerX -= pillH + 8;
-    }
+    els.push(this.buildIconButton(cornerX, pillTop + pillH / 2, pillH,
+      'icon-settings', () => this.showSettingsPopup()).setDepth(12));
+    cornerX -= pillH + 8;
     els.push(this.buildIconButton(cornerX, pillTop + pillH / 2, pillH,
       'icon-help', () => this.startWalkthrough()).setDepth(12));
 
@@ -340,6 +344,7 @@ export class MainMenu extends Phaser.Scene {
       Phaser.Geom.Circle.Contains,
     );
     this.mascot.container.on('pointerdown', () => {
+      playSfx('squish');
       this.mascot?.playSquishAnim();
       this.mascot?.setExpression('excited', 1200);
     });
@@ -389,56 +394,94 @@ export class MainMenu extends Phaser.Scene {
     return shell.container;
   }
 
-  // ── Settings popup — currently one setting: the Splotter Flair toggle.
-  // Same outside-uiLayer popup pattern as the Shop's confirms: dim overlay
-  // that closes on tap, beige shell, derived-from-popW/popH metrics. ────────
-  private showSettingsPopup() {
+  // ── Settings popup — sound toggles (SFX / Music) for everyone, plus the
+  // Splotter Flair toggle for logged-in players. Same outside-uiLayer popup
+  // pattern as the Shop's confirms: dim overlay that closes on tap, beige
+  // shell, derived-from-popW/popH metrics. ──────────────────────────────────
+  private showSettingsPopup(silent = false) {
     this.closeActivePopup();
+    if (!silent) playSfx('pause');
     const { width, height } = this.scale;
     const cx = width / 2, cy = height / 2;
+    const loggedIn = !!this.userData?.username;
     const popW = Math.min(width - 48, 360);
-    const popH = Math.min(height - 56, 300);
     const items: Phaser.GameObjects.GameObject[] = [];
 
+    // The card height derives from its measured content (rows + the flair
+    // blurb), not a guess — a fixed height either strands beige below the
+    // guest's two rows or clips the blurb in short landscape viewports.
+    const rows = loggedIn ? 3 : 2;
+    const btnH = 46, rowGap = 10, titleZone = 54, bottomPad = 22;
+    const descFs = Math.max(11, Math.min(14, Math.round(popW * 0.04)));
+    let descText: Phaser.GameObjects.Text | null = null;
+    if (loggedIn) {
+      descText = this.add.text(0, 0,
+        'Splotter Flair shows your streak and slime tier next to your name in this community.', {
+          // #40301F, not the lighter #75604C often seen for muted copy elsewhere —
+          // this sits on the beige popup shell, where the lighter tone reads too
+          // close to the background to be legible.
+          fontFamily: PIXELIFY, fontSize: `${descFs}px`, color: '#40301F',
+          align: 'center', wordWrap: { width: popW - 56 },
+        }).setOrigin(0.5, 0);
+    }
+    const descH = descText ? descText.height + 10 : 0;
+    const rowsH = rows * (btnH + rowGap) - rowGap;
+    let popH = titleZone + rowsH + descH + bottomPad;
+    // Short viewports: the blurb is the first thing to go (the Flair toggle
+    // still says everything essential); the rows never shrink or clip.
+    if (popH > height - 40 && descText) {
+      descText.destroy();
+      descText = null;
+      popH = titleZone + rowsH + bottomPad;
+    }
+    popH = Math.min(popH, height - 40);
+
     const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.55).setInteractive();
-    overlay.on('pointerup', () => this.closeActivePopup());
+    overlay.on('pointerup', () => { playSfx('menuOut'); this.closeActivePopup(); });
     items.push(overlay);
 
     const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
-    const content: Phaser.GameObjects.GameObject[] = [];
-
     const titleFs = Math.max(14, Math.min(20, Math.round(popW * 0.06)));
-    content.push(this.add.text(0, -popH * 0.32, 'Settings', {
+    shell.addContent([this.add.text(0, -popH / 2 + 28, 'Settings', {
       fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0.5));
-
-    const descFs = Math.max(12, Math.min(15, Math.round(popW * 0.045)));
-    content.push(this.add.text(0, -popH * 0.08,
-      'Splotter Flair shows your streak and slime tier next to your name in this community.', {
-        // #40301F, not the lighter #75604C often seen for muted copy elsewhere —
-        // this sits on the beige popup shell, where the lighter tone reads too
-        // close to the background to be legible.
-        fontFamily: PIXELIFY, fontSize: `${descFs}px`, color: '#40301F',
-        align: 'center', wordWrap: { width: popW - 56 },
-      }).setOrigin(0.5));
-
-    shell.addContent(content);
+    }).setOrigin(0.5)]);
     items.push(shell.container);
 
-    // Toggle reads the cached preference; setFlairPref flips it optimistically
-    // and reopens the popup right away (reverting if the server says no).
-    const enabled = this.userData?.flairEnabled !== false;
-    const btnW = Math.min(popW - 48, 220);
-    const btnH = Math.max(46, Math.min(60, Math.round(popH * 0.20)));
+    // Toggle rows. Sound prefs flip locally in audio.ts (persisted server-side
+    // for logged-in players) and the popup re-renders silently to show the new
+    // state; flair round-trips through setFlairPref's optimistic flow.
+    const btnW = Math.min(popW - 48, 240);
     const btnFs = Math.max(13, Math.round(btnH * 0.30));
-    items.push(addBeigeButton(this, {
-      x: cx, y: cy + popH / 2 - btnH * 0.9, width: btnW, height: btnH,
-      label: enabled ? 'Flair: ON' : 'Flair: OFF',
-      iconKey: enabled ? 'icon-check' : 'icon-cross',
-      fontSize: btnFs, fontFamily: PIXELIFY, forceSmall: true,
-      onClick: () => void this.setFlairPref(!enabled),
-    }));
+    let rowY = cy - popH / 2 + titleZone + btnH / 2;
+    const toggleRow = (label: string, on: boolean, onClick: () => void) => {
+      items.push(addBeigeButton(this, {
+        x: cx, y: rowY, width: btnW, height: btnH,
+        label: `${label}: ${on ? 'ON' : 'OFF'}`,
+        iconKey: on ? 'icon-check' : 'icon-cross',
+        fontSize: btnFs, fontFamily: PIXELIFY, forceSmall: true,
+        onClick,
+      }));
+      rowY += btnH + rowGap;
+    };
+
+    toggleRow('Sound FX', isSfxOn(), () => {
+      setSfxOn(!isSfxOn());
+      this.showSettingsPopup(true);
+    });
+    toggleRow('Music', isMusicOn(), () => {
+      setMusicOn(!isMusicOn());
+      this.showSettingsPopup(true);
+    });
+
+    if (loggedIn) {
+      const enabled = this.userData?.flairEnabled !== false;
+      toggleRow('Flair', enabled, () => void this.setFlairPref(!enabled));
+      if (descText) {
+        descText.setPosition(cx, rowY - btnH / 2 + 4);
+        items.push(descText);
+      }
+    }
 
     this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0).setScale(0.9);
     this.tweens.add({ targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1, duration: 180, ease: 'Back.easeOut' });
@@ -456,7 +499,7 @@ export class MainMenu extends Phaser.Scene {
       this.userData = { ...this.userData, flairEnabled: enabled };
       setCachedUserData(this.userData);
     }
-    if (this.activePopup) this.showSettingsPopup();
+    if (this.activePopup) this.showSettingsPopup(true);
 
     let status = 0;
     try {
@@ -475,7 +518,7 @@ export class MainMenu extends Phaser.Scene {
       setCachedUserData(prev);
     }
     if (this.navigating) return;
-    if (this.activePopup) this.showSettingsPopup();
+    if (this.activePopup) this.showSettingsPopup(true);
     if (status === 401) {
       try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
     }
