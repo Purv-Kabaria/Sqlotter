@@ -13,7 +13,7 @@ let inflight: Promise<InitResponse | null> | null = null;
 export function prefetchUserData(): Promise<InitResponse | null> {
   inflight ??= (async () => {
     try {
-      const res = await fetch('/api/init');
+      const res = await fetch('/api/init', { signal: AbortSignal.timeout(6000) });
       if (!res.ok) return null;
       const data: InitResponse = await res.json();
       cached = data;

@@ -49,6 +49,14 @@ export const SFX_FILES = {
 
 export type SfxName = keyof typeof SFX_FILES;
 
+// The handful of UI sounds the Preloader keeps on the boot critical path
+// (~130KB) so the very first tap clicks even on a slow connection. Everything
+// else — the remaining SFX and the 2MB music loop — streams in the background
+// AFTER the game is interactive (see streamAudio), because on a slow network
+// audio was 5x the weight of the entire art set and none of it is worth
+// making the player stare at a progress bar for.
+export const CORE_SFX: readonly SfxName[] = ['click', 'menuIn', 'menuOut', 'cancel', 'pause'];
+
 const MUSIC_KEY = 'bgm';
 const MUSIC_VOLUME = 0.35;   // under the SFX, which run at ~1.0
 const SFX_VOLUME = 0.9;
@@ -71,6 +79,31 @@ let settingsApplied = false;
 /** Called once by the Preloader after load; remembers the game for the sound manager. */
 export function initAudio(g: Phaser.Game): void {
   game = g;
+}
+
+/**
+ * Streams every sound not yet cached through the given scene's loader —
+ * the non-core SFX and the music, kept off the Preloader's critical path.
+ * Safe to call from any scene's create(): it no-ops once everything is
+ * cached, and re-queues whatever a mid-stream scene shutdown aborted (missing
+ * sounds are silently skipped by playSfx in the meantime, never a gate).
+ * Music starts the moment bgm lands, if enabled.
+ */
+export function streamAudio(scene: Phaser.Scene): void {
+  if (!game) return;
+  const missing = (Object.keys(SFX_FILES) as SfxName[])
+    .filter((name) => !game!.cache.audio.exists(`sfx-${name}`));
+  const needBgm = !game.cache.audio.exists(MUSIC_KEY);
+  if (missing.length === 0 && !needBgm) return;
+
+  scene.load.setPath('sounds');
+  for (const name of missing) scene.load.audio(`sfx-${name}`, SFX_FILES[name]);
+  if (needBgm) scene.load.audio(MUSIC_KEY, 'bgm.mp3');
+  scene.load.setPath('assets'); // restore the project-wide loader default
+  if (needBgm) {
+    scene.load.once(Phaser.Loader.Events.COMPLETE, () => startMusic());
+  }
+  scene.load.start();
 }
 
 /** Seed prefs from /api/init exactly once (first writer wins). */
@@ -104,7 +137,7 @@ function saveSettings(): void {
   const body: SoundSettingsRequest = { sfx: sfxOn, music: musicOn };
   void fetch('/api/user/settings', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
   }).catch(() => { /* offline / guest — session-only */ });
 }
 

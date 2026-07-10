@@ -569,9 +569,12 @@ no dead ends, celebrate wins loudly.
 splashes splash, goggles shatter like glass, pumpkins crunch, refusals buzz, wins
 power up, stars pip at rising pitch, dailies open with an evil laugh — plus an 84s
 music loop that plays seamlessly across scenes. All SFX are silence-trimmed mono
-WAVs decoded into Web Audio buffers at load, so playback is zero-latency. SFX and
-Music each have a toggle in the home page's settings popup (shown to guests too);
-preferences persist to Redis for logged-in players.
+WAVs decoded into Web Audio buffers, so playback is zero-latency — and only a
+~130KB core UI set rides the boot critical path; the rest (and the 2MB music)
+streams in the background after the game is interactive, so slow connections
+reach the menu roughly twice as fast. SFX and Music each have a toggle in the
+home page's settings popup (shown to guests too); preferences persist to Redis
+for logged-in players.
 
 ---
 

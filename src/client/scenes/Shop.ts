@@ -102,6 +102,8 @@ export class Shop extends Phaser.Scene {
   // button, and gates buyItem/equipItem's async continuations from rebuilding
   // the UI after the player has already navigated away mid-request.
   private navigating = false;
+  // Debounces the heavy relayout during continuous RESIZE events (window drag).
+  private resizeRebuild: Phaser.Time.TimerEvent | null = null;
 
   // Geometry-mask source for the scroll viewport — not part of the display list,
   // so it must be destroyed manually on every rebuild.
@@ -1147,6 +1149,7 @@ export class Shop extends Phaser.Scene {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slot: item.slot, itemId: item.id }),
+        signal: AbortSignal.timeout(8000),
       });
       // The player may have tapped Home while this request was in flight —
       // don't rebuild UI/touch the scene after it's already shut down.
@@ -1187,6 +1190,7 @@ export class Shop extends Phaser.Scene {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId: item.id }),
+        signal: AbortSignal.timeout(8000),
       });
       // The player may have tapped Home while this request was in flight —
       // don't rebuild UI/touch the scene after it's already shut down.
@@ -1375,11 +1379,16 @@ export class Shop extends Phaser.Scene {
     this.repositionBgLayers(gameSize.width, gameSize.height);
     this.clearToasts();
     // The buy-confirm popup is sized/positioned once from the viewport at open
-    // time and, like toasts, isn't part of uiLayer so buildUI() below won't
+    // time and, like toasts, isn't part of uiLayer so the rebuild below won't
     // touch it — closing it here avoids the same staleness (or being pushed
     // fully off-screen on a rotation/resize) rather than leaving it frozen.
     this.closeActivePopup();
-    this.buildUI();
+    // Full rebuild debounced — RESIZE mode streams events during a window drag.
+    this.resizeRebuild?.remove();
+    this.resizeRebuild = this.time.delayedCall(120, () => {
+      this.resizeRebuild = null;
+      this.buildUI();
+    });
   }
 
   shutdown() {

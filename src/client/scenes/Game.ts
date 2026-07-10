@@ -14,7 +14,7 @@ import { getCuratedLevels } from '../../shared/levelData';
 import { recordCompletion } from '../levelProgress';
 import { BASE_COLOR, maskIdOf, MAX_WORN, standardPaints, standardPumpkins } from '../../shared/slimeSim';
 import type { ActionKind } from '../../shared/slimeSim';
-import { playSfx, startMusic } from '../audio';
+import { playSfx, startMusic, streamAudio } from '../audio';
 
 // Tutorial modals ("Splash Course" levels) show once per page load per level —
 // replaying a lesson or resetting it doesn't re-interrupt the player.
@@ -195,6 +195,9 @@ export class Game extends Phaser.Scene {
   private tooltipTimer: Phaser.Time.TimerEvent | null = null;
   private tooltipSticky = false;
   private suppressNextTileTap = false;
+  // Debounces the heavy relayout while RESIZE-mode events stream in
+  // continuously during a desktop window drag (see onResize).
+  private resizeRebuild: Phaser.Time.TimerEvent | null = null;
 
   constructor() { super('Game'); }
 
@@ -228,8 +231,10 @@ export class Game extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(C.HEADER_BG);
     this.cameras.main.fadeIn(300, 10, 5, 14);
     this.scale.on('resize', this.onResize, this);
-    // Deep-linked level posts land here without passing MainMenu — the music
-    // loop starts from whichever scene the player reaches first (no-op if on).
+    // Deep-linked level posts land here without passing MainMenu — stream the
+    // deferred SFX/music (no-op once cached) and keep the loop alive from
+    // whichever scene the player reaches first.
+    streamAudio(this);
     startMusic();
 
     this.buildBackground();
@@ -254,7 +259,7 @@ export class Game extends Phaser.Scene {
 
   private async fetchDailyAndStart(token: number) {
     try {
-      const res = await fetch('/api/daily');
+      const res = await fetch('/api/daily', { signal: AbortSignal.timeout(8000) });
       if (res.ok) {
         const data = await res.json() as { levelId: string; level: LevelData };
         this.levelId = data.levelId;
@@ -1570,24 +1575,32 @@ export class Game extends Phaser.Scene {
   // ── Resize ────────────────────────────────────────────────────────────────
   private onResize(gs: Phaser.Scale.ScaleManager | { width: number; height: number }) {
     const { width, height } = gs instanceof Phaser.Scale.ScaleManager ? gs : gs;
+    // Cheap work runs per event so the canvas never shows bars or stale
+    // overlays mid-drag; the full relayout (HUD + cards + palette — hundreds
+    // of objects) debounces until the size settles, because RESIZE mode
+    // streams events continuously while a desktop window edge is dragged.
     this.cameras.resize(width, height);
     this.buildBackground();
     this.hideTooltip();
-    if (this.engine) {
-      this.buildHUD();
-      this.buildGameArea();
-      this.buildPalette();
-      // Tile positions moved — re-anchor the coach panel and target glow.
-      this.updateGuide();
-    }
-    // Popups are laid out for the old viewport: re-show the tutorial modal at
-    // the new size (closing it would start the attempt clock mid-read); the
-    // pickers just close — they're a transient choice, same as MainMenu/Shop.
-    if (this.activeTutorial) {
-      this.showTutorialModal(this.activeTutorial.text, this.activeTutorial.onDismiss);
-    } else {
-      this.closeActivePopup();
-    }
+    this.resizeRebuild?.remove();
+    this.resizeRebuild = this.time.delayedCall(120, () => {
+      this.resizeRebuild = null;
+      if (this.engine) {
+        this.buildHUD();
+        this.buildGameArea();
+        this.buildPalette();
+        // Tile positions moved — re-anchor the coach panel and target glow.
+        this.updateGuide();
+      }
+      // Popups are laid out for the old viewport: re-show the tutorial modal at
+      // the new size (closing it would start the attempt clock mid-read); the
+      // pickers just close — they're a transient choice, same as MainMenu/Shop.
+      if (this.activeTutorial) {
+        this.showTutorialModal(this.activeTutorial.text, this.activeTutorial.onDismiss);
+      } else {
+        this.closeActivePopup();
+      }
+    });
   }
 
   shutdown() {

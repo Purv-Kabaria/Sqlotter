@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { streamAudio } from '../audio';
 import { addBeigeButton, addBeigeButtonShell, addDepthIcon, BODY_FONT } from '../components/PixelUI';
 import { getCuratedLevels, LEVELS_PER_WORLD, WORLDS_META } from '../../shared/levelData';
 import type { WorldMeta } from '../../shared/levelData';
@@ -82,6 +83,8 @@ export class LevelSelect extends Phaser.Scene {
   // button, or tapping a level button and the back arrow in quick succession,
   // from queuing more than one scene transition.
   private navigating = false;
+  // Debounces the heavy relayout during continuous RESIZE events (window drag).
+  private resizeRebuild: Phaser.Time.TimerEvent | null = null;
 
   constructor() { super('LevelSelect'); }
 
@@ -121,6 +124,9 @@ export class LevelSelect extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(0x0c1238);
     this.cameras.main.fadeIn(350, 10, 14, 46);
+    // Re-queue any deferred sounds a mid-stream scene change aborted (no-op
+    // once everything is cached).
+    streamAudio(this);
 
     this.buildBackground();
 
@@ -809,7 +815,12 @@ export class LevelSelect extends Phaser.Scene {
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.resize(gameSize.width, gameSize.height);
     this.repositionBgLayers(gameSize.width, gameSize.height);
-    this.buildPage();
+    // Full page rebuild debounced — RESIZE mode streams events during a drag.
+    this.resizeRebuild?.remove();
+    this.resizeRebuild = this.time.delayedCall(120, () => {
+      this.resizeRebuild = null;
+      this.buildPage();
+    });
   }
 
   shutdown() {

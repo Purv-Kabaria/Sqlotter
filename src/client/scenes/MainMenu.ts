@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
-import { applyStoredSettings, isMusicOn, isSfxOn, playSfx, setMusicOn, setSfxOn, startMusic } from '../audio';
+import { applyStoredSettings, isMusicOn, isSfxOn, playSfx, setMusicOn, setSfxOn, startMusic, streamAudio } from '../audio';
 import { SplotMascot } from '../components/SplotMascot';
 import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import type { InitResponse } from '../../shared/api';
@@ -29,6 +29,8 @@ export class MainMenu extends Phaser.Scene {
   private activePopup: Phaser.GameObjects.Container | null = null;
   // Guards the flair-preference POST against double-taps on the toggle.
   private flairBusy = false;
+  // Debounces the heavy relayout during continuous RESIZE events (window drag).
+  private resizeRebuild: Phaser.Time.TimerEvent | null = null;
   // Guards every scene.start(...) call — prevents double-clicking a menu
   // button (or clicking two) from queuing more than one scene transition —
   // and gates loadUserData()'s async continuation from rebuilding the UI
@@ -60,8 +62,10 @@ export class MainMenu extends Phaser.Scene {
     this.buildBackground();
     this.buildUI();
     this.scale.on('resize', this.onResize, this);
-    // The music loop is game-global — started here (or by a deep-linked Game
-    // scene) it keeps playing across every scene until toggled off.
+    // Stream the deferred SFX + music in the background (no-op once cached),
+    // then keep the game-global loop alive — started here (or by a
+    // deep-linked Game scene) it plays across every scene until toggled off.
+    streamAudio(this);
     startMusic();
 
     void this.loadUserData();
@@ -84,7 +88,7 @@ export class MainMenu extends Phaser.Scene {
 
   private async loadUserData() {
     try {
-      const res = await fetch('/api/init');
+      const res = await fetch('/api/init', { signal: AbortSignal.timeout(6000) });
       if (this.navigating || !res.ok) return;
       const fresh = await res.json() as InitResponse;
       if (this.navigating) return;
@@ -507,6 +511,9 @@ export class MainMenu extends Phaser.Scene {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
+        // Flair syncs against Reddit and can be genuinely slow — but a hung
+        // request must still resolve so the optimistic flip can revert.
+        signal: AbortSignal.timeout(10000),
       });
       status = res.status;
     } catch { /* network failure → revert below */ }
@@ -638,7 +645,12 @@ export class MainMenu extends Phaser.Scene {
     // The settings popup is sized from the viewport at open time and isn't
     // part of uiLayer — close it rather than leave it at stale coordinates.
     this.closeActivePopup();
-    this.buildUI();
+    // Full rebuild debounced — RESIZE mode streams events during a window drag.
+    this.resizeRebuild?.remove();
+    this.resizeRebuild = this.time.delayedCall(120, () => {
+      this.resizeRebuild = null;
+      this.buildUI();
+    });
   }
 
   shutdown() {

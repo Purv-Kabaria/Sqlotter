@@ -51,6 +51,8 @@ export class Leaderboard extends Phaser.Scene {
   // Guards every scene.start(...) call — prevents double-tapping back, and
   // gates the in-flight fetch from touching a scene that's already shut down.
   private navigating = false;
+  // Debounces the heavy relayout during continuous RESIZE events (window drag).
+  private resizeRebuild: Phaser.Time.TimerEvent | null = null;
 
   // Scrollable list state — same applyRectClip + drag/wheel pattern Shop.ts
   // uses for its item grid, simplified to a single column.
@@ -466,8 +468,15 @@ export class Leaderboard extends Phaser.Scene {
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.resize(gameSize.width, gameSize.height);
     this.repositionBgLayers(gameSize.width, gameSize.height);
-    this.buildUI();
-    void this.loadAndRender();
+    // Debounced: RESIZE mode streams events during a window drag, and this
+    // rebuild used to REFETCH the leaderboard per event — one network request
+    // per pixel of drag. Now one rebuild + one fetch once the size settles.
+    this.resizeRebuild?.remove();
+    this.resizeRebuild = this.time.delayedCall(120, () => {
+      this.resizeRebuild = null;
+      this.buildUI();
+      void this.loadAndRender();
+    });
   }
 
   shutdown() {

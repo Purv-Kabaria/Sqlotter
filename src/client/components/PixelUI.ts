@@ -299,7 +299,13 @@ export function addBeigeButtonShell(
       })
       .on('pointerup', () => {
         swapBg('btn-hover');
-        scene.tweens.add({ targets: visual, y: -3, scaleX: 1, scaleY: 1, duration: 70, onComplete: onClick });
+        // Release tween is purely cosmetic — the action fires on the next
+        // tick (outside input dispatch, so a handler that destroys this very
+        // button is safe) instead of waiting out the tween. Chaining onClick
+        // off onComplete added 70ms of artificial input lag to every button
+        // in the game.
+        scene.tweens.add({ targets: visual, y: -3, scaleX: 1, scaleY: 1, duration: 70 });
+        scene.time.delayedCall(0, onClick);
       });
   }
 

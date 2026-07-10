@@ -5,7 +5,7 @@ import { paintOverlayShine } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
 import { prefetchUserData } from '../userData';
 import { loadGameFonts } from '../fonts';
-import { applyStoredSettings, initAudio, SFX_FILES } from '../audio';
+import { applyStoredSettings, CORE_SFX, initAudio, SFX_FILES } from '../audio';
 
 // All asset definitions to load
 type AssetDef = { key: string; path: string };
@@ -255,16 +255,15 @@ export class Preloader extends Scene {
     // the 65px floor the 32px-corner assets require (e.g. the HUD sparks pill)
     for (const pos of slicePos) this.load.image(`btn-open-sm-${pos}`, `ui/slices/btn-open-sm-${pos}.png`);
 
-    // ── Sounds — only the files audio.ts actually maps get downloaded. WAVs
-    // decode into Web Audio buffers here, up-front, so every playSfx() later
-    // starts on the exact audio tick (no fetch, no decode, no latency). The
-    // music is one MP3 loop; audio.ts loops a marker inside it to skip the
-    // encoder-delay silence at its head/tail.
+    // ── Sounds — only the tiny CORE UI set (~130KB) rides the boot critical
+    // path, so the first tap clicks even on slow connections. The remaining
+    // SFX and the 2MB music loop stream in the background once a scene is
+    // interactive (audio.streamAudio, called from MainMenu/Game/LevelSelect)
+    // — on a slow network the full audio set was 5x the entire art payload.
+    // WAVs decode into Web Audio buffers at load, so every playSfx() starts
+    // on the exact audio tick (no fetch, no decode, no head silence).
     this.load.setPath('sounds');
-    for (const [name, file] of Object.entries(SFX_FILES)) {
-      this.load.audio(`sfx-${name}`, file);
-    }
-    this.load.audio('bgm', 'bgm.mp3');
+    for (const name of CORE_SFX) this.load.audio(`sfx-${name}`, SFX_FILES[name]);
     this.load.setPath('assets');
 
     this.load.on('progress', (p: number) => {

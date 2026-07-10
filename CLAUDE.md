@@ -172,6 +172,12 @@ POST /api/user/settings for logged-in players, seeded from /api/init), and the
 music loop (a marker skips the MP3's silent head/tail so the wrap is seamless).
 Every beige button clicks on pointerdown via PixelUI; game events play through
 `playSfx(name)`. Unused files (guns/sirens/screams etc.) ship but never load.
+**Loading split**: only CORE_SFX (~130KB of UI ticks) rides the Preloader;
+the rest + the 2MB bgm stream in the background via `streamAudio(scene)`
+(called from MainMenu/Game/LevelSelect create — idempotent, re-queues after
+aborted loads; playSfx silently skips still-missing keys, music self-starts
+when bgm lands). Audio must NEVER go back on the boot critical path — it was
+5x the weight of the entire art set.
 
 ---
 

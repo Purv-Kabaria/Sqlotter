@@ -192,6 +192,8 @@ export class Editor extends Phaser.Scene {
   // True while a publish POST is in flight (or has succeeded) — publishing
   // creates a Reddit post, so a double-tap must never fire twice.
   private publishing = false;
+  // Debounces the heavy relayout during continuous RESIZE events (window drag).
+  private resizeRebuild: Phaser.Time.TimerEvent | null = null;
 
   // Text scale factor. The design's fixed 9-13px text is sized for phones;
   // tablets render the same canvas units on a much larger physical screen,
@@ -250,7 +252,12 @@ export class Editor extends Phaser.Scene {
 
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.resize(gameSize.width, gameSize.height);
-    this.buildUI();
+    // Full rebuild debounced — RESIZE mode streams events during a window drag.
+    this.resizeRebuild?.remove();
+    this.resizeRebuild = this.time.delayedCall(120, () => {
+      this.resizeRebuild = null;
+      this.buildUI();
+    });
   }
 
   // ── Full layout (re)build ───────────────────────────────────
@@ -1000,6 +1007,9 @@ export class Editor extends Phaser.Scene {
           solution:     [...this.actions],
           ...(hint ? { hint } : {}),
         }),
+        // Publishing does real work server-side (validation + a Reddit post) —
+        // generous cap, but a hung request must still free the Publish button.
+        signal: AbortSignal.timeout(15000),
       });
 
       // The player may have already navigated away (e.g. tapped back) while

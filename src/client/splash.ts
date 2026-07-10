@@ -64,9 +64,11 @@ if (launchLevelId) {
 
 void (async () => {
   try {
+    // Timeouts so a stalled connection falls through to the catch's friendly
+    // default instead of leaving the placeholder copy up forever.
     const [initRes, dailyRes] = await Promise.all([
-      fetch('/api/init'),
-      fetch('/api/daily'),
+      fetch('/api/init', { signal: AbortSignal.timeout(6000) }),
+      fetch('/api/daily', { signal: AbortSignal.timeout(6000) }),
     ]);
 
     if (initRes.ok) {
