@@ -175,7 +175,7 @@ Key formula: `mod-pumpkin-${coverage}`.
 |------|-----|
 | `modifiers/underwear.png` | `mod-underwear` |
 | `modifiers/plate.png` | `mod-plate` |
-| `modifiers/rainbow-cone.png` | `mod-cone` |
+| `modifiers/cone.png` | `mod-cone` |
 
 ### Scarf
 
@@ -334,9 +334,9 @@ Icons are used in buttons (via `addDepthIcon`), HUD, and the modifier palette.
 | `icon-belt-thin`     | `icons/puzzle/belt-thin.png`     | `belt` thin |
 | `icon-nose`          | `icons/puzzle/nose.png`          | `nose` |
 | `icon-plate`         | `icons/puzzle/plate.png`         | `plate` |
-| `icon-cone`          | `icons/puzzle/rainbow-cone.png`  | `cone` |
+| `icon-cone`          | `icons/puzzle/cone.png`          | `cone` |
 | `icon-scarf`         | `icons/puzzle/scarf.png`         | `scarf` (one icon; tiles add an orientation arrow) |
-| `icon-bubble`        | `icons/puzzle/bubble.png`        | `bubble` — **art not delivered yet** |
+| `icon-bubble`        | `icons/puzzle/bubble.png`        | `bubble` |
 
 The last five load tolerantly via `OPTIONAL_PUZZLE_ICONS` in `Preloader.ts`:
 a missing file just 404s and the palette tile falls back to drawing the modifier

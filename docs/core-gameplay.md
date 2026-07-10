@@ -134,7 +134,7 @@ What each mask protects (measured on the 64×64 grid, % of body cells):
 | `goggles-*-mono` | monocle band | ~19% |
 | `pendant-h` / `pendant-v` | chest charm | ~19% |
 | `plate` | large dish shape | large |
-| `cone` | rainbow snow-cone shape | large |
+| `cone` | inverted-triangle cone shape | large |
 | `scarf` | wrap-around band (left/right variants mirror the art, one shared mask) | medium |
 | `nose-small/medium/big` | nose area, one mask per size | grows per splash |
 | `bubble-inner` | region the bubble dips (not a worn mask) | inner circle |

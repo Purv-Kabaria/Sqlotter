@@ -45,7 +45,7 @@ const IMG: AssetDef[] = [
   { key: 'mod-nose-big',    path: 'modifiers/nose-big.png' },
   { key: 'mod-bubble',      path: 'modifiers/bubble.png' },
   { key: 'mod-plate',       path: 'modifiers/plate.png' },
-  { key: 'mod-cone',        path: 'modifiers/rainbow-cone.png' },
+  { key: 'mod-cone',        path: 'modifiers/cone.png' },
   { key: 'mod-scarf',       path: 'modifiers/scarf-right.png' },
 
   // ── Character / Splot ─────────────────────────────
@@ -192,7 +192,7 @@ export const DEFERRED_IMG: AssetDef[] = [
 // key only when the real file didn't load (makeZoomIcon yields to it).
 export const OPTIONAL_PUZZLE_ICONS: AssetDef[] = [
   { key: 'icon-scarf',  path: 'icons/puzzle/scarf.png' },
-  { key: 'icon-cone',   path: 'icons/puzzle/rainbow-cone.png' }, // matches modifiers/rainbow-cone.png naming
+  { key: 'icon-cone',   path: 'icons/puzzle/cone.png' },
   { key: 'icon-bubble', path: 'icons/puzzle/bubble.png' },
   { key: 'icon-nose',   path: 'icons/puzzle/nose.png' },
   { key: 'icon-plate',  path: 'icons/puzzle/plate.png' },

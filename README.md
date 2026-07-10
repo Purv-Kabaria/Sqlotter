@@ -159,7 +159,7 @@ Magenta, Pink, Maroon, Olive, Gray, Black. A level's palette lists which pots it
 | Pumpkin | 25, 50, 75 | ~17% / ~48% / ~92% from the top down | all three sizes always available; **one pumpkin at a time** — tapping another size swaps it in a single move |
 | Underwear | — | ~27% hips | |
 | Plate | — | large dish shape | |
-| Cone | — | rainbow snow-cone shape | |
+| Cone | — | inverted-triangle cone shape | |
 | Scarf | left / right | wrap-around band | one coverage mask; the variant mirrors the art and the palette tile's arrow shows the direction |
 
 **Wear-stacking rules** (`MAX_WORN`): Splot wears at most **3 stencils at once**.

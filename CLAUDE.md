@@ -120,7 +120,7 @@ modifiers/
   horizontal-belt-thick.png      vertical-belt-thick.png
   horizontal-belt-thin.png       vertical-belt-thin.png
   pumpkin-25.png  pumpkin-50.png  pumpkin-75.png
-  underwear.png   plate.png       rainbow-cone.png
+  underwear.png   plate.png       cone.png
   scarf-left.png  scarf-right.png bubble.png
   nose-small.png  nose-medium.png nose-big.png
 ```
@@ -154,8 +154,8 @@ icons/gameplay/    play, pause, timer, reset
 icons/puzzle/      paint, pendent, glasses-thick, glasses-thin,
                    goggles-thin, goggles-thick, goggle, pumpkin,
                    underwear, belt-thick, belt-thin, nose, plate,
-                   rainbow-cone, scarf  (bubble.png not delivered yet —
-                   Preloader loads these tolerantly via OPTIONAL_PUZZLE_ICONS)
+                   cone, scarf, bubble  (the newer ones load tolerantly
+                   via OPTIONAL_PUZZLE_ICONS in Preloader)
 icons/hud/         heart, spark, star, fire
 icons/community/   people, trophy, pencil, gold, silver, bronze
 icons/shop/        bag, lock, unlock, price

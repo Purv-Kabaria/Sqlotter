@@ -19,7 +19,7 @@ import {
 // Bump when the level set changes incompatibly — the app-upgrade trigger wipes
 // level progress (completions/stars/streaks/level leaderboards) on a mismatch
 // so nobody keeps stars for levels that no longer exist.
-export const LEVELS_VERSION = '9-pumpkin-swap';
+export const LEVELS_VERSION = '10-true-cone';
 
 export const LEVELS_PER_WORLD = 16; // max per world (grid capacity)
 

@@ -59,7 +59,7 @@ MASKS = {
     'nose-medium':     'modifiers/nose-medium.png',
     'nose-big':        'modifiers/nose-big.png',
     'plate':           'modifiers/plate.png',
-    'cone':            'modifiers/rainbow-cone.png',
+    'cone':            'modifiers/cone.png',
     # scarf-left.png is a whole scarf-wearing ball (100% body coverage — no use
     # as a stencil); only scarf-right.png is a clean diagonal band.
     'scarf':           'modifiers/scarf-right.png',
