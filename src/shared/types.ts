@@ -54,7 +54,9 @@ export type LevelData = {
   isDaily?: boolean;
 };
 
-export type Stars = 1 | 2 | 3;
+// 0 is a real outcome: blowing past every move-limit tier still completes the
+// level (and pays base Sparks) — it just banks no stars.
+export type Stars = 0 | 1 | 2 | 3;
 
 export type CompletionData = {
   levelId: string;

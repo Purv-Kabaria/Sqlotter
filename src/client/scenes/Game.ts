@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { LevelEngine, calcStars } from '../engine/LevelEngine';
+import { LevelEngine, calcStars, currentMoveTier } from '../engine/LevelEngine';
 import {
   addBeigeBadge, addBeigeButton, addBeigeButtonShell, addBeigeSolidCard,
   addDarkPanel, addDepthIcon, BODY_FONT, PIXEL_FONT,
@@ -9,9 +9,9 @@ import { SplotMascot } from '../components/SplotMascot';
 import { paintOverlayShine } from '../components/overlayShine';
 import type { EditorDraft } from './Editor';
 import type { LevelData, ModifierDef } from '../../shared/types';
-import type { CompleteRequest, CompleteResponse } from '../../shared/api';
-import { getCuratedLevels } from '../../shared/levelData';
-import { recordCompletion } from '../levelProgress';
+import type { CompleteRequest, CompleteResponse, ProgressGetResponse, ProgressSaveRequest } from '../../shared/api';
+import { getCuratedLevels, WORLD_NAMES } from '../../shared/levelData';
+import { clearWipAttempt, getWipAttempt, recordCompletion, setWipAttempt } from '../levelProgress';
 import { BASE_COLOR, maskIdOf, MAX_WORN, standardPaints, standardPumpkins } from '../../shared/slimeSim';
 import type { ActionKind } from '../../shared/slimeSim';
 import { playSfx, startMusic, streamAudio } from '../audio';
@@ -156,6 +156,13 @@ export class Game extends Phaser.Scene {
 
   private timerText:     Phaser.GameObjects.Text       | null = null;
   private stepsText:     Phaser.GameObjects.Text       | null = null;
+  // Mini stars inside the Moves pill — the stars still on the table for the
+  // current move count. Gray out one tier at a time as limits are crossed.
+  private hudStars: Phaser.GameObjects.Image[] = [];
+  private lastStarsAtStake = 3;
+  // Width budget for the moves label (the star block eats the pill's right
+  // end) — the text scale-fits into it so "Moves: 12/14" can't run under a star.
+  private stepsMaxW = 0;
   private conflictPopup: Phaser.GameObjects.Container  | null = null;
   private timerEvent:    Phaser.Time.TimerEvent        | null = null;
   private loadingText:   Phaser.GameObjects.Text       | null = null;
@@ -198,6 +205,10 @@ export class Game extends Phaser.Scene {
   // Debounces the heavy relayout while RESIZE-mode events stream in
   // continuously during a desktop window drag (see onResize).
   private resizeRebuild: Phaser.Time.TimerEvent | null = null;
+  // Persistent attempts: debounced server sync of the live action log, and a
+  // dedupe key so exit-flush + shutdown can't double-post the same state.
+  private wipSaveTimer: Phaser.Time.TimerEvent | null = null;
+  private lastWipPosted = '';
 
   constructor() { super('Game'); }
 
@@ -224,6 +235,10 @@ export class Game extends Phaser.Scene {
     this.modTooltip = null;
     this.tooltipTimer = null;
     this.suppressNextTileTap = false;
+    this.hudStars = [];
+    this.lastStarsAtStake = 3;
+    this.wipSaveTimer = null;
+    this.lastWipPosted = '';
   }
 
   create() {
@@ -297,6 +312,11 @@ export class Game extends Phaser.Scene {
 
     // Dailies skew devious on purpose — they get to gloat about it.
     if (this.level.isDaily) playSfx('daily', { volume: 0.55 });
+
+    // Persistent attempts: resume the saved log before the timer starts (the
+    // memory copy is instant; the server copy lands async and only applies
+    // while the board is still untouched).
+    this.restoreWip();
 
     const tutorial = this.level.tutorial;
     // The walkthrough exists to teach — its lesson modals always show, even
@@ -419,7 +439,7 @@ export class Game extends Phaser.Scene {
         // The walkthrough came from home — back means home, not the world grid.
         this.goToScene('MainMenu');
       } else {
-        this.goToScene('LevelSelect');
+        this.goBackFromLevel();
       }
     }));
 
@@ -484,8 +504,8 @@ export class Game extends Phaser.Scene {
     return shell.container;
   }
 
-  // "Where am I" line under the level title: daily / UGC author / world+level
-  // parsed from the curated id scheme (w00 is the tutorial world).
+  // "Where am I" line under the level title: daily / UGC author / the world's
+  // proper NAME + level, parsed from the curated id scheme (w00 = tutorial).
   private levelContextLabel(): string {
     const level = this.level;
     if (!level) return '';
@@ -496,7 +516,28 @@ export class Game extends Phaser.Scene {
     if (!match) return '';
     const world = parseInt(match[1]!, 10);
     const lesson = parseInt(match[2]!, 10);
-    return world === 0 ? `Splash Course · Lesson ${lesson}` : `World ${world} · Level ${lesson}`;
+    const name = WORLD_NAMES[world] ?? `World ${world}`;
+    return world === 0 ? `${name} · Lesson ${lesson}` : `${name} · Level ${lesson}`;
+  }
+
+  // Back from a level lands where the level LIVES: dailies came from home,
+  // campaign levels return to their own world's page, community levels to the
+  // finder they were found in. (Preview/walkthrough have their own exits.)
+  private goBackFromLevel() {
+    if (this.level?.isDaily || this.levelId === 'daily' || this.levelId.startsWith('daily-')) {
+      this.goToScene('MainMenu');
+      return;
+    }
+    const match = /^w(\d+)-l\d+$/.exec(this.levelId);
+    if (match) {
+      this.goToScene('LevelSelect', { world: parseInt(match[1]!, 10) });
+      return;
+    }
+    if (this.levelId.startsWith('ugc-')) {
+      this.goToScene('LevelSelect', { page: 'finder' });
+      return;
+    }
+    this.goToScene('LevelSelect');
   }
 
   // ── Game area — the design-mock block: two beige cards (Goal | Current)
@@ -565,8 +606,28 @@ export class Game extends Phaser.Scene {
 
     this.buildPill(goalX, labelY, cardSz, labelH, 'Goal');
     this.buildPill(curX,  labelY, cardSz, labelH, 'Current');
-    this.timerText = this.buildPill(goalX, statY, cardSz, statH, 'Time: 0s');
+    this.timerText = this.buildPill(goalX, statY, cardSz, statH, `Time: ${this.timeLabel()}`);
     this.stepsText = this.buildPill(curX, statY, cardSz, statH, `Moves: ${this.stepsLabel(this.engine.steps)}`);
+
+    // Stars-at-stake indicator, tucked into the Moves pill's right end. Tight
+    // pills (small phones) skip it — the n/limit label still carries the rule.
+    this.hudStars = [];
+    this.stepsMaxW = cardSz - 24;
+    if (cardSz >= 150) {
+      const starSz = Math.min(15, Math.round(statH * 0.34));
+      const block = starSz * 3 + 6;
+      this.stepsMaxW = cardSz - block - 34;
+      this.stepsText.setX(curX - cardSz / 2 + 14).setOrigin(0, 0.5);
+      for (let i = 0; i < 3; i++) {
+        const star = this.add.image(
+          curX + cardSz / 2 - 12 - block + starSz / 2 + i * (starSz + 3), statY, 'icon-star',
+        ).setDisplaySize(starSz, starSz).setDepth(5);
+        this.hudStars.push(star);
+        this.areaObjs.push(star);
+      }
+    }
+    this.fitStepsText();
+    this.paintHudStars(currentMoveTier(this.engine.steps, this.level.optimalSteps).starsAtStake);
 
     // Splot coaches from below the block, sized by the group layout above —
     // only screens too short for a ≥52px mascot go without (reactions stay
@@ -600,26 +661,74 @@ export class Game extends Phaser.Scene {
     return text;
   }
 
-  // Moves pill shows the star target too ("2/4" = two taps against a 4-step
-  // optimum) — the star thresholds are all optimal-relative, so the target is
-  // the single most decision-relevant number on the HUD.
+  // Moves pill shows the LIMIT tier the player is inside ("3/8" = three moves
+  // against the current 8-move limit). The limit is par + a buffer; crossing
+  // it raises the shown limit one tier and costs a star (see gameRules) —
+  // past the last tier the pill drops the limit and just counts.
   private stepsLabel(steps: number): string {
     const optimal = this.level?.optimalSteps;
-    return optimal ? `${steps}/${optimal}` : `${steps}`;
+    if (!optimal) return `${steps}`;
+    const { limit } = currentMoveTier(steps, optimal);
+    return limit === null ? `${steps}` : `${steps}/${limit}`;
+  }
+
+  private timeLabel(): string {
+    const s  = Math.floor((this.engine?.elapsedMs() ?? 0) / 1000);
+    const m  = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return m > 0 ? `${m}:${ss}` : `${s}s`;
+  }
+
+  private paintHudStars(starsAtStake: number) {
+    this.hudStars.forEach((star, i) => {
+      const lit = i < starsAtStake;
+      star.setTint(lit ? 0xFFD700 : 0x4A3A5A).setAlpha(lit ? 1 : 0.55);
+    });
   }
 
   private updateStepsDisplay() {
-    if (!this.stepsText) return;
-    const label = `Moves: ${this.stepsLabel(this.engine?.steps ?? 0)}`;
+    if (!this.stepsText || !this.engine || !this.level) return;
+    const steps = this.engine.steps;
+    const { limit, starsAtStake } = currentMoveTier(steps, this.level.optimalSteps);
+    this.paintHudStars(starsAtStake);
+
+    // Crossing a limit tier: say what changed and what it cost, right as it
+    // happens — and how to claw it back. (A reset RAISES the stakes back up;
+    // that one passes silently, the reset popup already explained it.)
+    if (starsAtStake < this.lastStarsAtStake) {
+      playSfx('lose', { volume: 0.45 });
+      this.showConflictPopup(starsAtStake > 0
+        ? `Over the move limit! It's ${limit} now, and a star is gone. Reset wipes the moves (not the clock).`
+        : 'All stars gone — finish anyway for the Sparks, or Reset to wipe the moves and try again.');
+      const dimmed = this.hudStars[starsAtStake];
+      if (dimmed) {
+        this.tweens.add({ targets: dimmed, scaleX: dimmed.scaleX * 1.6, scaleY: dimmed.scaleY * 1.6, duration: 120, yoyo: true });
+      }
+    }
+    this.lastStarsAtStake = starsAtStake;
+
+    const label = `Moves: ${this.stepsLabel(steps)}`;
     if (this.stepsText.text === label) return;
-    this.stepsText.setText(label);
-    // Micro-pop so the spent move registers without reading the number.
     this.tweens.killTweensOf(this.stepsText);
-    this.stepsText.setScale(1);
+    this.stepsText.setText(label);
+    const base = this.fitStepsText();
+    // Micro-pop so the spent move registers without reading the number —
+    // relative to the fitted scale so long labels don't blow their budget.
     this.tweens.add({
-      targets: this.stepsText, scaleX: 1.18, scaleY: 1.18,
+      targets: this.stepsText, scaleX: base * 1.18, scaleY: base * 1.18,
       duration: 90, yoyo: true, ease: 'Quad.easeOut',
     });
+  }
+
+  /** Scale-fits the moves label into the room the star block leaves; returns the fitted scale. */
+  private fitStepsText(): number {
+    if (!this.stepsText) return 1;
+    this.stepsText.setScale(1);
+    const scale = this.stepsMaxW > 0 && this.stepsText.width > this.stepsMaxW
+      ? this.stepsMaxW / this.stepsText.width
+      : 1;
+    this.stepsText.setScale(scale);
+    return scale;
   }
 
   // ── Modifier palette — dark panel (right column in landscape, bottom sheet
@@ -1195,7 +1304,11 @@ export class Game extends Phaser.Scene {
     // scripted one — advance the lesson to the next step.
     if (this.guideStep >= 0) this.guideStep += 1;
     this.updateGuide();
-    if (result.isWin) void this.handleWin();
+    if (result.isWin) {
+      void this.handleWin();
+    } else {
+      this.scheduleWipSave();
+    }
   }
 
   // The sound of an action that LANDED — keyed off what the sim said happened,
@@ -1214,6 +1327,84 @@ export class Game extends Phaser.Scene {
     } else if (kind === 'remove') {
       playSfx('remove');
     }
+  }
+
+  // ── Persistent attempts ────────────────────────────────────────────────────
+  // Leaving a level mid-attempt must not wipe the work: every logged action
+  // updates the session store immediately and syncs to Redis on a debounce;
+  // coming back restores board, moves and the banked clock. Guided lessons
+  // and editor previews stay ephemeral on purpose — a lesson script resumed
+  // mid-way teaches nothing, and a preview isn't a real attempt.
+  private canPersistAttempt(): boolean {
+    return !this.isPreview && this.guideStep < 0 && !!this.level;
+  }
+
+  private restoreWip() {
+    if (!this.canPersistAttempt() || !this.engine) return;
+    const mem = getWipAttempt(this.levelId);
+    if (mem && this.engine.restore(mem.actions, mem.timeMs)) {
+      this.refreshAfterRestore();
+      return;
+    }
+    // Cross-session copy from Redis — non-blocking, applied only if the board
+    // is still untouched when it lands (a fast player outranks a slow fetch).
+    const token = this.loadToken;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/progress/${encodeURIComponent(this.levelId)}`,
+          { signal: AbortSignal.timeout(2500) });
+        if (!res.ok) return;
+        const data = await res.json() as ProgressGetResponse;
+        if (token !== this.loadToken || this.winHandled || this.navigating) return;
+        if (!this.engine || this.engine.actions.length > 0) return;
+        if (!data.actions || data.actions.length === 0) return;
+        if (this.engine.restore(data.actions, data.timeMs ?? 0)) {
+          setWipAttempt(this.levelId, { actions: data.actions, timeMs: data.timeMs ?? 0 });
+          this.refreshAfterRestore();
+        }
+      } catch { /* fresh start */ }
+    })();
+  }
+
+  private refreshAfterRestore() {
+    if (!this.engine || !this.level) return;
+    // Seed the tier tracker BEFORE the display update so resuming an
+    // over-limit attempt doesn't replay the star-loss popup.
+    this.lastStarsAtStake = currentMoveTier(this.engine.steps, this.level.optimalSteps).starsAtStake;
+    this.currentRenderer?.setPattern(this.level.palette, this.engine.actions);
+    this.timerText?.setText(`Time: ${this.timeLabel()}`);
+    this.updateStepsDisplay();
+    this.buildPalette();
+    this.showConflictPopup('Welcome back — your attempt is right where you left it!', 'info');
+  }
+
+  // Memory copy updates on EVERY action (instant in-session resume); the
+  // Redis POST rides a debounce so a tap flurry costs one request.
+  private scheduleWipSave() {
+    if (!this.canPersistAttempt() || !this.engine || this.winHandled) return;
+    setWipAttempt(this.levelId, { actions: this.engine.actions, timeMs: this.engine.elapsedMs() });
+    this.wipSaveTimer?.remove();
+    this.wipSaveTimer = this.time.delayedCall(2500, () => {
+      this.wipSaveTimer = null;
+      this.postWip();
+    });
+  }
+
+  private postWip() {
+    if (!this.canPersistAttempt() || !this.engine || this.winHandled) return;
+    const actions = this.engine.actions;
+    // Never posts empty: clearing is the win path's job (server-side, in
+    // /api/complete) — an empty post could race the async restore fetch and
+    // delete a save the player was about to resume.
+    if (actions.length === 0) return;
+    const dedupe = `${this.levelId}|${actions.join(',')}`;
+    if (dedupe === this.lastWipPosted) return;
+    this.lastWipPosted = dedupe;
+    const body: ProgressSaveRequest = { levelId: this.levelId, actions, timeMs: this.engine.elapsedMs() };
+    void fetch('/api/progress', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
+    }).catch(() => { /* guest / offline — session store still has it */ });
   }
 
   // Exact mirror of the sim's refusal rules (applySimAction) — the guided
@@ -1457,6 +1648,11 @@ export class Game extends Phaser.Scene {
     if (!this.engine || !this.level || this.winHandled) return;
     this.winHandled = true;
     this.timerEvent?.destroy();
+    // The attempt is no longer "in progress" — drop the session copy and the
+    // pending sync ( /api/complete clears the Redis copy server-side).
+    this.wipSaveTimer?.remove();
+    this.wipSaveTimer = null;
+    clearWipAttempt(this.levelId);
     playSfx('win');
 
     const elapsed = this.engine.elapsedMs();
@@ -1526,6 +1722,11 @@ export class Game extends Phaser.Scene {
   private goToScene(key: string, data?: Record<string, unknown>, fadeOutMs = 250, delayMs = 260) {
     if (this.navigating) return;
     this.navigating = true;
+    // Leaving mid-attempt: the debounced sync dies with the scene, so flush
+    // the save now (no-op after a win or when nothing was played).
+    this.wipSaveTimer?.remove();
+    this.wipSaveTimer = null;
+    this.postWip();
     this.cameras.main.fadeOut(fadeOutMs, 10, 5, 14);
     this.time.delayedCall(delayMs, () => this.scene.start(key, data));
   }
@@ -1548,27 +1749,27 @@ export class Game extends Phaser.Scene {
     this.engine.reset();
     this.currentRenderer?.setPattern(this.level?.palette ?? [], []);
     this.updateStepsDisplay();
+    // Reset trades moves for time: the counter (and the stars it was
+    // costing) starts over, the clock never stops — say so every time, since
+    // that trade IS the decision the button exists for.
+    this.showConflictPopup('Fresh start! Moves are back to 0 — but the clock kept ticking.', 'info');
     this.splot?.setExpression('squiggle', 900);
     this.buildPalette();
     // A guided lesson restarts its script — the slime is bare again, so the
     // remaining steps would no longer produce the goal from here.
     if (this.guideStep >= 0) this.guideStep = 0;
     this.updateGuide();
+    this.scheduleWipSave();
   }
 
   // ── Timer ────────────────────────────────────────────────────────────────
+  // The display reads the ENGINE's clock (not its own start timestamp) so a
+  // restored attempt shows its banked time and a reset visibly doesn't touch it.
   private startTimer() {
     this.timerEvent?.destroy();
-    const start = Date.now();
     this.timerEvent = this.time.addEvent({
       delay: 1000, loop: true,
-      callback: () => {
-        const s  = Math.floor((Date.now() - start) / 1000);
-        const m  = Math.floor(s / 60);
-        const ss = String(s % 60).padStart(2, '0');
-        const label = m > 0 ? `${m}:${ss}` : `${s}s`;
-        this.timerText?.setText(`Time: ${label}`);
-      },
+      callback: () => this.timerText?.setText(`Time: ${this.timeLabel()}`),
     });
   }
 
@@ -1604,6 +1805,9 @@ export class Game extends Phaser.Scene {
   }
 
   shutdown() {
+    // Flush the attempt BEFORE navigating flips (postWip is fetch-based and
+    // outlives the scene); dedupe makes the goToScene flush + this a single POST.
+    this.postWip();
     this.navigating = true; // belt-and-suspenders: block any late goToScene() call
     this.timerEvent?.destroy();
     this.scale.off('resize', this.onResize, this);

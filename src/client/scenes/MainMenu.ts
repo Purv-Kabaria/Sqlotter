@@ -388,7 +388,52 @@ export class MainMenu extends Phaser.Scene {
     const icon = addDepthIcon(this, -contentW / 2 + iconSz / 2, -1, 'icon-spark', iconSz, iconSz);
     this.sparksText.setPosition(-contentW / 2 + iconSz + 6, -1);
     button.add([icon, this.sparksText]);
+    // Tapping the count answers "what is this number?" — Sparks are the
+    // game's currency, and nothing else on the home page says so. (setSize
+    // first: container hit-tests add displayOrigin = size/2 to local coords,
+    // so the top-left-origin rect needs the size to be set — see PixelUI.)
+    button.setSize(w, h);
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains,
+    );
+    button.on('pointerup', () => this.showSparksInfo());
     return { container: button, width: w };
+  }
+
+  // Mini info popup off the sparks pill: what Sparks are, how to earn more,
+  // where to spend them. Same overlay/shell pattern as the settings popup.
+  private showSparksInfo() {
+    this.closeActivePopup();
+    playSfx('menuIn');
+    const { width, height } = this.scale;
+    const cx = width / 2, cy = height / 2;
+    const popW = Math.min(width - 48, 340);
+    const items: Phaser.GameObjects.GameObject[] = [];
+
+    const body = this.add.text(0, 0,
+      'Sparks are Sqlotter\'s currency.\n\nEvery level pays Sparks when you clear it — the FASTER you solve, the more you earn (stars only care about your moves).\n\nSpend them in the Shop to dress up your Splot!', {
+        fontFamily: PIXELIFY, fontSize: '14px', color: '#40301F',
+        align: 'center', wordWrap: { width: popW - 52 },
+      }).setOrigin(0.5, 0);
+    const popH = Math.min(height - 40, 52 + body.height + 24);
+
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.55).setInteractive();
+    overlay.on('pointerup', () => { playSfx('menuOut'); this.closeActivePopup(); });
+    items.push(overlay);
+
+    const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
+    items.push(shell.container);
+    const title = this.add.text(cx, cy - popH / 2 + 26, 'Sparks', {
+      fontFamily: PIXELIFY, fontSize: '19px', color: C.TEXT_DARK, fontStyle: 'bold',
+      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+    }).setOrigin(0.5);
+    const sparkSz = 20;
+    const spark = addDepthIcon(this, cx - title.width / 2 - sparkSz / 2 - 8, cy - popH / 2 + 25, 'icon-spark', sparkSz, sparkSz);
+    body.setPosition(cx, cy - popH / 2 + 48);
+    items.push(title, spark, body);
+
+    this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0).setScale(0.9);
+    this.tweens.add({ targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1, duration: 180, ease: 'Back.easeOut' });
   }
 
   private buildIconButton(x: number, y: number, size: number, iconKey: string, onClick: () => void): Phaser.GameObjects.Container {

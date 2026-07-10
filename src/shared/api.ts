@@ -103,6 +103,14 @@ export type FlairPrefResponse = { enabled: boolean };
 export type SoundSettingsRequest  = { sfx: boolean; music: boolean };
 export type SoundSettingsResponse = { sfx: boolean; music: boolean };
 
+// ── In-progress attempts (persistent levels) ──────────────
+// Backing out of a level must not wipe the work: the client saves the live
+// action log + banked time, and restores it on the next visit. Empty actions
+// clear the save; /api/complete clears it server-side on a win.
+export type ProgressSaveRequest  = { levelId: string; actions: string[]; timeMs: number };
+export type ProgressSaveResponse = { saved: boolean };
+export type ProgressGetResponse  = { actions?: string[]; timeMs?: number };
+
 // ── Leaderboard ───────────────────────────────────────────
 export type LeaderboardResponse = {
   entries: LeaderboardEntry[];

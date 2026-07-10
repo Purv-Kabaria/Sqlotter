@@ -187,8 +187,20 @@ when bgm lands). Audio must NEVER go back on the boot critical path — it was
 1. Player loads a level (from curated set, daily, or user-generated)
 2. See the **goal pattern** — a BARE slime painted in zones of color (never with modifiers attached)
 3. Tap palette items: **paint** splashes color over everything unprotected; **stencils** (goggles/glasses/belts/pendants/pumpkins/underwear) toggle on/off — worn stencils protect what they cover from paint. **Goggles are one-time use**: the splash that lands on them knocks them off broken (automatic, free) and they can't be worn again until a reset
-4. Each logged tap = 1 step (wearing, removing, and painting all cost a step); order matters
+4. Each logged tap = 1 move (wearing, removing, and painting all cost a move); order matters
 5. When the painted pattern matches the goal AND nothing is worn → level complete → earn Sparks
+
+**Move scoring** (`shared/gameRules.ts` is authoritative): the HUD never shows
+bare par — every level advertises a move LIMIT of `par + buffer` where
+`buffer = max(2, ceil(par/2))` (par 5 → limit 8). Finish within it = 3 stars;
+each further buffer-width tier crossed raises the shown limit and costs a star,
+down to 0 (the level still completes). **Stars pay for moves, Sparks pay for
+time** (see Sparks Economy). **Reset** (`__reset__`) wipes the board AND the
+move counter — moves count from the last reset (`effectiveSteps`) — but never
+the clock. **Persistent attempts**: leaving a level mid-attempt saves the live
+action log + banked time (session store + `wip:{levelId}` in Redis via
+POST /api/progress, restored on re-entry, cleared on completion); guided
+lessons and editor previews stay ephemeral on purpose.
 
 **Guided tutorials**: the Splash Course is FIVE dense lessons covering every rule;
 each carries `LevelData.guide` — one coach line per solution step. With a guide
@@ -295,9 +307,12 @@ Fields (flat, per-concern — no JSON blobs):
   daily:streak / daily:lastDate
   done:{levelId}       ← "1" first-completion marker (hSetNX = award guard)
   stars:{levelId}      ← best stars for that level
+  wip:{levelId}        ← JSON {a: actions, t: timeMs} unfinished attempt
+                         (persistent levels; cleared on completion)
   equipped             ← JSON Record<slot, itemId>
   owned:{itemId}       ← "1"
   flair:optOut / flair:last / fitcheck:won / created / lb:seeded
+  sound:sfxOff / sound:musicOff ← "1" = off (absent defaults on)
 Spendable balance lives separately: sparks:{username} (STRING counter).
 ```
 
@@ -498,6 +513,8 @@ POST /api/user/buy                → BuyRequest → BuyResponse (server-priced)
 POST /api/user/equip              → EquipRequest → EquipResponse
 POST /api/user/flair              → FlairPrefRequest → FlairPrefResponse
 POST /api/user/settings           → SoundSettingsRequest → SoundSettingsResponse
+POST /api/progress                → ProgressSaveRequest (wip attempt; empty actions clear)
+GET  /api/progress/:levelId       → ProgressGetResponse (restore an unfinished attempt)
 POST /api/share/card              → ShareCardRequest (Splat Card comment)
 POST /api/share/first-splat       → FirstSplatRequest (crown claim)
 POST /api/share/fit               → Fit Check Friday comment
@@ -513,10 +530,15 @@ POST /api/share/fit               → Fit Check Friday comment
 
 ## Sparks Economy
 
+Sparks are TIME-driven; stars are the move currency (`timeSparksBonus` in
+`shared/gameRules.ts`, applied server-side in /api/complete on first clears).
+
 | Event | Sparks earned |
 |-------|--------------|
-| Level complete (any steps) | 10 |
-| Level complete in optimal steps | +20 bonus |
+| Level complete (any moves/time) | 10 |
+| Speed bonus (linear: full under ~30s, zero by 5 min) | up to +15 |
+| Under the move limit (3 stars) | +10 bonus |
+| Matched par exactly | +10 more |
 | Daily puzzle complete | +15 bonus |
 | First to complete a level | +30 bonus |
 | User-level gets 10 plays | +5 (passive) |

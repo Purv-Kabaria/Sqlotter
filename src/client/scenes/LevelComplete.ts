@@ -169,7 +169,7 @@ export class LevelComplete extends Phaser.Scene {
     const timeStr = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
     const statsY = panelY - panelH / 2 + 152;
     const statDefs: { key: string; label: string; value: string; icon: string }[] = [
-      { key: 'steps',  label: 'STEPS',  value: `${steps}`,  icon: 'icon-check' },
+      { key: 'steps',  label: 'MOVES',  value: `${steps}`,  icon: 'icon-check' },
       { key: 'time',   label: 'TIME',   value: timeStr,     icon: 'icon-timer' },
       { key: 'sparks', label: 'SPARKS', value: `+${sparks}`, icon: 'icon-spark' },
     ];
@@ -296,17 +296,18 @@ export class LevelComplete extends Phaser.Scene {
     const hasNext = nextId !== null;
 
     // Row order: Levels (back out) on the LEFT, Ranks center, and the
-    // forward action — Next / Ready! / All Done! — on the RIGHT, where a
-    // "continue" button is expected to live.
+    // forward action — Next / Ready! / Home / All Done! — on the RIGHT, where
+    // a "continue" button is expected to live. Levels is world-aware: it
+    // returns to the page this level actually lives on (finder for UGC).
     this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
-      this.goToScene('LevelSelect');
+      this.goToScene('LevelSelect', this.levelSelectTarget(levelId));
     });
     this.buildBtn(navCx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
       this.goToScene('Leaderboard', { levelId });
     });
 
-    // Walkthrough chain: lessons 1-2 lead into the next lesson (still in
-    // walkthrough mode); finishing the last one graduates back home.
+    // Walkthrough chain: earlier lessons lead into the next one (still in
+    // walkthrough mode); finishing the last graduates back home.
     const walkDone = data?.walkthrough === true && (levelId === WALKTHROUGH_LAST_LEVEL || !hasNext);
     if (data?.walkthrough === true && !walkDone) {
       this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Next', 'icon-arrow', () => {
@@ -316,10 +317,32 @@ export class LevelComplete extends Phaser.Scene {
       this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Ready!', 'icon-home', () => {
         this.goToScene('MainMenu');
       });
+    } else if (levelId.startsWith('daily-')) {
+      // The daily came from home — forward means home, not the world grid.
+      this.buildBtn(navCx + btnGap, btnY, btnW, 44, 'Home', 'icon-home', () => {
+        this.goToScene('MainMenu');
+      });
     } else {
       this.buildBtn(navCx + btnGap, btnY, btnW, 44, hasNext ? 'Next' : 'All Done!', hasNext ? 'icon-arrow' : 'icon-home', () => {
-        this.goToScene(hasNext ? 'Game' : 'LevelSelect', hasNext ? { levelId: nextId } : undefined);
+        if (hasNext) this.goToScene('Game', { levelId: nextId });
+        else this.goToScene('LevelSelect', this.levelSelectTarget(levelId));
       });
+    }
+
+    // What Sparks ARE gets said where they're earned: stars pay for moves,
+    // Sparks pay for speed, the Shop is where they go. Lives on the starfield
+    // below the nav row — dropped when a short viewport leaves no room.
+    const noteY = btnY + 22 + 12;
+    const note = this.add.text(cx, noteY,
+      'Sparks are the currency — faster solves pay more. Spend them in the Shop!', {
+        fontFamily: BODY_FONT, fontSize: '12px', color: '#FFF6DF',
+        stroke: '#1a0a2e', strokeThickness: 3,
+        align: 'center', wordWrap: { width: width - 36 },
+      }).setOrigin(0.5, 0).setAlpha(0);
+    if (noteY + note.height > height - 8) {
+      note.destroy();
+    } else {
+      this.tweens.add({ targets: note, alpha: 0.9, duration: 300, delay: 1500 });
     }
 
     // First Splat Crown — the server says this player holds the level's
@@ -349,6 +372,15 @@ export class LevelComplete extends Phaser.Scene {
         });
       },
     });
+  }
+
+  // Where "Levels" (and a next-less forward button) should land for this
+  // level id: the world page it lives on, or the finder for community levels.
+  private levelSelectTarget(levelId: string): Record<string, unknown> | undefined {
+    const match = /^w(\d+)-l\d+$/.exec(levelId);
+    if (match) return { world: parseInt(match[1]!, 10) };
+    if (levelId.startsWith('ugc-')) return { page: 'finder' };
+    return undefined;
   }
 
   // Centralizes every scene.start(...) call — guards against double-clicking

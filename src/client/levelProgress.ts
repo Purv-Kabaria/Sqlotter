@@ -22,3 +22,24 @@ export function recordCompletion(levelId: string, stars: number): void {
     progress = { ...progress, [levelId]: { stars } };
   }
 }
+
+// ── In-progress attempts (persistent levels) ────────────────────────────────
+// Session store for the live action log + banked time of unfinished levels —
+// backing out and returning resumes instantly from here. The Game scene also
+// syncs it to Redis (POST /api/progress) so logged-in players resume across
+// page loads; this map is the always-hit fast path.
+export type WipAttempt = { actions: string[]; timeMs: number };
+
+const wip = new Map<string, WipAttempt>();
+
+export function getWipAttempt(levelId: string): WipAttempt | null {
+  return wip.get(levelId) ?? null;
+}
+
+export function setWipAttempt(levelId: string, attempt: WipAttempt): void {
+  wip.set(levelId, attempt);
+}
+
+export function clearWipAttempt(levelId: string): void {
+  wip.delete(levelId);
+}

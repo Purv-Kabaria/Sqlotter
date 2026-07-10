@@ -1,17 +1,11 @@
-import type { LevelData, ModifierDef, Stars } from '../../shared/types';
+import type { LevelData, ModifierDef } from '../../shared/types';
 import type { ActionKind, SimState } from '../../shared/slimeSim';
 import {
   applySimAction, createSimState, isCleanMatch, maskIdOf, replaySim, RESET_ACTION_ID,
 } from '../../shared/slimeSim';
+import { effectiveSteps } from '../../shared/gameRules';
 
-export { calcStars } from '../../shared/gameRules';
-
-export function calcSparks(stars: Stars, isFirstCompletion: boolean): number {
-  if (!isFirstCompletion) return 0;
-  const base = 10;
-  const optimalBonus = stars === 3 ? 20 : 0;
-  return base + optimalBonus;
-}
+export { calcStars, currentMoveTier, moveLimit } from '../../shared/gameRules';
 
 /** Phaser texture key for a stencil modifier's art; null for paints. */
 export function modifierAssetKey(mod: ModifierDef): string | null {
@@ -34,17 +28,20 @@ export type ApplyOutcome = {
  */
 export class LevelEngine {
   private readonly goal: SimState;
+  private readonly palette: readonly ModifierDef[];
   private state: SimState;
   private actionIds: string[] = [];
   private startTime: number;
 
   constructor(level: LevelData) {
     this.goal = replaySim(level.palette, level.optimalSolution) ?? createSimState();
+    this.palette = level.palette;
     this.state = createSimState();
     this.startTime = Date.now();
   }
 
-  get steps(): number { return this.actionIds.length; }
+  /** Moves that COUNT — everything after the most recent reset (see gameRules). */
+  get steps(): number { return effectiveSteps(this.actionIds); }
   get actions(): string[] { return [...this.actionIds]; }
   get wornMaskIds(): string[] { return [...this.state.worn]; }
 
@@ -86,12 +83,29 @@ export class LevelEngine {
     };
   }
 
-  // Reset clears the slime but NOT the run: moves made stay counted (the
-  // reset itself costs one), the clock keeps ticking, and the action log
-  // keeps the whole history so the server replay sees exactly what happened.
+  // Reset clears the slime AND the move counter (steps count from the last
+  // reset) but NOT the clock — Sparks ride on time, so a reset trades moves
+  // for seconds. The action log keeps the whole history so the server replay
+  // sees exactly what happened.
   reset() {
     this.state = createSimState();
     this.actionIds.push(RESET_ACTION_ID);
+  }
+
+  /**
+   * Resumes a persisted attempt: strict-replays the saved log and rewinds the
+   * clock by the banked time. Rejected (false, engine untouched) when the log
+   * no longer replays — a level whose rules changed — or when it is somehow
+   * already a win, which a fresh attempt must never silently be.
+   */
+  restore(actions: readonly string[], elapsedMs: number): boolean {
+    if (actions.length === 0) return false;
+    const replayed = replaySim(this.palette, actions);
+    if (!replayed || isCleanMatch(replayed, this.goal)) return false;
+    this.state = replayed;
+    this.actionIds = [...actions];
+    this.startTime = Date.now() - Math.max(0, elapsedMs);
+    return true;
   }
 
   elapsedMs(): number {

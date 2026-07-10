@@ -117,7 +117,7 @@ goal replay, and `worn` is empty.
 
 **The goal IS a replay.** `LevelData` has no stored goal state — `optimalSolution`
 (an action-id list over the level's own palette) *is* the goal: replaying it through
-the sim produces the target pattern. This is also the 3-star step target, and it must
+the sim produces the target pattern. This is also the par under the 3-star move limit, and it must
 end bare and actually paint something (`verifyLevelIntegrity`).
 
 ---
@@ -177,19 +177,31 @@ the win check judges.
 
 ---
 
-## Scoring: steps, stars, Sparks, streaks
+## Scoring: moves, stars, Sparks, streaks
 
-**Steps** — every logged action costs one step, including taking a stencil off
-(goggles snapping off after a splash is automatic and free). Reset
-(`LevelEngine.reset()`) is itself a logged, step-costing action: it clears the grid,
-the worn set and the broken set (goggles come back), but the step count and the
-clock keep running.
+**Moves** — every logged action costs one move, including taking a stencil off
+(goggles snapping off after a splash is automatic and free). Reset is a logged
+action so the server replay sees the whole history, but scored moves count from
+the LAST reset (`effectiveSteps`): reset wipes the board and the move counter,
+never the clock — a reset trades moves for seconds.
 
-**Stars** (`calcStars`): `steps <= optimalSteps` → ★★★, `<= 2×` → ★★, else ★.
+**Stars** (`calcStars` / `moveBuffer`): the player is shown a move LIMIT of
+`par + buffer` where `buffer = max(2, ceil(par/2))` (par 5 → limit 8). Within
+it → ★★★; each further buffer-width tier crossed costs one star, down to 0
+(the level still completes). The HUD raises the shown limit tier by tier
+(`currentMoveTier`) and grays a mini star as each one falls.
 
-**Sparks** are awarded server-side in `POST /api/complete`, only on a player's first
-completion (`hSetNX user:{name} done:{levelId}`): 10 base, +20 optimal, +15 daily,
-+30 first-ever completer.
+**Sparks** are TIME-driven (stars are the move currency), awarded server-side
+in `POST /api/complete`, only on a player's first completion (`hSetNX
+user:{name} done:{levelId}`): 10 base, + up to 15 speed bonus
+(`timeSparksBonus`: full under ~30s, zero by 5 min), +10 under the move limit
+(3 stars), +10 matched par exactly, +15 daily, +30 first-ever completer.
+
+**Persistent attempts** — leaving a level mid-attempt saves the live action
+log + banked time (session store in `levelProgress.ts` + `wip:{levelId}` in
+the user hash via `POST /api/progress`); re-entering restores it (strict
+replay via `LevelEngine.restore`, so a log that no longer replays is
+dropped). Cleared on completion. Guided lessons and previews stay ephemeral.
 
 **Daily streak** — consecutive-day daily completions increment `daily:streak`.
 

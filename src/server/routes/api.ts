@@ -16,6 +16,9 @@ import type {
   FlairPrefResponse,
   SoundSettingsRequest,
   SoundSettingsResponse,
+  ProgressSaveRequest,
+  ProgressSaveResponse,
+  ProgressGetResponse,
   LeaderboardResponse,
   ProfileResponse,
   EquipRequest,
@@ -31,7 +34,7 @@ import type {
 } from '../../shared/api';
 import type { LevelData, ModifierDef, Stars } from '../../shared/types';
 import { generateDailyLevel, getCuratedLevels } from '../../shared/levelData';
-import { calcStars, isValidSolution, MAX_ATTEMPT_ACTIONS, MAX_SOLUTION_STEPS, verifyLevelIntegrity } from '../../shared/gameRules';
+import { calcStars, effectiveSteps, isValidSolution, MAX_ATTEMPT_ACTIONS, MAX_SOLUTION_STEPS, timeSparksBonus, verifyLevelIntegrity } from '../../shared/gameRules';
 import { getShopItem } from '../../shared/shop';
 import { flairTierName, ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import { clearUserFlair, syncUserFlair } from '../core/flair';
@@ -341,10 +344,14 @@ api.post('/complete', async (c) => {
     return c.json<Err>({ status: 'error', message: 'Solution does not match the level' }, 400);
   }
 
-  const steps = actions.length;
+  // Moves are counted from the last reset (reset wipes moves, not the clock)
+  // — same rule the client HUD scores by, recomputed here from the verified log.
+  const steps = effectiveSteps(actions);
   const stars = calcStars(steps, level.optimalSteps);
   const userKey  = `user:${username}`;
   const isFirstCompletion = await redis.hSetNX(userKey, `done:${levelId}`, '1') === 1;
+  // The finished attempt's persisted wip copy is now noise — drop it.
+  await redis.hDel(userKey, [`wip:${levelId}`]);
 
   if (isFirstCompletion) {
     await redis.zIncrBy('lb:global:solved', username, 1);
@@ -389,7 +396,15 @@ api.post('/complete', async (c) => {
   let isFirstOverall = false;
   if (isFirstCompletion) {
     isFirstOverall = await redis.hSetNX('level:first-completer', levelId, username) === 1;
-    sparksEarned = 10 + (stars === 3 ? 20 : 0) + (level.isDaily ? 15 : 0) + (isFirstOverall ? 30 : 0);
+    // Stars pay for MOVES, Sparks pay for TIME: base 10 for the clear, up to
+    // +15 melting away over five minutes, +10 for staying under the move
+    // limit (3 stars), +10 more for matching par exactly.
+    sparksEarned = 10
+      + timeSparksBonus(timeMs)
+      + (stars === 3 ? 10 : 0)
+      + (steps <= level.optimalSteps ? 10 : 0)
+      + (level.isDaily ? 15 : 0)
+      + (isFirstOverall ? 30 : 0);
     // The crown comment cites the first solve's stats (steps are replay-
     // verified above; time is client-claimed but bounded by validation).
     // Crown-eligible levels only — see the firstSplat gate below.
@@ -541,7 +556,7 @@ api.post('/share/card', async (c) => {
   await redis.set(cooldownKey, '1');
   await redis.expire(cooldownKey, 20);
 
-  const steps = actions.length;
+  const steps = effectiveSteps(actions);
   const stars = calcStars(steps, level.optimalSteps);
   const caption = sanitizeCardTitle(body.cardTitle);
 
@@ -1039,6 +1054,62 @@ api.post('/user/settings', async (c) => {
     'sound:musicOff': body.music ? '0' : '1',
   });
   return c.json<SoundSettingsResponse>({ sfx: body.sfx, music: body.music });
+});
+
+// ── /api/progress ─────────────────────────────────────────
+// In-progress attempt store (persistent levels): one hash field per level
+// (`wip:{levelId}`), holding the raw action log + banked time. Saved
+// best-effort by the client while playing, cleared by an empty save or by
+// /api/complete on a win. The log is NOT replay-verified here — it's verified
+// by LevelEngine.restore on the way back in, and a log that no longer replays
+// is simply dropped.
+api.post('/progress', async (c) => {
+  const username = (await reddit.getCurrentUsername()) ?? '';
+  if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
+
+  const body = await readJsonBody<ProgressSaveRequest>(c);
+  if (!body || typeof body.levelId !== 'string' || body.levelId.length < 1 || body.levelId.length > 120) {
+    return c.json<Err>({ status: 'error', message: 'Invalid level id' }, 400);
+  }
+  if (!Array.isArray(body.actions) || body.actions.length > MAX_ATTEMPT_ACTIONS
+    || body.actions.some((action) => typeof action !== 'string' || action.length > 80)) {
+    return c.json<Err>({ status: 'error', message: 'Invalid action sequence' }, 400);
+  }
+  if (!Number.isInteger(body.timeMs) || body.timeMs < 0 || body.timeMs > 86_400_000) {
+    return c.json<Err>({ status: 'error', message: 'Invalid time' }, 400);
+  }
+
+  const field = `wip:${body.levelId}`;
+  if (body.actions.length === 0) {
+    await redis.hDel(`user:${username}`, [field]);
+  } else {
+    await redis.hSet(`user:${username}`, {
+      [field]: JSON.stringify({ a: body.actions, t: body.timeMs }),
+    });
+  }
+  return c.json<ProgressSaveResponse>({ saved: true });
+});
+
+api.get('/progress/:levelId', async (c) => {
+  const username = (await reddit.getCurrentUsername()) ?? '';
+  const levelId = c.req.param('levelId');
+  // Guests get a clean empty answer (they keep session-only progress).
+  if (!username || !levelId || levelId.length > 120) return c.json<ProgressGetResponse>({});
+
+  const raw = await redis.hGet(`user:${username}`, `wip:${levelId}`);
+  if (!raw) return c.json<ProgressGetResponse>({});
+  try {
+    const parsed = JSON.parse(raw) as { a?: unknown; t?: unknown };
+    if (!Array.isArray(parsed.a) || parsed.a.some((x) => typeof x !== 'string')) {
+      return c.json<ProgressGetResponse>({});
+    }
+    return c.json<ProgressGetResponse>({
+      actions: parsed.a as string[],
+      timeMs: typeof parsed.t === 'number' && parsed.t >= 0 ? parsed.t : 0,
+    });
+  } catch {
+    return c.json<ProgressGetResponse>({});
+  }
 });
 
 // ── /api/level/create ─────────────────────────────────────────

@@ -22,7 +22,7 @@ let communityCache: CommunityLevelSummary[] | null = null;
 // remaining cells empty.
 const WORLD_CAPACITY = LEVELS_PER_WORLD;
 
-type GridItem = { label: string; disabled: boolean; onClick?: (() => void) | undefined };
+type GridItem = { label: string; disabled: boolean; icon?: string; onClick?: (() => void) | undefined };
 type WorldPage = { kind: 'world'; meta: WorldMeta; levels: LevelData[] };
 type CommunityPage = { kind: 'community' };
 type Page = WorldPage | CommunityPage;
@@ -318,6 +318,17 @@ export class LevelSelect extends Phaser.Scene {
     this.tweens.add({ targets: titleBtn, alpha: 1, duration: 220, ease: 'Quad.easeOut' });
     els.push(titleBtn);
 
+    // The Splash Course must never be mistaken for a regular world — a badge
+    // right under the title says what it is and that it's optional.
+    const isTutorialPage = page.kind === 'world' && page.meta.num === 0;
+    if (isTutorialPage) {
+      els.push(this.add.text(titleX, titleY + titleH / 2 + 13,
+        'TUTORIAL — optional, skippable, worth it', {
+          fontFamily: PIXELIFY, fontSize: '13px', color: '#FFE9A8', fontStyle: 'bold',
+          stroke: '#3A1A08', strokeThickness: 4,
+        }).setOrigin(0.5));
+    }
+
     // Back-to-menu — top-left, vertically aligned with the title row. Not part of the
     // reference mock, but needed since the world pager has no other way out of this
     // screen. Uses the same full-corner button as the pagination arrows below (not the
@@ -333,6 +344,7 @@ export class LevelSelect extends Phaser.Scene {
     const gridW      = width - outerPad * 2;
     const colGap     = isPortrait ? 12 : 24;
     let   gridTop    = titleY + titleH / 2 + (isPortrait ? 26 : 34);
+    if (isTutorialPage) gridTop += 14; // clearance for the TUTORIAL badge line
 
     // The community page carries a search bar between the title and the grid;
     // world pages must not leave a stale input floating over their grid.
@@ -399,6 +411,7 @@ export class LevelSelect extends Phaser.Scene {
           x: cx, y: cy, width: btnW, height: btnH,
           label: item.label, fontSize: itemFs, fontFamily: PIXELIFY,
           disabled: item.disabled,
+          ...(item.icon ? { iconKey: item.icon } : {}),
           ...(item.onClick ? { onClick: item.onClick } : {}),
         });
         const targetY = cy;
@@ -436,20 +449,23 @@ export class LevelSelect extends Phaser.Scene {
   }
 
   private buildGridItems(page: WorldPage, maxItems: number): GridItem[] {
+    const tutorial = page.meta.num === 0;
     const items: GridItem[] = page.levels.slice(0, maxItems).map((level, i) => {
       const locked = this.isLevelLocked(level);
-      // Tutorial buttons carry their lesson name ("Pumpkin Parfait");
+      // Tutorial buttons read as numbered LESSONS ("2. Full Outfit") and wear
+      // the help icon, so the course can't be mistaken for regular levels;
       // regular worlds number within the world, matching the page title.
       return {
-        label: page.meta.num === 0 ? level.title : `Level ${i + 1}`,
+        label: tutorial ? `${i + 1}. ${level.title}` : `Level ${i + 1}`,
         disabled: locked,
+        ...(tutorial ? { icon: 'icon-help' } : {}),
         onClick: locked ? undefined : () => this.openLevel(level.id),
       };
     });
     // The Splash Course is optional — a standing tile says so and pages
     // straight to World 1 (nothing there is locked behind the lessons).
-    if (page.meta.num === 0 && items.length < maxItems) {
-      items.push({ label: 'Skip to World 1', disabled: false, onClick: () => this.changePage(1) });
+    if (tutorial && items.length < maxItems) {
+      items.push({ label: 'Skip to World 1', disabled: false, icon: 'icon-play', onClick: () => this.changePage(1) });
     }
     return items;
   }
@@ -640,7 +656,8 @@ export class LevelSelect extends Phaser.Scene {
         const locked = this.isLevelLocked(level);
         out.push({
           title: level.title,
-          sub: meta.num === 0 ? `${meta.name} · Lesson ${i + 1}` : `World ${meta.num} · Level ${i + 1}`,
+          // Worlds go by their proper names everywhere the player reads them.
+          sub: meta.num === 0 ? `${meta.name} · Lesson ${i + 1}` : `${meta.name} · Level ${i + 1}`,
           par: level.optimalSteps,
           difficulty: level.difficulty,
           locked,
