@@ -17,13 +17,21 @@
   <body class="splash-app">
     <!-- Main content -->
     <div class="splash-content">
+      <!--
+        Mirrors SplotMascot's resting-face stack (depth 10-65 in CLAUDE.md):
+        a mask-tinted color layer stands in for the baked/tinted blob texture,
+        face parts default to the same fallbacks SplotMascot uses, and the
+        shine layer uses the SAME overlay blend + 50% amount as
+        paintOverlayShine — not a plain translucent image. splash.ts swaps
+        every layer to the player's own equipped look once /api/init resolves.
+      -->
       <div class="splot-stack" id="splot-blob" aria-hidden="true">
         <div class="splot-shadow"></div>
-        <img class="splot-layer" src="assets/character/blob-green.png" alt="" />
-        <img class="splot-layer" src="assets/character/mouth/mouth-kiss.png" alt="" />
-        <img class="splot-layer" src="assets/character/mouth/blush.png" alt="" />
-        <img class="splot-layer" src="assets/character/eyes/eye-happy.png" alt="" />
-        <img class="splot-layer" src="assets/character/eyebrows/eyebrow-surprise.png" alt="" />
+        <div class="splot-layer splot-color" id="splot-color"></div>
+        <img class="splot-layer" id="splot-mouth" src="assets/character/mouth/mouth-smile.png" alt="" />
+        <img class="splot-layer" id="splot-eye" src="assets/character/eyes/eye-normal.png" alt="" />
+        <img class="splot-layer" id="splot-eyebrow" src="assets/character/eyebrows/eyebrow-normal.png" alt="" />
+        <img class="splot-layer splot-hidden" id="splot-accessory" src="" alt="" />
         <img class="splot-layer splot-overlay" src="assets/character/overlay-normal.png" alt="" />
         <img class="splot-layer" src="assets/character/outline.png" alt="" />
       </div>

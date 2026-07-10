@@ -89,8 +89,49 @@ html, body {
   );
 }
 
+/* White alpha-shaped silhouette (character/blob.png), tinted via CSS mask
+   instead of Phaser's multiply-tint: since the source is pure white, masking
+   a solid (or gradient, for the rare finale colors) fill to its alpha shape
+   reproduces the exact same "backdrop * tint" result with no canvas baking. */
+.splot-color {
+  background: var(--splot-fill, var(--green));
+  -webkit-mask-image: url("assets/character/blob.png");
+  mask-image: url("assets/character/blob.png");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* Rare "sparkle" colors (Silver Sparkle / Opal Shimmer / Golden) get a slow
+   diagonal shine sweep on top of their tint — the DOM equivalent of the
+   Phaser mascot's shimmering particle flourish. */
+.splot-color.splot-sparkle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.65) 50%, transparent 65%);
+  background-size: 240% 240%;
+  animation: splotSparkleSweep 3.2s ease-in-out infinite;
+}
+
+/* Same overlay-blend shine the Phaser mascot bakes via paintOverlayShine:
+   mix-blend-mode: overlay is the browser's native implementation of the
+   identical W3C/Photoshop overlay formula the `color-blend` overlay() call
+   uses, and compositing it at 50% opacity is mathematically equivalent to
+   paintOverlayShine's `amount: 0.5` — a real overlay effect, not a flat
+   translucent image laid on top. */
 .splot-overlay {
-  opacity: 0.7;
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+
+/* Accessory layer starts hidden — most players have none equipped, and
+   src="" would otherwise flash a broken-image icon before splash.ts runs. */
+.splot-hidden {
+  display: none;
 }
 
 /* ── Text ─────────────────────────────────────────────────── */
@@ -198,6 +239,11 @@ html, body {
 @keyframes titlePulse {
   0%, 100% { transform: scale(1); }
   50%       { transform: scale(1.04); }
+}
+
+@keyframes splotSparkleSweep {
+  0%, 100% { background-position: 0% 0%; }
+  50%      { background-position: 100% 100%; }
 }
 
 @keyframes btnGlow {

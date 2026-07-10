@@ -1,10 +1,48 @@
 import { requestExpandedMode, context } from '@devvit/web/client';
 import { getLaunchLevelId } from './launch';
+import { getShopItem } from '../shared/shop';
+import type { InitResponse } from '../shared/api';
 
 const greeting  = document.getElementById('greeting')     as HTMLParagraphElement;
 const dailyInfo = document.getElementById('daily-info')   as HTMLParagraphElement;
 const startBtn  = document.getElementById('start-button') as HTMLButtonElement;
+const splotColor      = document.getElementById('splot-color')      as HTMLDivElement;
+const splotEye        = document.getElementById('splot-eye')        as HTMLImageElement;
+const splotEyebrow    = document.getElementById('splot-eyebrow')    as HTMLImageElement;
+const splotMouth      = document.getElementById('splot-mouth')      as HTMLImageElement;
+const splotAccessory  = document.getElementById('splot-accessory')  as HTMLImageElement;
 const launchLevelId = getLaunchLevelId();
+
+// ── Splot appearance — the player's own equipped look, same fallbacks
+// SplotMascot's resting face uses (see applyEquipped in SplotMascot.ts), so
+// the splash Splot is never a fixed placeholder and never drifts from what
+// the expanded game actually shows.
+const DEFAULT_SPLOT_COLOR = '#6DD400';
+
+function eyebrowFile(id: string): string {
+  // Item ids are 'brow-*' but the art files are 'eyebrow-*.png'.
+  return `eyebrow-${id.replace(/^brow-/, '')}`;
+}
+
+function applyEquipped(equipped: Record<string, string>) {
+  const color = equipped.color ? getShopItem(equipped.color)?.color : undefined;
+  const fill = color?.stops && color.stops.length >= 2
+    ? `linear-gradient(to bottom, ${color.stops.join(', ')})`
+    : (color?.hex ?? DEFAULT_SPLOT_COLOR);
+  splotColor.style.setProperty('--splot-fill', fill);
+  splotColor.classList.toggle('splot-sparkle', color?.sparkle === true);
+
+  splotEye.src     = `assets/character/eyes/${equipped.eye ?? 'eye-normal'}.png`;
+  splotEyebrow.src = `assets/character/eyebrows/${eyebrowFile(equipped.eyebrow ?? 'brow-normal')}.png`;
+  splotMouth.src   = `assets/character/mouth/${equipped.mouth ?? 'mouth-smile'}.png`;
+
+  if (equipped.accessory) {
+    splotAccessory.src = `assets/character/accessories/${equipped.accessory.replace(/^acc-/, '')}.png`;
+    splotAccessory.classList.remove('splot-hidden');
+  } else {
+    splotAccessory.classList.add('splot-hidden');
+  }
+}
 
 const DIFF_LABELS = ['Easy', 'Easy', 'Medium', 'Hard', 'Expert', 'Expert'];
 
@@ -32,7 +70,7 @@ void (async () => {
     ]);
 
     if (initRes.ok) {
-      const init = await initRes.json() as { username?: string; sparks?: number };
+      const init = await initRes.json() as InitResponse;
       if (init.username) greeting.textContent = `Hey u/${init.username}!`;
       if (init.sparks !== undefined) {
         dailyInfo.replaceChildren();
@@ -41,6 +79,7 @@ void (async () => {
         count.textContent = `${init.sparks}`;
         dailyInfo.append(count, document.createTextNode(' Sparks'));
       }
+      applyEquipped(init.equippedItems ?? {});
     }
 
     if (!launchLevelId && dailyRes.ok) {
