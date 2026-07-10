@@ -5,7 +5,7 @@ import { isBreakableMask, MAX_WORN, replayOps, standardPaints } from '../../shar
 import { MAX_SOLUTION_STEPS } from '../../shared/gameRules';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
-import { paintOverlayShine } from '../components/overlayShine';
+import { bakeSwatchShine } from '../components/overlayShine';
 import type { LevelData } from '../../shared/types';
 import type { LevelCreateResponse } from '../../shared/api';
 import {
@@ -694,9 +694,7 @@ export class Editor extends Phaser.Scene {
       const shadow = this.add.image(2, 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
       shadow.setTint(0x000000).setTintMode(Phaser.TintModes.FILL);
       shadow.setAlpha(0.28);
-      const shineKey = paintOverlayShine(
-        this, `slime-shine-swatch-${numCol.toString(16)}`, 'slime-color', 'slime-shine', numCol, 0.5,
-      );
+      const shineKey = bakeSwatchShine(this, numCol);
       const slimeImg = this.add.image(0, 0, shineKey).setDisplaySize(slimeSz, slimeSz);
       const border   = this.add.image(0, 0, 'slime-border').setDisplaySize(slimeSz, slimeSz);
       shell.addContent([shadow, slimeImg, border]);

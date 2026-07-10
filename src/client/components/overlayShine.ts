@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { overlay } from 'color-blend';
+import { standardPaints } from '../../shared/slimeSim';
 
 // Genuinely overlay-blends a tinted source texture with a "shine" texture, baking the
 // result into a Phaser CanvasTexture. Phaser's own `Phaser.BlendModes.OVERLAY` is
@@ -42,6 +43,12 @@ function readPixels(scene: Phaser.Scene, textureKey: string, size: number): Imag
  * CanvasTexture named `outKey`, sized to match `baseKey`'s native resolution.
  *
  * Returns `outKey` so callers can `image.setTexture(outKey)`.
+ *
+ * CACHED: if `outKey` already exists the bake is skipped entirely — every
+ * call site keys the output by its inputs (color hex / gradient stops), so
+ * the result can never differ. The per-pixel blend loop is ~30ms of CPU per
+ * bake on a phone; re-running it for 16 swatches on every color-picker open
+ * was most of the picker's open lag.
  */
 export function paintOverlayShine(
   scene: Phaser.Scene,
@@ -51,16 +58,13 @@ export function paintOverlayShine(
   tint: number,
   amount: number,
 ): string {
+  if (scene.textures.exists(outKey)) return outKey;
   const nativeSize = scene.textures.get(baseKey).getSourceImage().width;
 
   const baseData  = readPixels(scene, baseKey, nativeSize);
   const shineData = readPixels(scene, shineKey, nativeSize);
 
-  const existing = scene.textures.exists(outKey) ? scene.textures.get(outKey) : null;
-  const tex = (existing && existing.key !== '__MISSING')
-    ? existing as Phaser.Textures.CanvasTexture
-    : scene.textures.createCanvas(outKey, nativeSize, nativeSize)!;
-  if (tex.width !== nativeSize || tex.height !== nativeSize) tex.setSize(nativeSize, nativeSize);
+  const tex = scene.textures.createCanvas(outKey, nativeSize, nativeSize)!;
 
   const tr = ((tint >> 16) & 0xff) / 255;
   const tg = ((tint >> 8) & 0xff) / 255;
@@ -87,6 +91,35 @@ export function paintOverlayShine(
   return outKey;
 }
 
+// One baked slime-with-shine texture per paint color — the swatch art both
+// color pickers (Game + Editor) build their racks from. Keyed by hex, cached
+// for the session by paintOverlayShine's exists-check.
+export function bakeSwatchShine(scene: Phaser.Scene, tint: number): string {
+  return paintOverlayShine(
+    scene, `slime-shine-swatch-${tint.toString(16)}`, 'slime-color', 'slime-shine', tint, 0.5,
+  );
+}
+
+// Pre-bakes the standard 16-color rack in the background, one color per tick,
+// so the FIRST color-picker open doesn't pay sixteen per-pixel bakes in a
+// single frame (a visible freeze on phones). Idempotent — already-baked
+// colors are skipped, and a scene change simply stops the ticking (the next
+// scene's call resumes where it left off).
+export function warmPaintSwatches(scene: Phaser.Scene): void {
+  const colors = standardPaints()
+    .map((m) => parseInt((m.color ?? '#FFFFFF').replace('#', ''), 16));
+  let i = 0;
+  const bakeNext = () => {
+    while (i < colors.length
+      && scene.textures.exists(`slime-shine-swatch-${colors[i]!.toString(16)}`)) i++;
+    if (i >= colors.length || !scene.textures.exists('slime-color')) return;
+    bakeSwatchShine(scene, colors[i]!);
+    i++;
+    scene.time.delayedCall(40, bakeNext);
+  };
+  scene.time.delayedCall(40, bakeNext);
+}
+
 // Same idea as paintOverlayShine, but the "tint" is a top-to-bottom multi-stop
 // gradient instead of one flat color — used for the shop's rare gradient/
 // rainbow color variants, where a single hex can't represent the effect.
@@ -101,6 +134,7 @@ export function paintGradientShine(
   stops: string[],
   amount: number,
 ): string {
+  if (scene.textures.exists(outKey)) return outKey;
   const nativeSize = scene.textures.get(baseKey).getSourceImage().width;
 
   const gradCanvas = document.createElement('canvas');
@@ -116,11 +150,7 @@ export function paintGradientShine(
   const baseData  = readPixels(scene, baseKey, nativeSize);
   const shineData = readPixels(scene, shineKey, nativeSize);
 
-  const existing = scene.textures.exists(outKey) ? scene.textures.get(outKey) : null;
-  const tex = (existing && existing.key !== '__MISSING')
-    ? existing as Phaser.Textures.CanvasTexture
-    : scene.textures.createCanvas(outKey, nativeSize, nativeSize)!;
-  if (tex.width !== nativeSize || tex.height !== nativeSize) tex.setSize(nativeSize, nativeSize);
+  const tex = scene.textures.createCanvas(outKey, nativeSize, nativeSize)!;
 
   const bd = baseData.data;
   const sd = shineData.data;

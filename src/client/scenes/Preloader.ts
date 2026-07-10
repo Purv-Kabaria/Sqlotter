@@ -87,9 +87,12 @@ const IMG: AssetDef[] = [
 
   // ── UI panels & buttons ───────────────────────────
   { key: 'ui-panel',       path: 'ui/panel.png' },
-  // Whole-image button texture — only addBeigeSolidCard slabs use it now; the
-  // interactive buttons all run on the pre-sliced btn-* pieces loaded below.
+  // Whole-image button state textures — every beige shell is one NineSlice of
+  // these (hover/press swap the texture on the same object; see PixelUI).
   { key: 'ui-btn-open',    path: 'ui/button-open.png' },
+  { key: 'ui-btn-hover',   path: 'ui/button-hover.png' },
+  { key: 'ui-btn-press',   path: 'ui/button-press.png' },
+  { key: 'ui-btn-dis',     path: 'ui/button-disabled.png' },
 
   // ── Navigation icons ──────────────────────────────
   { key: 'icon-arrow',    path: 'icons/navigation/arrow.png' },
@@ -244,15 +247,12 @@ export class Preloader extends Scene {
     }
     for (const { key, path } of OPTIONAL_PUZZLE_ICONS) this.load.image(key, path);
 
-    // Pre-sliced panel + button cells (moved out of Boot so they stream in
-    // behind the progress bar instead of delaying the first paint)
+    // Small-corner (16px) half-scale button cells — composed into the single
+    // 'ui-btn-open-sm' NineSlice source in create() (no full-size downsampled
+    // file ships; these pieces ARE the hand-tuned art). The full-size pnl/btn
+    // piece sets are no longer loaded — the shells NineSlice the whole-image
+    // textures above instead (see PixelUI).
     const slicePos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
-    for (const pos of slicePos) this.load.image(`pnl-${pos}`, `ui/slices/pnl-${pos}.png`);
-    for (const st of ['open','hover','press'] as const)
-      for (const pos of slicePos) this.load.image(`btn-${st}-${pos}`, `ui/slices/btn-${st}-${pos}.png`);
-    for (const pos of slicePos) this.load.image(`btn-dis-${pos}`, `ui/slices/btn-dis-${pos}.png`);
-    // Small-corner (16px) variant of btn-open — for badges that must shrink below
-    // the 65px floor the 32px-corner assets require (e.g. the HUD sparks pill)
     for (const pos of slicePos) this.load.image(`btn-open-sm-${pos}`, `ui/slices/btn-open-sm-${pos}.png`);
 
     // ── Sounds — only the tiny CORE UI set (~130KB) rides the boot critical
@@ -434,9 +434,30 @@ export class Preloader extends Scene {
     out.refresh();
   }
 
+  // Stitches the nine pre-downsampled 'btn-open-sm-*' cells back into one
+  // 64×48 texture so the small-corner shells can be a single NineSlice (see
+  // PixelUI). The pieces are exact halves of button-open.png, so compositing
+  // them at their natural sizes is pixel-identical to the old piece assembly.
+  private composeSmallButtonTexture() {
+    if (this.textures.exists('ui-btn-open-sm') || !this.textures.exists('btn-open-sm-tl')) return;
+    const piece = (pos: string) =>
+      this.textures.get(`btn-open-sm-${pos}`).getSourceImage() as CanvasImageSource & { width: number; height: number };
+    const tl = piece('tl'), tc = piece('tc'), ml = piece('ml');
+    const x1 = tl.width, x2 = tl.width + tc.width;
+    const y1 = tl.height, y2 = tl.height + ml.height;
+    const out = this.textures.createCanvas('ui-btn-open-sm', x2 + piece('tr').width, y2 + piece('bl').height);
+    if (!out) return;
+    const ctx = out.context;
+    ctx.drawImage(tl, 0, 0);          ctx.drawImage(tc, x1, 0);          ctx.drawImage(piece('tr'), x2, 0);
+    ctx.drawImage(ml, 0, y1);         ctx.drawImage(piece('mc'), x1, y1); ctx.drawImage(piece('mr'), x2, y1);
+    ctx.drawImage(piece('bl'), 0, y2); ctx.drawImage(piece('bc'), x1, y2); ctx.drawImage(piece('br'), x2, y2);
+    out.refresh();
+  }
+
   create() {
     this.scale.off('resize', this.onResize, this);
     this.makeZoomIcon('mod-nose-big', 'icon-nose');
+    this.composeSmallButtonTexture();
     initAudio(this.game);
     const launchLevelId = getLaunchLevelId();
 

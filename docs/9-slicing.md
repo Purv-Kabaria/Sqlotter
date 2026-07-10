@@ -68,33 +68,40 @@ bounds exactly.
 
 ## Asset inventory
 
-| Component | Source files | Source size | Corner tile size | Corner transparency |
-|-----------|-------------|-------------|-----------------|---------------------|
-| Button (open/hover/press/dis) | `ui/slices/btn-{state}-{pos}.png` | 128×96 | 32×32 | **4px** outer edge |
-| Panel | `ui/slices/pnl-{pos}.png` | 96×96 | 32×32 | **0px** (fully opaque) |
-| Beige card / slot | `more ui/UI_Flat_FrameSlot01c.png` | 32×32 total | 10×10 | 0px |
-| Dark panel | Procedurally generated 64×64 in `Boot.ts` | — | 12×12 | 0px |
-
-Position keys: `tl tc tr ml mc mr bl bc br`
+| Component | Source texture | Source size | Corner inset | Corner transparency |
+|-----------|---------------|-------------|--------------|---------------------|
+| Button (open/hover/press/dis) | `ui/button-{state}.png` → `ui-btn-*` | 128×96 | 32 | **4px** outer edge |
+| Small button / badge | `ui/slices/btn-open-sm-*.png`, composed to `ui-btn-open-sm` at load | 64×48 | 16 | ~2px |
+| Panel | `ui/panel.png` → `ui-panel` | 96×96 | 32 | **0px** (fully opaque) |
+| Beige card / slot | `more ui/UI_Flat_FrameSlot01c.png` | 32×32 total | 10 | 0px |
+| Dark panel | Procedurally generated 64×64 in `Boot.ts` | — | 12 | 0px |
 
 ---
 
-## Two implementation approaches
+## Implementation: one NineSlice per surface
 
-### Approach A — Pre-sliced files (Panel & Button)
+Every 9-sliced surface is a single `scene.add.nineslice()` of a whole-image
+texture — `ui-panel`, `ui-btn-open/hover/press/dis`, `ui-btn-open-sm`,
+`ui-flat-slot`, `ui-dark-panel`. One batched GameObject per surface.
 
-Assets are pre-cut into 9 individual PNGs. `build9Pieces()` in `PixelUI.ts` assembles them:
+**History**: the shells used to be assembled from 9 pre-sliced PNGs
+(`build9Pieces()` — 3 `Image` corners + 6 `TileSprite` edges), on the belief
+that Phaser's NineSlice couldn't swap textures per-state. Two problems killed
+that approach:
 
-- **Corners** → `Image` objects at their natural 32×32 size (never scaled)
-- **Edges + center** → `TileSprite` objects (GPU-tiled, no interpolation blur)
+1. **TileSprites dominated the mobile frame budget.** A Game scene carried ~80
+   of them (12 palette tiles + HUD buttons + stat pills × 6 each); hiding them
+   dropped the throttled frame time from ~79ms to ~12ms. Rebuilding them on
+   every palette refresh was also most of the tap lag on phones.
+2. The premise is false in Phaser 4: `NineSlice` extends `Components.Texture`,
+   so `setTexture('ui-btn-hover')` re-renders in place — all four button
+   states share the same 128×96 layout, so the slice geometry stays valid.
 
-This supports **multi-state texture swapping** — on hover/press all 9 piece textures swap via
-`setTexture()` simultaneously, producing a seamless state change.
-
-### Approach B — Phaser NineSlice API (Beige card, Dark panel)
-
-`scene.add.nineslice()` slices a single source texture at runtime. Simpler; requires only one
-file. Cannot swap textures per-state. Use for non-interactive backgrounds only.
+The pre-sliced files still shipping in `ui/slices/` are only loaded for the
+small-corner variant: the nine `btn-open-sm-*` cells are stitched back into
+the single `ui-btn-open-sm` (64×48) texture by `Preloader.composeSmallButtonTexture()`
+at load (they are the hand-tuned half-scale art; no full-size downsample file
+exists). The full-size `pnl-*` / `btn-*-{pos}` piece sets are no longer loaded.
 
 ---
 
@@ -102,7 +109,7 @@ file. Cannot swap textures per-state. Use for non-interactive backgrounds only.
 
 ### `addPanel9(scene, x, y, width, height)`
 
-Creates a panel of any size using the pre-sliced `pnl-*.png` tiles.
+Creates a panel of any size (one NineSlice of `ui-panel`, wrapped in a Container).
 
 ```typescript
 import { addPanel9 } from '../components/PixelUI';
@@ -145,8 +152,8 @@ btn.setDepth(8);
 
 | Index | Object | Role |
 |-------|--------|------|
-| 0–8 | 9 background `Image`/`TileSprite` pieces | Texture-swapped on state change |
-| 9 | `Container` (icon + drop shadow) | Optional; created by `addDepthIcon` |
+| 0 | background `NineSlice` | Texture-swapped on state change |
+| 1 | `Container` (icon + drop shadow) | Optional; created by `addDepthIcon` |
 | last | `Text` | Label |
 
 **Interaction states:**
@@ -183,15 +190,8 @@ shell.addContent([titleText, starIcon1, starIcon2, starIcon3]); // added into sh
 - `addBeigeButton` is now a thin wrapper: it calls this, then adds its label/icon via `addContent`.
 - Same 65px minimum as `addBeigeButton` (32px corners) — see "Minimum size constraints" below.
 - To tint just the background (e.g. per-world accent color) without recoloring text/icons added
-  via `addContent`, tint the background pieces directly:
-  ```typescript
-  shell.visual.list
-    .filter((o): o is Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite =>
-      o instanceof Phaser.GameObjects.Image || o instanceof Phaser.GameObjects.TileSprite)
-    .forEach(p => p.setTint(accentColor));
-  ```
-  Do this **before** calling `addContent` — otherwise the filter also catches any `Image` content
-  you added (e.g. star icons) and tints those too.
+  via `addContent`, use `shell.setTint(accentColor)` — it tints only the background NineSlice
+  and survives hover/press feedback (the small variant restores it after its state tints).
 
 ---
 
@@ -340,27 +340,20 @@ For touch targets smaller than 65px, use `addBeigeCard` (10px corners) instead.
    needed. Decide on corner size (power-of-two is not required, but consistent corner W and H
    avoids layout complexity).
 
-2. **Export 9 slice files** at the exact corner dimensions:
-   ```
-   public/assets/ui/slices/mything-tl.png  (cornerW × cornerH)
-   public/assets/ui/slices/mything-tc.png  (any width × cornerH)
-   ... (all 9 positions)
-   ```
-
-3. **Load in `Boot.ts`** (before the loading screen):
+2. **Export ONE whole-image file** (`public/assets/ui/mything.png`) and load it in `Preloader`:
    ```typescript
-   const pos = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
-   for (const p of pos) this.load.image(`mything-${p}`, `ui/slices/mything-${p}.png`);
+   { key: 'ui-mything', path: 'ui/mything.png' },
    ```
 
-4. **Assemble in `PixelUI.ts`** using the internal `build9Pieces` helper:
+3. **Slice at runtime in `PixelUI.ts`** with a single NineSlice:
    ```typescript
    const CW = 16, CH = 16;  // your corner dimensions
-   const pieces = build9Pieces(scene, outputW, outputH, CW, CH, 'mything');
-   const container = scene.add.container(x, y, pieces as Phaser.GameObjects.GameObject[]);
+   const slice = scene.add.nineslice(0, 0, 'ui-mything', undefined, outputW, outputH, CW, CW, CH, CH);
    ```
+   Do NOT assemble it from per-piece Images/TileSprites — a screen full of
+   TileSprites is what made the Game scene lag on phones (see History above).
 
-5. **Set the hitbox** if interactive. Measure the transparent margin with:
+4. **Set the hitbox** if interactive. Measure the transparent margin with:
    ```python
    from PIL import Image
    img = Image.open('mything-tl.png').convert('RGBA')
@@ -371,8 +364,9 @@ For touch targets smaller than 65px, use `addBeigeCard` (10px corners) instead.
    ```
    Then inset the hitbox by those pixel values + hover offset if the button animates upward.
 
-6. **Multi-state swapping** (optional): create separate slice sets with state-prefixed names
-   (`mything-hover-tl`, etc.) and call `setTexture()` in pointer event handlers.
+5. **Multi-state swapping** (optional): export one whole-image file per state with the SAME
+   dimensions and slice layout, and call `slice.setTexture('ui-mything-hover')` in pointer
+   event handlers — Phaser 4's NineSlice re-renders in place.
 
 ---
 
@@ -385,5 +379,5 @@ For touch targets smaller than 65px, use `addBeigeCard` (10px corners) instead.
 | Hitbox spans wrong area of screen | Using center-origin coords (`-W/2+4`) but Phaser adds `displayOriginX=W/2` first | Use top-left-origin coords: `(4, 4, W-8, H-8)` |
 | Hover flickers at button edge | Hover tween moves the Container (hitbox shifts too) | Tween only the inner `visual` sub-container; outer container stays fixed |
 | Hover triggers just outside the visual | Hitbox not inset to match transparent corner margin | Inset by measured transparent px count (4px for these buttons) |
-| Texture doesn't swap on hover | Using Phaser's `NineSlice` API | Switch to pre-sliced Approach A for interactive elements |
+| Texture doesn't swap on hover | State textures differ in size/layout | Export every state at the same dimensions; `setTexture()` then swaps cleanly |
 | Panel interaction triggers unexpectedly | Panel has 0px transparent margin; hitbox = full container | Add explicit inset or don't make panels interactive |

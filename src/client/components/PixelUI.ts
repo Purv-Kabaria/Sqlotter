@@ -49,53 +49,40 @@ const BUTTON_SLICE_Y = 32;
 const FLAT_SLICE  = 10;
 const DARK_SLICE  = 12;
 
-// Pre-sliced corner size (pixels in source image)
-// panel.png 96×96 = 3×3 grid of 32×32 cells
-// button*.png 128×96 = 4×3 grid of 32×32 cells (col 2 skipped — same fill as col 1)
-const PNL_CW = 32, PNL_CH = 32;
+// Corner insets for the interactive shells. Every 9-sliced surface here is ONE
+// Phaser NineSlice object (9 batched quads, single texture) — the old
+// build9Pieces() approach assembled each shell from 3 Images + 6 TileSprites,
+// and with a dozen shells on screen those TileSprites dominated the mobile
+// frame budget (see docs/9-slicing.md). Hover/press swap the whole state
+// texture on the one NineSlice — Phaser 4 re-reads frame UVs on setTexture,
+// and all four button states share the same 128×96 layout.
 const BTN_CW = 32, BTN_CH = 32;
 
-// Half-scale button corner — pre-downsampled 'btn-open-sm-*' textures (16px corners).
-// Lets a beige-button-styled badge shrink down to ~33px instead of the 65px floor
-// the full-size 32px corners require (see docs/9-slicing.md minimum-size formula).
+// Half-scale button corner — the pre-downsampled 'btn-open-sm-*' pieces are
+// composed into a single 'ui-btn-open-sm' texture at load (see Preloader).
+// Lets a beige-button-styled badge shrink down to ~33px instead of the 65px
+// floor the full-size 32px corners require (docs/9-slicing.md minimums).
 const BTN_SM_CW = 16, BTN_SM_CH = 16;
 
-const SLICE_POS = ['tl','tc','tr','ml','mc','mr','bl','bc','br'] as const;
+// State texture per shell interaction state (large variant only — the small
+// variant has just an 'open' texture and tints instead).
+const BTN_STATE_TEX = {
+  'btn-open':  'ui-btn-open',
+  'btn-hover': 'ui-btn-hover',
+  'btn-press': 'ui-btn-press',
+} as const;
 
-type SlicePiece = Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite;
-
-// Builds 9 pieces filling a rect of (w×h) centred at (0,0).
-// Corners → Image (natural pixel size, no scaling).
-// Edges + center → TileSprite (GPU-tiled, no stretching, single draw call each).
-// prefix: 'pnl' | 'btn-open' | 'btn-hover' | 'btn-press' | 'btn-dis'
-function build9Pieces(
-  scene: Phaser.Scene, w: number, h: number, cw: number, ch: number, prefix: string,
-): SlicePiece[] {
-  const ox = -w / 2, oy = -h / 2;
-  const mw = w - 2 * cw, mh = h - 2 * ch;
-  // Order mirrors SLICE_POS: tl, tc, tr, ml, mc, mr, bl, bc, br
-  return [
-    scene.add.image(ox + cw / 2,      oy + ch / 2,      `${prefix}-tl`),           // 0 corner
-    scene.add.tileSprite(0,            oy + ch / 2,      mw, ch,  `${prefix}-tc`),  // 1 top edge
-    scene.add.image(-ox - cw / 2,     oy + ch / 2,      `${prefix}-tr`),           // 2 corner
-    scene.add.tileSprite(ox + cw / 2,  0,               cw, mh,  `${prefix}-ml`),  // 3 left edge
-    scene.add.tileSprite(0,            0,               mw, mh,  `${prefix}-mc`),  // 4 center
-    scene.add.tileSprite(-ox - cw / 2, 0,               cw, mh,  `${prefix}-mr`),  // 5 right edge
-    scene.add.image(ox + cw / 2,     -oy - ch / 2,      `${prefix}-bl`),           // 6 corner
-    scene.add.tileSprite(0,           -oy - ch / 2,     mw, ch,  `${prefix}-bc`),  // 7 bottom edge
-    scene.add.image(-ox - cw / 2,    -oy - ch / 2,      `${prefix}-br`),           // 8 corner
-  ];
-}
-
-// ── Panel: pre-sliced, tiled nine-slice ────────────────────────────────────
+// ── Panel: beige-bordered rounded square (panel.png as a NineSlice) ─────────
 export function addPanel9(
   scene: Phaser.Scene, x: number, y: number, w: number, h: number,
 ): Phaser.GameObjects.Container {
-  // Even dimensions guarantee integer half-widths → no sub-pixel gaps between pieces
   const W = Math.round(w / 2) * 2;
   const H = Math.round(h / 2) * 2;
-  const pieces = build9Pieces(scene, W, H, PNL_CW, PNL_CH, 'pnl');
-  return scene.add.container(Math.round(x), Math.round(y), pieces as Phaser.GameObjects.GameObject[]);
+  const slice = scene.add.nineslice(
+    0, 0, 'ui-panel', undefined, W, H,
+    PANEL_SLICE, PANEL_SLICE, PANEL_SLICE, PANEL_SLICE,
+  );
+  return scene.add.container(Math.round(x), Math.round(y), [slice]);
 }
 
 // ── Depth icon (shadow copy 1-2px below for depth) ──────────────────────────
@@ -198,8 +185,11 @@ export function addBeigeBadge(
 ): Phaser.GameObjects.Container {
   const W = Math.round(width / 2) * 2;
   const H = Math.round(height / 2) * 2;
-  const pieces = build9Pieces(scene, W, H, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm');
-  return scene.add.container(Math.round(x), Math.round(y), pieces as Phaser.GameObjects.GameObject[]);
+  const slice = scene.add.nineslice(
+    0, 0, 'ui-btn-open-sm', undefined, W, H,
+    BTN_SM_CW, BTN_SM_CW, BTN_SM_CH, BTN_SM_CH,
+  );
+  return scene.add.container(Math.round(x), Math.round(y), [slice]);
 }
 
 // ── Beige button shell — background + hover/press interaction only. Callers supply
@@ -232,31 +222,32 @@ export function addBeigeButtonShell(
   const rx = Math.round(x), ry = Math.round(y);
 
   // Below the full-size assets' 65px floor (2×32px corners + 1px, see
-  // docs/9-slicing.md) fall back to the half-scale 16px-corner 'btn-open-sm'
-  // pieces, so small screens get proportionally small buttons instead of
+  // docs/9-slicing.md) fall back to the half-scale 16px-corner 'ui-btn-open-sm'
+  // texture, so small screens get proportionally small buttons instead of
   // 66px monsters or corrupted corners. Only the open state exists at this
-  // scale, so hover/press feedback tints the pieces instead of swapping
-  // textures (the y/scale tweens are shared by both variants). `forceSmall`
-  // opts a button into the thinner corners even above the 65px floor — e.g.
-  // compact controls like tabs/CTAs, whose full-size corners at tablet sizes
+  // scale, so hover/press feedback tints instead of swapping textures (the
+  // y/scale tweens are shared by both variants). `forceSmall` opts a button
+  // into the thinner corners even above the 65px floor — e.g. compact
+  // controls like tabs/CTAs, whose full-size corners at tablet sizes
   // (comfortably over 65px, but still a modest button) ate proportionally
   // more of the button than a chunky 32px border should for that content.
   const small = forceSmall || W < 65 || H < 65;
-  const bgPieces = small
-    ? build9Pieces(scene, W, H, BTN_SM_CW, BTN_SM_CH, 'btn-open-sm')
-    : build9Pieces(scene, W, H, BTN_CW, BTN_CH, disabled ? 'btn-dis' : 'btn-open');
-  if (disabled) bgPieces.forEach(p => p.setAlpha(0.5));
+  const bg = small
+    ? scene.add.nineslice(0, 0, 'ui-btn-open-sm', undefined, W, H,
+        BTN_SM_CW, BTN_SM_CW, BTN_SM_CH, BTN_SM_CH)
+    : scene.add.nineslice(0, 0, disabled ? 'ui-btn-dis' : 'ui-btn-open', undefined, W, H,
+        BTN_CW, BTN_CW, BTN_CH, BTN_CH);
+  if (disabled) bg.setAlpha(0.5);
 
   // Visual sub-container holds all graphics and is the only thing that animates.
   // The outer container stays at a fixed world position so the hitbox never shifts.
-  const visual = scene.add.container(0, 0, bgPieces as Phaser.GameObjects.GameObject[]);
+  const visual = scene.add.container(0, 0, [bg]);
   const container = scene.add.container(rx, ry, [visual]).setSize(Math.max(W, 44), Math.max(H, 44));
 
   // Caller-set persistent tint (state highlight). The small variant's hover and
-  // press feedback also tints, so it must restore this instead of clearTint().
+  // press feedback also tints, so it must restore this instead of clearing.
   let baseTint: number | undefined;
-  const applyTint = (tint: number | undefined) =>
-    bgPieces.forEach(p => (tint === undefined ? p.clearTint() : p.setTint(tint)));
+  const applyTint = (tint: number | undefined) => bg.setTint(tint ?? 0xffffff);
 
   const swapBg = (state: 'btn-open' | 'btn-hover' | 'btn-press') => {
     if (small) {
@@ -264,9 +255,7 @@ export function addBeigeButtonShell(
       applyTint(tint);
       return;
     }
-    SLICE_POS.forEach((pos, i) =>
-      (bgPieces[i] as Phaser.GameObjects.Image | undefined)?.setTexture(`${state}-${pos}`),
-    );
+    bg.setTexture(BTN_STATE_TEX[state]);
   };
 
   if (!disabled && onClick) {

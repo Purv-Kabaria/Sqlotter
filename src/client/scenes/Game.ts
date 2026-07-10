@@ -6,7 +6,7 @@ import {
 } from '../components/PixelUI';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { SplotMascot } from '../components/SplotMascot';
-import { paintOverlayShine } from '../components/overlayShine';
+import { bakeSwatchShine, warmPaintSwatches } from '../components/overlayShine';
 import type { EditorDraft } from './Editor';
 import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse, ProgressGetResponse, ProgressSaveRequest } from '../../shared/api';
@@ -169,6 +169,14 @@ export class Game extends Phaser.Scene {
 
   private paletteContainer: Phaser.GameObjects.Container | null = null;
   private paletteSlots: PaletteSlot[] = [];
+  // One record per live tile with a state signature — refreshPalette() only
+  // rebuilds the tiles whose sim-visible state changed (usually 0–2 per tap).
+  // Rebuilding the whole panel on every action was the single biggest source
+  // of tap lag on phones.
+  private paletteTiles: {
+    slot: PaletteSlot; cx: number; cy: number; cell: number;
+    obj: Phaser.GameObjects.Container; sig: string;
+  }[] = [];
   // Screen position of each palette tile ('paint' / 'pumpkin' / mod id) — the
   // refusal cross (see showRefusalCross) needs to know WHERE the tapped tool
   // lives, including for taps that arrive via the color/pumpkin pickers.
@@ -184,7 +192,7 @@ export class Game extends Phaser.Scene {
   // the timer while the player is still reading. onResize re-shows it at the
   // new size instead.
   private activeTutorial: { text: string; onDismiss: () => void } | null = null;
-  private bgImages: Phaser.GameObjects.Image[] = [];
+  private bgRT: Phaser.GameObjects.RenderTexture | null = null;
 
   // ── Guided lesson state ────────────────────────────────────────────────────
   // Splash Course levels carry a per-step `guide` script: guideStep is the
@@ -225,9 +233,10 @@ export class Game extends Phaser.Scene {
     this.hudLayer      = null;
     this.loadToken    += 1;
     this.paletteSlots  = [];
+    this.paletteTiles  = [];
     this.areaObjs      = [];
     this.activeTutorial = null;
-    this.bgImages = [];
+    this.bgRT = null;
     this.guideStep = -1;
     this.guidePanel = null;
     this.guideHighlight = null;
@@ -251,6 +260,9 @@ export class Game extends Phaser.Scene {
     // whichever scene the player reaches first.
     streamAudio(this);
     startMusic();
+    // Same deep-link reasoning for the picker swatch textures: bake the
+    // 16-color rack in the background so the first paint tap opens instantly.
+    warmPaintSwatches(this);
 
     this.buildBackground();
 
@@ -383,23 +395,32 @@ export class Game extends Phaser.Scene {
   }
 
   // ── Background — full-screen purple clouds (bg3 set, per the design mock),
-  // same cover-scale layering as MainMenu/Shop. The play/palette areas are
-  // panels drawn on top, not background splits. ──────────────────────────────
+  // same cover-scale layering as MainMenu/Shop, but flattened into ONE
+  // RenderTexture: drawing the four alpha-blended layers live cost 4x
+  // full-screen overdraw every frame, a real tax on phone GPUs for pixels
+  // that never change. The play/palette areas are panels on top. ────────────
   private buildBackground() {
     const { width, height } = this.scale;
+    const w = Math.max(2, Math.ceil(width));
+    const h = Math.max(2, Math.ceil(height));
     const keys   = ['bg3-1', 'bg3-2', 'bg3-3', 'bg3-4'];
     const alphas = [1, 0.80, 0.55, 0.30];
 
-    this.bgImages.forEach(i => i.destroy());
-    this.bgImages = [];
-
+    this.bgRT?.destroy();
+    const rt = this.add.renderTexture(w / 2, h / 2, w, h).setDepth(-10);
     keys.forEach((key, i) => {
       if (!this.textures.exists(key)) return;
-      const img = this.add.image(width / 2, height / 2, key)
-        .setAlpha(alphas[i] ?? 0.3).setDepth(-10 + i);
-      img.setScale(Math.max(width / (img.width || 1), height / (img.height || 1)) * 1.05);
-      this.bgImages.push(img);
+      // stamp(), not draw(): Phaser 4 runs these through a deferred command
+      // buffer at render time, so the entry must be a texture key — a scratch
+      // Image would have to outlive this call.
+      const src = this.textures.get(key).source[0];
+      const scale = Math.max(w / (src?.width || 1), h / (src?.height || 1)) * 1.05;
+      rt.stamp(key, undefined, w / 2, h / 2, { alpha: alphas[i] ?? 0.3, scale });
     });
+    // Phaser 4 queues stamps in a command buffer — nothing appears until an
+    // explicit render() flushes it into the texture.
+    rt.render();
+    this.bgRT = rt;
   }
 
   // Landscape: palette column on the right. Portrait: palette panel below the
@@ -757,6 +778,7 @@ export class Game extends Phaser.Scene {
     }
 
     this.paletteSlots = groupPalette(this.level.palette);
+    this.paletteTiles = [];
     this.slotPosById.clear();
     const cols = 3, gap = 10, padX = 14;
     const availW = r.w - padX * 2;
@@ -781,10 +803,44 @@ export class Game extends Phaser.Scene {
       const cy = gridTop + row * (cell + gap) + cell / 2;
       const slot = this.paletteSlots[i];
       if (slot) {
-        container.add(this.buildPaletteSlot(cx, cy, cell, slot));
+        const obj = this.buildPaletteSlot(cx, cy, cell, slot);
+        container.add(obj);
+        this.paletteTiles.push({ slot, cx, cy, cell, obj, sig: this.slotSig(slot) });
       } else {
         container.add(addBeigeBadge(this, cx, cy, cell, cell).setAlpha(0.5));
       }
+    }
+  }
+
+  // What a tile LOOKS like, reduced to a string: worn ring/check, broken or
+  // spent cross, nose size letter, which pumpkin the group tile shows as worn.
+  // Same signature = the tile doesn't need rebuilding.
+  private slotSig(slot: PaletteSlot): string {
+    const e = this.engine;
+    if (!e) return '';
+    if (slot.kind === 'paint') return 'paint';
+    if (slot.kind === 'pumpkin') {
+      return `pumpkin|${e.wornMaskIds.find((id) => id.startsWith('pumpkin-')) ?? ''}`;
+    }
+    const mod = slot.mod;
+    const nose = mod.type === 'nose' ? e.noseSize() ?? '' : '';
+    return `${mod.id}|${e.isWorn(mod) ? 1 : 0}${e.isBroken(mod) ? 1 : 0}${e.isSpent(mod) ? 1 : 0}|${nose}`;
+  }
+
+  // Post-action palette update: rebuild only the tiles whose signature moved
+  // instead of tearing the whole panel down — a tap typically touches 0–2.
+  private refreshPalette() {
+    if (!this.paletteContainer) {
+      this.buildPalette();
+      return;
+    }
+    for (const tile of this.paletteTiles) {
+      const sig = this.slotSig(tile.slot);
+      if (sig === tile.sig) continue;
+      tile.obj.destroy(true);
+      tile.obj = this.buildPaletteSlot(tile.cx, tile.cy, tile.cell, tile.slot);
+      this.paletteContainer.add(tile.obj);
+      tile.sig = sig;
     }
   }
 
@@ -979,9 +1035,7 @@ export class Game extends Phaser.Scene {
       const shadow = this.add.image(2, 2, 'slime-color').setDisplaySize(slimeSz, slimeSz);
       // setTintFill() was removed in Phaser 4 — tint + FILL tint mode instead
       shadow.setTint(0x000000).setTintMode(Phaser.TintModes.FILL); shadow.setAlpha(0.28);
-      const swatchShineKey = paintOverlayShine(
-        this, `slime-shine-swatch-${numCol.toString(16)}`, 'slime-color', 'slime-shine', numCol, 0.5,
-      );
+      const swatchShineKey = bakeSwatchShine(this, numCol);
       const slimeImg = this.add.image(0, 0, swatchShineKey).setDisplaySize(slimeSz, slimeSz);
       const border   = this.add.image(0, 0, 'slime-border').setDisplaySize(slimeSz, slimeSz);
       shell.addContent([shadow, slimeImg, border]);
@@ -1299,7 +1353,7 @@ export class Game extends Phaser.Scene {
 
     this.updateStepsDisplay();
 
-    this.buildPalette();
+    this.refreshPalette();
     // The gate above means any action that lands in guided mode IS the
     // scripted one — advance the lesson to the next step.
     if (this.guideStep >= 0) this.guideStep += 1;
@@ -1374,7 +1428,7 @@ export class Game extends Phaser.Scene {
     this.currentRenderer?.setPattern(this.level.palette, this.engine.actions);
     this.timerText?.setText(`Time: ${this.timeLabel()}`);
     this.updateStepsDisplay();
-    this.buildPalette();
+    this.refreshPalette();
     this.showConflictPopup('Welcome back — your attempt is right where you left it!', 'info');
   }
 
@@ -1754,7 +1808,7 @@ export class Game extends Phaser.Scene {
     // that trade IS the decision the button exists for.
     this.showConflictPopup('Fresh start! Moves are back to 0 — but the clock kept ticking.', 'info');
     this.splot?.setExpression('squiggle', 900);
-    this.buildPalette();
+    this.refreshPalette();
     // A guided lesson restarts its script — the slime is bare again, so the
     // remaining steps would no longer produce the goal from here.
     if (this.guideStep >= 0) this.guideStep = 0;
@@ -1777,15 +1831,17 @@ export class Game extends Phaser.Scene {
   private onResize(gs: Phaser.Scale.ScaleManager | { width: number; height: number }) {
     const { width, height } = gs instanceof Phaser.Scale.ScaleManager ? gs : gs;
     // Cheap work runs per event so the canvas never shows bars or stale
-    // overlays mid-drag; the full relayout (HUD + cards + palette — hundreds
-    // of objects) debounces until the size settles, because RESIZE mode
-    // streams events continuously while a desktop window edge is dragged.
+    // overlays mid-drag; the full relayout (HUD + cards + palette) debounces
+    // until the size settles, because RESIZE mode streams events continuously
+    // while a desktop window edge is dragged. The flattened background just
+    // stretches per event (momentarily soft) and re-renders crisp on settle.
     this.cameras.resize(width, height);
-    this.buildBackground();
+    this.bgRT?.setPosition(width / 2, height / 2).setDisplaySize(width, height);
     this.hideTooltip();
     this.resizeRebuild?.remove();
     this.resizeRebuild = this.time.delayedCall(120, () => {
       this.resizeRebuild = null;
+      this.buildBackground();
       if (this.engine) {
         this.buildHUD();
         this.buildGameArea();

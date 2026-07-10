@@ -3,6 +3,7 @@ import { showLoginPrompt } from '@devvit/web/client';
 import { applyStoredSettings, isMusicOn, isSfxOn, playSfx, setMusicOn, setSfxOn, startMusic, streamAudio } from '../audio';
 import { SplotMascot } from '../components/SplotMascot';
 import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
+import { warmPaintSwatches } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
 import { getCachedUserData, setCachedUserData } from '../userData';
 import { warmLevelsDuringIdle } from '../levelWarmup';
@@ -67,6 +68,9 @@ export class MainMenu extends Phaser.Scene {
     // deep-linked Game scene) it plays across every scene until toggled off.
     streamAudio(this);
     startMusic();
+    // Bake the color pickers' 16 swatch textures in the background too — the
+    // first paint tap in a level then opens its rack with zero bake cost.
+    warmPaintSwatches(this);
 
     void this.loadUserData();
     this.warmDeferredAssets();
