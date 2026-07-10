@@ -44,6 +44,12 @@ export type LevelData = {
   hint?: string;
   // Shown once in a modal when the level opens (tutorial levels only).
   tutorial?: string;
+  // Guided lesson script (tutorial levels only): one coach line per
+  // optimalSolution step. When present (and the same length as the solution),
+  // the Game scene runs the level as a guided tutorial — the next expected
+  // tile glows, other taps are gently refused, and this text narrates why
+  // each step works.
+  guide?: readonly string[];
   authorName?: string;
   isDaily?: boolean;
 };

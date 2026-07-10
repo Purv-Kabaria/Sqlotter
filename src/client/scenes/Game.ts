@@ -12,7 +12,7 @@ import type { LevelData, ModifierDef } from '../../shared/types';
 import type { CompleteRequest, CompleteResponse } from '../../shared/api';
 import { getCuratedLevels } from '../../shared/levelData';
 import { recordCompletion } from '../levelProgress';
-import { BASE_COLOR, MAX_WORN, standardPaints, standardPumpkins } from '../../shared/slimeSim';
+import { BASE_COLOR, maskIdOf, MAX_WORN, standardPaints, standardPumpkins } from '../../shared/slimeSim';
 
 // Tutorial modals ("Splash Course" levels) show once per page load per level —
 // replaying a lesson or resetting it doesn't re-interrupt the player.
@@ -64,6 +64,33 @@ function groupPalette(palette: ModifierDef[]): PaletteSlot[] {
     }
   }
   return slots;
+}
+
+// One-line behavior blurb per palette tile — shown as a tooltip on hover
+// (desktop) or long-press (touch), so every tool explains itself without
+// spending a move.
+function slotTooltip(slot: PaletteSlot): string {
+  if (slot.kind === 'paint') {
+    return 'Paint Pot — splashes color over every spot no stencil protects. A splash also breaks worn goggles and grows a worn nose.';
+  }
+  if (slot.kind === 'pumpkin') {
+    return 'Pumpkin — covers Splot from the top down (25 / 50 / 75%). Only one fits at a time; tapping another size swaps it in one move.';
+  }
+  switch (slot.mod.type) {
+    case 'goggles':   return 'Goggles — stencil an eye band. FRAGILE: they snap off broken after protecting one splash.';
+    case 'glasses':   return 'Glasses — tough eye-band stencil. Splashes never break them; take them off yourself.';
+    case 'belt':      return 'Belt — stencils a straight band, thin or thick, sideways or upright.';
+    case 'pendant':   return 'Pendant — stencils a chain and charm over Splot.';
+    case 'underwear': return "Undies — stencil Splot's whole bottom half.";
+    case 'nose':      return 'Nose — worn small; every splash grows it one size. A splash on the big nose pops it off.';
+    case 'alpha':     return 'Alpha Dip — fades everything exposed to 75% opacity. One use per level, and it counts as a splash.';
+    case 'bubble':    return 'Bubble — fades only its inner circle to 75%; the rim stays bold. Reusable, and gentle: not a splash.';
+    case 'plate':     return 'Plate — big dish-shaped stencil.';
+    case 'cone':      return 'Cone — big triangle stencil, wide at the top.';
+    case 'scarf':     return 'Scarf — diagonal band stencil.';
+    case 'pumpkin':   return 'Pumpkin — covers from the top down. Only one at a time; another size swaps.';
+    case 'paint':     return 'Paint — splashes color on everything unprotected.';
+  }
 }
 
 function modIconKey(scene: Phaser.Scene, mod: ModifierDef): string {
@@ -150,6 +177,23 @@ export class Game extends Phaser.Scene {
   private activeTutorial: { text: string; onDismiss: () => void } | null = null;
   private bgImages: Phaser.GameObjects.Image[] = [];
 
+  // ── Guided lesson state ────────────────────────────────────────────────────
+  // Splash Course levels carry a per-step `guide` script: guideStep is the
+  // index of the NEXT expected optimalSolution action (-1 = not guided). The
+  // expected tile glows, the coach panel narrates the step, and any other tap
+  // is gently nudged back — except taps the sim would refuse anyway, which
+  // fall through to the real refusal UX (lesson 16 invites trying a 4th wear).
+  private guideStep = -1;
+  private guidePanel: Phaser.GameObjects.Container | null = null;
+  private guideHighlight: Phaser.GameObjects.Rectangle | null = null;
+  private guideFlashTimer: Phaser.Time.TimerEvent | null = null;
+
+  // Modifier tooltip (hover on desktop, long-press on touch)
+  private modTooltip: Phaser.GameObjects.Container | null = null;
+  private tooltipTimer: Phaser.Time.TimerEvent | null = null;
+  private tooltipSticky = false;
+  private suppressNextTileTap = false;
+
   constructor() { super('Game'); }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -168,6 +212,13 @@ export class Game extends Phaser.Scene {
     this.areaObjs      = [];
     this.activeTutorial = null;
     this.bgImages = [];
+    this.guideStep = -1;
+    this.guidePanel = null;
+    this.guideHighlight = null;
+    this.guideFlashTimer = null;
+    this.modTooltip = null;
+    this.tooltipTimer = null;
+    this.suppressNextTileTap = false;
   }
 
   create() {
@@ -225,6 +276,11 @@ export class Game extends Phaser.Scene {
   private beginLevel() {
     if (!this.level) return;
     this.engine = new LevelEngine(this.level);
+    // A lesson is guided when it ships a coach line for every solution step.
+    const guide = this.level.guide;
+    this.guideStep = !this.isPreview
+      && Array.isArray(guide) && guide.length > 0
+      && guide.length === this.level.optimalSolution.length ? 0 : -1;
     this.buildHUD();
     this.buildGameArea();
     this.buildPalette();
@@ -238,9 +294,11 @@ export class Game extends Phaser.Scene {
         // Fresh engine, NOT engine.reset(): reset is a logged, move-costing
         // action now — re-basing the attempt clock must not add one.
         if (this.level) this.engine = new LevelEngine(this.level);
+        this.updateGuide();
         this.startTimer();
       });
     } else {
+      this.updateGuide();
       this.startTimer();
     }
   }
@@ -615,6 +673,10 @@ export class Game extends Phaser.Scene {
       slot.kind === 'single' ? slot.mod.id : slot.kind, { x: cx, y: cy, cell },
     );
     const onClick = () => {
+      // A long-press that showed the tooltip is a question, not a move —
+      // swallow the tap it rides in on.
+      if (this.suppressNextTileTap) { this.suppressNextTileTap = false; return; }
+      this.hideTooltip();
       if (slot.kind === 'paint') {
         this.showColorPicker(slot.mods);
       } else if (slot.kind === 'pumpkin') {
@@ -630,6 +692,28 @@ export class Game extends Phaser.Scene {
     const spent   = single ? (this.engine?.isSpent(single) ?? false) : false;
     const disabled = broken || spent;
     const shell = addBeigeButtonShell(this, cx, cy, cell, cell, disabled, disabled ? undefined : onClick, true);
+
+    // Tooltip triggers: a settled hover (mouse) or a held press (touch). The
+    // press path arms suppressNextTileTap so releasing doesn't also act, and
+    // its tooltip is STICKY — pointerout (which touch fires on release) must
+    // not hide it before it can be read; it self-expires instead.
+    if (!disabled) {
+      const tip = slotTooltip(slot);
+      shell.container.on('pointerover', () => this.armTooltip(tip, cx, cy, cell, 350, false));
+      shell.container.on('pointerdown', () => this.armTooltip(tip, cx, cy, cell, 500, true));
+      shell.container.on('pointerout', () => {
+        this.tooltipTimer?.destroy();
+        this.tooltipTimer = null;
+        // A drag-off after the tooltip fired never reaches onClick — don't
+        // leave the swallow flag armed for some future unrelated tap.
+        this.suppressNextTileTap = false;
+        if (!this.tooltipSticky) this.hideTooltip();
+      });
+      shell.container.on('pointerup', () => {
+        this.tooltipTimer?.destroy();
+        this.tooltipTimer = null;
+      });
+    }
     const content: Phaser.GameObjects.GameObject[] = [];
     const iconSz = Math.round(cell * 0.5);
     let worn = false;
@@ -746,6 +830,8 @@ export class Game extends Phaser.Scene {
     const gridLeft = pcx - popW / 2 + pad;
     const gridTop  = pcy - popH / 2 + titleH + pad;
     const slimeSz  = Math.round(slotSz * 0.68);
+    // Guided lesson: the scripted color glows inside the rack too.
+    const guideTarget = this.guideStep >= 0 ? this.level?.optimalSolution[this.guideStep] : undefined;
 
     mods.forEach((mod, i) => {
       const col = i % COLS;
@@ -776,6 +862,14 @@ export class Game extends Phaser.Scene {
       const border   = this.add.image(0, 0, 'slime-border').setDisplaySize(slimeSz, slimeSz);
       shell.addContent([shadow, slimeImg, border]);
       items.push(shell.container);
+      if (mod.id === guideTarget) {
+        const ring = this.add.rectangle(sx, sy, slotSz + 6, slotSz + 6)
+          .setStrokeStyle(4, 0xFFD700, 1);
+        this.tweens.add({
+          targets: ring, alpha: 0.35, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+        items.push(ring);
+      }
     });
 
     this.activePopup = this.add.container(0, 0, items).setDepth(50);
@@ -859,6 +953,15 @@ export class Game extends Phaser.Scene {
         ]);
       }
       items.push(shell.container);
+      // Guided lesson: the scripted size glows inside the picker too.
+      if (this.guideStep >= 0 && this.level?.optimalSolution[this.guideStep] === mod.id) {
+        const ring = this.add.rectangle(sx, tileY, slotSz + 6, slotSz + 6)
+          .setStrokeStyle(4, 0xFFD700, 1);
+        this.tweens.add({
+          targets: ring, alpha: 0.35, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+        items.push(ring);
+      }
     });
 
     this.activePopup = this.add.container(0, 0, items).setDepth(50);
@@ -944,6 +1047,12 @@ export class Game extends Phaser.Scene {
   // a readable size — the panel grows to fit the wrapped text, and the hold
   // time scales with message length so long hints can actually be read.
   private showConflictPopup(message: string, tone: 'warn' | 'info' = 'warn') {
+    // Guided lessons keep ONE message surface: refusals/snap-offs/hints flash
+    // through the coach panel, then the step text returns.
+    if (this.guideStep >= 0 && this.guidePanel) {
+      this.guideFlash(message, tone === 'warn' ? '#FFB9B9' : '#F0E2C0');
+      return;
+    }
     this.conflictPopup?.destroy(true);
     const { width, height } = this.scale;
     const isPortrait = height > width;
@@ -993,6 +1102,18 @@ export class Game extends Phaser.Scene {
     // playing and the completion payload is already captured — a late tap during
     // that window would only glitch the slime mid-celebration, so ignore it.
     if (!this.engine || !this.currentRenderer || !this.level || this.winHandled || this.navigating) return;
+
+    // Guided lesson gate: only the scripted next action goes through. Taps
+    // the sim would refuse anyway fall through to the real refusal UX below —
+    // a lesson may be inviting exactly that refusal (Goggle Pileup's "try a
+    // fourth"), and the cross + reason teach more than a follow-the-glow nudge.
+    if (this.guideStep >= 0
+        && this.level.optimalSolution[this.guideStep] !== mod.id
+        && !this.wouldBeRefused(mod)) {
+      this.guideNudge();
+      return;
+    }
+
     const result = this.engine.applyModifier(mod);
 
     // A refused tap (broken goggles / a spent one-shot / a wear the stacking
@@ -1030,8 +1151,9 @@ export class Game extends Phaser.Scene {
     } else if (result.kind === 'swap') {
       // One head-cover at a time: the new size replaced the worn one in a
       // single move. Say so the first time — after that the visual carries it.
+      // (Guided lessons skip it: the coach script explains the swap itself.)
       this.splot?.setExpression('excited', 900);
-      if (!pumpkinSwapExplained) {
+      if (!pumpkinSwapExplained && this.guideStep < 0) {
         pumpkinSwapExplained = true;
         this.showConflictPopup('Pumpkin swapped! One fits at a time — tapping another size swaps it in one move.', 'info');
       }
@@ -1042,7 +1164,31 @@ export class Game extends Phaser.Scene {
     this.updateStepsDisplay();
 
     this.buildPalette();
+    // The gate above means any action that lands in guided mode IS the
+    // scripted one — advance the lesson to the next step.
+    if (this.guideStep >= 0) this.guideStep += 1;
+    this.updateGuide();
     if (result.isWin) void this.handleWin();
+  }
+
+  // Exact mirror of the sim's refusal rules (applySimAction) — the guided
+  // gate uses it to tell "off-script but legal" (nudge back) from "the sim
+  // would refuse this anyway" (let the real refusal UX play out).
+  private wouldBeRefused(mod: ModifierDef): boolean {
+    if (!this.engine) return false;
+    if (mod.type === 'paint' || mod.type === 'bubble') return false;
+    if (mod.type === 'alpha') return this.engine.isSpent(mod);
+    const worn = this.engine.wornMaskIds;
+    if (mod.type === 'nose') {
+      return !worn.some((id) => id.startsWith('nose-')) && worn.length >= MAX_WORN;
+    }
+    const maskId = maskIdOf(mod);
+    if (maskId === null) return false;
+    if (worn.includes(maskId)) return false; // toggle off — always allowed
+    if (this.engine.isBroken(mod)) return true;
+    // A different pumpkin size swaps in place — never refused.
+    if (maskId.startsWith('pumpkin-') && worn.some((id) => id.startsWith('pumpkin-'))) return false;
+    return worn.length >= MAX_WORN;
   }
 
   // A red cross pops up above the refused tool's palette tile and fades — the
@@ -1063,6 +1209,141 @@ export class Game extends Phaser.Scene {
         onComplete: () => cross.destroy(),
       }),
     });
+  }
+
+  // ── Guided lesson rendering ────────────────────────────────────────────────
+  // Rebuilds the coach panel + the glowing target ring for the current step.
+  // Runs on step advance and after every palette rebuild (tile positions move).
+  private updateGuide() {
+    this.guideFlashTimer?.destroy();
+    this.guideFlashTimer = null;
+    this.guidePanel?.destroy(true);
+    this.guidePanel = null;
+    this.guideHighlight?.destroy();
+    this.guideHighlight = null;
+    // While the intro modal is up the lesson hasn't started; its dismissal
+    // callback calls back in here.
+    if (this.guideStep < 0 || !this.level || this.activeTutorial) return;
+    const guide = this.level.guide;
+    if (!guide || this.guideStep >= this.level.optimalSolution.length) return;
+
+    // Glow the tile this step needs — group actions point at their group tile.
+    const actionId = this.level.optimalSolution[this.guideStep]!;
+    const key = actionId.startsWith('paint-') ? 'paint'
+      : actionId.startsWith('pumpkin-') ? 'pumpkin'
+      : actionId;
+    const pos = this.slotPosById.get(key);
+    if (pos) {
+      const ring = this.add.rectangle(pos.x, pos.y, pos.cell + 6, pos.cell + 6)
+        .setStrokeStyle(4, 0xFFD700, 1).setDepth(30);
+      this.guideHighlight = ring;
+      this.tweens.add({
+        targets: ring, alpha: 0.35, scaleX: 1.06, scaleY: 1.06,
+        duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+    }
+
+    this.buildGuidePanel(guide[this.guideStep]!, '#F0E2C0', true);
+  }
+
+  // The coach strip — the guided lesson's one message surface (refusals,
+  // snap-offs and hints flash through it; the step text returns after).
+  // Persistent, so it must never cover a palette tile: portrait docks it just
+  // above the palette sheet, landscape centers it over the play area.
+  private buildGuidePanel(message: string, color: string, showStep: boolean) {
+    this.guidePanel?.destroy(true);
+    const { width, height } = this.scale;
+    const isPortrait = height > width;
+    const pal = this.paletteRect(width, height);
+    const popW = Math.min((isPortrait ? width : pal.x - 14) - 24, 340);
+    const popCx = isPortrait ? width / 2 : (pal.x - 14) / 2 + 14;
+    const contentX = popCx - popW / 2 + 40;
+
+    const txt = this.add.text(contentX, 0, message, {
+      fontFamily: PIXELIFY, fontSize: '13px', color,
+      wordWrap: { width: popW - 56 }, lineSpacing: 3,
+    }).setOrigin(0, 0);
+    const stepH = showStep ? 14 : 0;
+    const contentH = stepH + txt.height;
+    const popH = Math.max(46, contentH + 18);
+    const popY = isPortrait ? pal.y - popH / 2 - 6 : height - 14 - popH / 2;
+    const top = popY - contentH / 2;
+    txt.setY(top + stepH);
+
+    const items: Phaser.GameObjects.GameObject[] = [
+      addDarkPanel(this, popCx, popY, popW, popH),
+    ];
+    const icon = this.add.image(popCx - popW / 2 + 23, popY, 'icon-sparkle')
+      .setDisplaySize(18, 18).setTint(0xFFD700);
+    items.push(icon);
+    if (showStep && this.level) {
+      items.push(this.add.text(contentX, top, `STEP ${this.guideStep + 1}/${this.level.optimalSolution.length}`, {
+        fontFamily: PIXEL_FONT, fontSize: '8px', color: '#FFD700',
+      }).setOrigin(0, 0));
+    }
+    items.push(txt);
+    this.guidePanel = this.add.container(0, 0, items).setDepth(40);
+  }
+
+  // Off-script (but legal) tap: wiggle the glow, flash a nudge, keep the step.
+  private guideNudge() {
+    this.splot?.setExpression('doubt', 800);
+    if (this.guideHighlight) {
+      this.tweens.add({ targets: this.guideHighlight, x: '+=5', duration: 45, yoyo: true, repeat: 3 });
+    }
+    this.guideFlash('Not that one yet — follow the glowing tile!', '#FFB9B9');
+  }
+
+  // Temporarily replaces the coach text (nudges, refusals, hints), then
+  // restores the step text once it has been read.
+  private guideFlash(message: string, color: string) {
+    this.buildGuidePanel(message, color, false);
+    this.guideFlashTimer?.destroy();
+    this.guideFlashTimer = this.time.delayedCall(
+      Math.min(4000, 1400 + message.length * 24), () => this.updateGuide(),
+    );
+  }
+
+  // ── Modifier tooltip (hover / long-press) ─────────────────────────────────
+  // `fromPress` marks the long-press path: showing the tooltip arms
+  // suppressNextTileTap so the release doesn't also fire the tile's action.
+  private armTooltip(text: string, x: number, y: number, cell: number, delay: number, fromPress: boolean) {
+    this.tooltipTimer?.destroy();
+    this.tooltipTimer = this.time.delayedCall(delay, () => {
+      if (fromPress) this.suppressNextTileTap = true;
+      this.showModTooltip(text, x, y, cell);
+      this.tooltipSticky = fromPress;
+    });
+  }
+
+  private hideTooltip() {
+    this.tooltipTimer?.destroy();
+    this.tooltipTimer = null;
+    this.tooltipSticky = false;
+    this.modTooltip?.destroy(true);
+    this.modTooltip = null;
+  }
+
+  private showModTooltip(text: string, x: number, y: number, cell: number) {
+    this.modTooltip?.destroy(true);
+    const { width } = this.scale;
+    const maxW = Math.min(260, width - 20);
+    const txt = this.add.text(0, 0, text, {
+      fontFamily: PIXELIFY, fontSize: '12px', color: '#F5EAD0',
+      wordWrap: { width: maxW - 24 }, lineSpacing: 2, align: 'center',
+    }).setOrigin(0.5);
+    const w = Math.min(maxW, Math.ceil(txt.width) + 24);
+    const h = Math.ceil(txt.height) + 18;
+    // Above the tile, clamped on-screen — small screens nudge it inward
+    // rather than shrinking the (readable) text.
+    const tx = Phaser.Math.Clamp(x, w / 2 + 6, width - w / 2 - 6);
+    const ty = Math.max(h / 2 + 6, y - cell / 2 - h / 2 - 10);
+    const tip = this.add.container(tx, ty, [addDarkPanel(this, 0, 0, w, h), txt])
+      .setDepth(45).setAlpha(0);
+    this.modTooltip = tip;
+    this.tweens.add({ targets: tip, alpha: 1, duration: 120 });
+    // Self-expire (long-press has no pointerout to dismiss it)
+    this.time.delayedCall(3200, () => { if (this.modTooltip === tip) this.hideTooltip(); });
   }
 
   // Broken goggles tumble off the slime — they fall, spin, shrink and fade.
@@ -1204,6 +1485,10 @@ export class Game extends Phaser.Scene {
     this.updateStepsDisplay();
     this.splot?.setExpression('squiggle', 900);
     this.buildPalette();
+    // A guided lesson restarts its script — the slime is bare again, so the
+    // remaining steps would no longer produce the goal from here.
+    if (this.guideStep >= 0) this.guideStep = 0;
+    this.updateGuide();
   }
 
   // ── Timer ────────────────────────────────────────────────────────────────
@@ -1227,10 +1512,13 @@ export class Game extends Phaser.Scene {
     const { width, height } = gs instanceof Phaser.Scale.ScaleManager ? gs : gs;
     this.cameras.resize(width, height);
     this.buildBackground();
+    this.hideTooltip();
     if (this.engine) {
       this.buildHUD();
       this.buildGameArea();
       this.buildPalette();
+      // Tile positions moved — re-anchor the coach panel and target glow.
+      this.updateGuide();
     }
     // Popups are laid out for the old viewport: re-show the tutorial modal at
     // the new size (closing it would start the attempt clock mid-read); the
@@ -1247,6 +1535,7 @@ export class Game extends Phaser.Scene {
     this.timerEvent?.destroy();
     this.scale.off('resize', this.onResize, this);
     this.closeActivePopup();
+    this.hideTooltip();
     this.tweens.killAll();
     this.time.removeAllEvents();
   }

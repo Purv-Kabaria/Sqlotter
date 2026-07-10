@@ -106,6 +106,11 @@ counts. The puzzle is ordering plus outfit economy: which (at most three) stenci
 are on when each coat lands, and which single splash each pair of goggles is spent
 on.
 
+**Tooltips**: every palette tile explains itself — hover (desktop, ~350 ms) or
+long-press (touch, ~500 ms; the release is swallowed so peeking never costs a
+move) shows a one-line behavior blurb (`slotTooltip` in Game.ts), clamped
+on-screen at every viewport width.
+
 **Win check** (`isCleanMatch`): every body cell displays the same effective color
 (hue + dip state — a dipped cell shows its color composited at 75% over white) as the
 goal replay, and `worn` is empty.
@@ -205,8 +210,15 @@ provably solvable before they're stored.
 
 **Curated — 16 tutorial + 384 generated (25 worlds, 400 levels).** `curatedLevels.ts`
 hand-authors the Splash Course — 16 lessons whose solutions collectively exercise all
-26 modifiers plus paint, from First Splash up to Goggle Pileup (five worn goggles,
-one black splash breaks them all) — and generates worlds 1–24 on first access
+26 modifiers plus paint, from First Splash up to Goggle Pileup (a full three-goggle
+outfit snapped off by one black splash, with two decoys teaching the wear limit).
+Every lesson is a GUIDED tutorial: `LevelData.guide` carries one coach line per
+solution step, and the Game scene runs the lesson step-by-step — the next expected
+tile glows gold (down into the color/pumpkin pickers), a persistent coach panel
+narrates the step (`STEP n/m`), off-script taps are nudged back without costing a
+move, and taps the sim would refuse anyway (a 4th wear in Goggle Pileup) get the
+real refusal so the rule lands. Reset restarts the script. `curatedLevels.ts` also
+generates worlds 1–24 on first access
 (`getCuratedLevels()`, memoized) with a fixed-seed PRNG — identical on client and
 server, no build step. Generation is lazy so it never blocks the client's boot script
 or a server cold start. Each generated level is validated during generation: its
