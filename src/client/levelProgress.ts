@@ -15,11 +15,13 @@ export function setCachedProgress(next: ProgressMap): void {
 }
 
 export function recordCompletion(levelId: string, stars: number): void {
-  // Nothing cached yet — the next profile fetch will include this win anyway.
-  if (!progress) return;
-  const prev = progress[levelId];
+  // Seed the map if nothing is cached yet (a deep-linked win before the first
+  // LevelSelect visit). For logged-in players the profile fetch would cover
+  // it — but a GUEST's completions live only here, and dropping one re-locks
+  // the level they just beat.
+  const prev = progress?.[levelId];
   if (!prev || stars > prev.stars) {
-    progress = { ...progress, [levelId]: { stars } };
+    progress = { ...(progress ?? {}), [levelId]: { stars } };
   }
 }
 

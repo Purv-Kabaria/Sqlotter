@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { streamAudio } from '../audio';
 import { addBeigeButton, addBeigeButtonShell, addDepthIcon, BODY_FONT } from '../components/PixelUI';
 import { getCuratedLevels, LEVELS_PER_WORLD, WORLDS_META } from '../../shared/levelData';
+import { moveLimit } from '../../shared/gameRules';
 import type { WorldMeta } from '../../shared/levelData';
 import type { LevelData } from '../../shared/types';
 import type { CommunityLevelSummary, CommunityLevelsResponse } from '../../shared/api';
@@ -22,7 +23,13 @@ let communityCache: CommunityLevelSummary[] | null = null;
 // remaining cells empty.
 const WORLD_CAPACITY = LEVELS_PER_WORLD;
 
-type GridItem = { label: string; disabled: boolean; icon?: string; onClick?: (() => void) | undefined };
+type GridItem = {
+  label: string; disabled: boolean; icon?: string;
+  // Best stars earned on a completed level — rendered as three mini pips on
+  // the tile (0 = completed starless: three dark pips still say "done").
+  stars?: number;
+  onClick?: (() => void) | undefined;
+};
 type WorldPage = { kind: 'world'; meta: WorldMeta; levels: LevelData[] };
 type CommunityPage = { kind: 'community' };
 type Page = WorldPage | CommunityPage;
@@ -407,13 +414,15 @@ export class LevelSelect extends Phaser.Scene {
         // Long labels (tutorial lesson names) shrink to fit the button instead
         // of spilling past its corners.
         const itemFs = Math.max(9, Math.min(fs, Math.floor((btnW - 16) / (item.label.length * 0.62))));
-        const btn = addBeigeButton(this, {
-          x: cx, y: cy, width: btnW, height: btnH,
-          label: item.label, fontSize: itemFs, fontFamily: PIXELIFY,
-          disabled: item.disabled,
-          ...(item.icon ? { iconKey: item.icon } : {}),
-          ...(item.onClick ? { onClick: item.onClick } : {}),
-        });
+        const btn = item.stars === undefined
+          ? addBeigeButton(this, {
+              x: cx, y: cy, width: btnW, height: btnH,
+              label: item.label, fontSize: itemFs, fontFamily: PIXELIFY,
+              disabled: item.disabled,
+              ...(item.icon ? { iconKey: item.icon } : {}),
+              ...(item.onClick ? { onClick: item.onClick } : {}),
+            })
+          : this.buildStarredTile(cx, cy, btnW, btnH, item.label, itemFs, item.stars, item.onClick);
         const targetY = cy;
         btn.setAlpha(0).setY(targetY + 8);
         this.tweens.add({
@@ -452,13 +461,17 @@ export class LevelSelect extends Phaser.Scene {
     const tutorial = page.meta.num === 0;
     const items: GridItem[] = page.levels.slice(0, maxItems).map((level, i) => {
       const locked = this.isLevelLocked(level);
+      const done = this.completedLevels[level.id];
       // Tutorial buttons read as numbered LESSONS ("2. Full Outfit") and wear
       // the help icon, so the course can't be mistaken for regular levels;
       // regular worlds number within the world, matching the page title.
+      // Completed regular levels carry their best stars (lessons don't — the
+      // course page is a teaching space, not a score screen).
       return {
         label: tutorial ? `${i + 1}. ${level.title}` : `Level ${i + 1}`,
         disabled: locked,
         ...(tutorial ? { icon: 'icon-help' } : {}),
+        ...(!tutorial && !locked && done ? { stars: done.stars } : {}),
         onClick: locked ? undefined : () => this.openLevel(level.id),
       };
     });
@@ -468,6 +481,33 @@ export class LevelSelect extends Phaser.Scene {
       items.push({ label: 'Skip to World 1', disabled: false, icon: 'icon-play', onClick: () => this.changePage(1) });
     }
     return items;
+  }
+
+  // A completed level's tile: the label rides up a touch and its best-star
+  // pips sit under it (dark pips = the level is done but those stars are
+  // still on the table). Built on the shared shell so hover/press feedback
+  // matches every other tile, with the content in the animated sub-container.
+  private buildStarredTile(
+    cx: number, cy: number, w: number, h: number,
+    label: string, fontSize: number, stars: number, onClick?: () => void,
+  ): Phaser.GameObjects.Container {
+    const shell = addBeigeButtonShell(this, cx, cy, w, h, false, onClick);
+    const labelTxt = this.add.text(0, -h * 0.14, label, {
+      fontFamily: PIXELIFY, fontSize: `${fontSize}px`, color: '#3A1A08',
+      shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
+    }).setOrigin(0.5);
+    const starSz = Math.max(10, Math.min(15, Math.round(h * 0.20)));
+    const gap = 3;
+    const rowW = starSz * 3 + gap * 2;
+    const pips: Phaser.GameObjects.GameObject[] = [];
+    for (let s = 0; s < 3; s++) {
+      const lit = s < stars;
+      pips.push(this.add.image(-rowW / 2 + starSz / 2 + s * (starSz + gap), h * 0.22, 'icon-star')
+        .setDisplaySize(starSz, starSz)
+        .setTint(lit ? 0xFFD700 : 0x6B5344).setAlpha(lit ? 1 : 0.55));
+    }
+    shell.addContent([labelTxt, ...pips]);
+    return shell.container;
   }
 
   // ── Finder page result list ──────────────────────────────────────────────
@@ -595,7 +635,9 @@ export class LevelSelect extends Phaser.Scene {
     if (item.locked) {
       content.push(addDepthIcon(this, w / 2 - padX - 10, 0, 'icon-lock', 20, 20).setAlpha(0.75));
     } else {
-      content.push(this.add.text(w / 2 - padX, twoLine ? -h * 0.16 : 0, `par ${item.par}`, {
+      // The advertised number is the move LIMIT (par + buffer) — the same
+      // figure the in-game Moves pill shows. Bare par never faces the player.
+      content.push(this.add.text(w / 2 - padX, twoLine ? -h * 0.16 : 0, `${moveLimit(item.par)} moves`, {
         fontFamily: PIXELIFY, fontSize: '13px', color: '#3A1A08',
       }).setOrigin(1, 0.5));
       if (twoLine) {

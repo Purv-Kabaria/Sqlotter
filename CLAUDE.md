@@ -212,6 +212,8 @@ course is OPTIONAL: lessons never lock, World 1 is never gated behind them, the
 coach panel has a standing Skip button, and the course page ends in a "Skip to
 World 1" tile. **Tooltips**: every palette tile shows a one-line blurb
 on hover (desktop) or long-press (touch — the release is swallowed, never a move).
+**Goal zoom**: tapping the goal card (corner magnifier badge) opens a full-screen
+look at the pattern — a free inspection, never a move.
 
 ### Simulation Model (src/shared/slimeSim.ts)
 The slime is a 64×64 cell grid. `BODY_MASK` marks body cells; `MASK_BITMAPS[maskId]`

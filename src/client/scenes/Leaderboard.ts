@@ -403,15 +403,9 @@ export class Leaderboard extends Phaser.Scene {
       }).setOrigin(0.5));
     }
 
-    const nameFs = Math.max(13, Math.min(19, Math.round(h * 0.32)));
-    const nameX = -w / 2 + rankColW + 14;
-    const nameLabel = entry.isCurrentUser ? `${entry.username}  (You)` : entry.username;
-    content.push(this.add.text(nameX, 0, nameLabel, {
-      fontFamily: PIXELIFY, fontSize: `${nameFs}px`,
-      color: entry.isCurrentUser ? C.GREEN_BRIGHT : C.TEXT_BEIGE,
-      fontStyle: entry.isCurrentUser ? 'bold' : 'normal',
-    }).setOrigin(0, 0.5));
-
+    // Score block first — the username's width budget is whatever the score
+    // and its icon leave over, so a long name and a six-digit score can never
+    // run into each other (they used to collide on phone widths).
     const scoreFs = Math.max(14, Math.min(20, Math.round(h * 0.34)));
     const scoreIconSz = scoreFs * 1.15;
     const scoreTxt = this.add.text(0, 0, `${entry.score}`, {
@@ -424,6 +418,29 @@ export class Leaderboard extends Phaser.Scene {
     const scoreIconImg = this.add.image(scoreRight - scoreTxt.width - scoreIconSz / 2 - 6, 0, scoreIcon)
       .setDisplaySize(scoreIconSz, scoreIconSz);
     content.push(scoreIconImg, scoreTxt);
+
+    const nameFs = Math.max(13, Math.min(19, Math.round(h * 0.32)));
+    const nameX = -w / 2 + rankColW + 14;
+    const nameMaxW = (scoreRight - scoreTxt.width - scoreIconSz - 10) - nameX - 8;
+    const suffix = entry.isCurrentUser ? '  (You)' : '';
+    const nameTxt = this.add.text(nameX, 0, `${entry.username}${suffix}`, {
+      fontFamily: PIXELIFY, fontSize: `${nameFs}px`,
+      color: entry.isCurrentUser ? C.GREEN_BRIGHT : C.TEXT_BEIGE,
+      fontStyle: entry.isCurrentUser ? 'bold' : 'normal',
+    }).setOrigin(0, 0.5);
+    // Two-stage fit: shrink modestly first (most names then fit whole), and
+    // only genuinely long ones get character-trimmed with a "..." tail
+    // ("…" has no glyph in these faces). The (You) tag survives the cut.
+    if (nameTxt.width > nameMaxW) {
+      const scale = Math.max(0.75, nameMaxW / nameTxt.width);
+      nameTxt.setScale(scale);
+      let keep = entry.username.length;
+      while (keep > 3 && nameTxt.width * scale > nameMaxW) {
+        keep -= 1;
+        nameTxt.setText(`${entry.username.slice(0, keep).trimEnd()}...${suffix}`);
+      }
+    }
+    content.push(nameTxt);
 
     return this.add.container(0, 0, content);
   }

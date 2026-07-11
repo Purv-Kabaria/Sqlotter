@@ -6,6 +6,7 @@ import { SplotMascot } from '../components/SplotMascot';
 import { SlimeRenderer } from '../components/SlimeRenderer';
 import { getCachedUserData } from '../userData';
 import { getCuratedLevels } from '../../shared/levelData';
+import { moveLimit } from '../../shared/gameRules';
 import type { FirstSplatRequest, ShareCardRequest } from '../../shared/api';
 import type { ModifierDef } from '../../shared/types';
 
@@ -24,6 +25,9 @@ type CompleteData = {
   levelId: string; title?: string; steps: number; timeMs: number; stars: number;
   sparks: number; streakDays?: number; actions?: string[]; firstSplat?: boolean;
   goalPalette?: ModifierDef[]; goalActions?: readonly string[];
+  // The level's par — lets the MOVES stat show "5/8" against the same move
+  // limit the in-game pill advertised (absent for legacy callers).
+  optimalSteps?: number;
   // Home-page walkthrough chain: Next runs through the first Splash Course
   // lessons, then the final lesson's button leads back home.
   walkthrough?: boolean;
@@ -168,8 +172,13 @@ export class LevelComplete extends Phaser.Scene {
     const secs = Math.floor(timeMs / 1000);
     const timeStr = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
     const statsY = panelY - panelH / 2 + 152;
+    // MOVES reads against the same limit the in-game pill advertised ("5/8").
+    // A 0-star clear swaps the check for a warning and reddens the count —
+    // a green check over 29 moves said nothing about WHY the stars went dark.
+    const limit = data?.optimalSteps ? moveLimit(data.optimalSteps) : null;
+    const movesValue = limit !== null ? `${steps}/${limit}` : `${steps}`;
     const statDefs: { key: string; label: string; value: string; icon: string }[] = [
-      { key: 'steps',  label: 'MOVES',  value: `${steps}`,  icon: 'icon-check' },
+      { key: 'steps',  label: 'MOVES',  value: movesValue,  icon: stars === 0 ? 'icon-warning' : 'icon-check' },
       { key: 'time',   label: 'TIME',   value: timeStr,     icon: 'icon-timer' },
       { key: 'sparks', label: 'SPARKS', value: `+${sparks}`, icon: 'icon-spark' },
     ];
@@ -179,10 +188,11 @@ export class LevelComplete extends Phaser.Scene {
       const isSparks = stat.key === 'sparks';
 
       const icon = this.add.image(sx, statsY - 22, stat.icon).setDisplaySize(20, 20).setAlpha(0);
+      const overLimit = stat.key === 'steps' && stars === 0;
       const val = this.add.text(sx, statsY + 2, stat.value, {
         fontFamily: PIXEL_FONT,
-        fontSize: '17px',
-        color: isSparks ? '#B8860B' : '#3A1A08',
+        fontSize: stat.value.length > 4 ? '14px' : '17px',
+        color: isSparks ? '#B8860B' : overLimit ? '#A03020' : '#3A1A08',
         // The darkgoldenrod Sparks value is close in luminance to the panel's
         // terracotta background — an outline keeps it legible without losing
         // the gold color that sets it apart from the plain stat columns.
@@ -712,6 +722,11 @@ export class LevelComplete extends Phaser.Scene {
     this.tweens.add({ targets: dim, alpha: 1, duration: 280 });
     layer.add(dim);
 
+    // The win screen's own Splot sits exactly in the gap between this card
+    // and its button row — through the dim he read as a rendering glitch.
+    // The card carries its own crowned Splot; hide the one underneath.
+    this.splot?.container.setVisible(false);
+
     // The card itself — everything inside this container lands in the PNG.
     const card = this.add.container(cx, cardY);
     // Opaque backing so the snapshot has no see-through panel corners
@@ -908,6 +923,7 @@ export class LevelComplete extends Phaser.Scene {
     this.crownBtnRow = null;
     this.crownSplot?.stopIdleAnims();
     this.crownSplot = null;
+    this.splot?.container.setVisible(true);
     this.tweens.add({
       targets: layer, alpha: 0, duration: 220, ease: 'Quad.easeIn',
       onComplete: () => layer.destroy(),

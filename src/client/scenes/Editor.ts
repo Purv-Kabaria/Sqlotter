@@ -675,7 +675,7 @@ export class Editor extends Phaser.Scene {
     overlay.on('pointerup', () => this.closeActivePopup());
     items.push(overlay);
     items.push(addBeigeButtonShell(this, pcx, pcy, popW, Math.max(popH, 66), false).container);
-    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 6, 'Pick a color', {
+    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 6, 'Pick a Color', {
       fontFamily: PIXELIFY, fontSize: `${Math.round(15 * t)}px`, fontStyle: 'bold', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));

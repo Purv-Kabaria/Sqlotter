@@ -621,6 +621,19 @@ export class Game extends Phaser.Scene {
     this.goalRenderer.container.setDepth(4);
     this.goalRenderer.setPattern(this.level.palette, this.level.optimalSolution);
 
+    // Tap the goal card to inspect it big — thin belts and small noses are
+    // genuinely hard to read at phone card sizes. A corner magnifier badge
+    // (plus icon) says the card is tappable; the popup is a free look, never
+    // a move.
+    const goalZone = this.add.zone(goalX, cardCy, cardSz, cardSz).setInteractive().setDepth(5);
+    goalZone.on('pointerup', () => this.showGoalZoom());
+    this.areaObjs.push(goalZone);
+    const hintSz = Math.max(12, Math.round(cardSz * 0.10));
+    this.areaObjs.push(
+      addDepthIcon(this, goalX + cardSz / 2 - hintSz * 0.75, cardCy - cardSz / 2 + hintSz * 0.75, 'icon-plus', hintSz, hintSz, 1, 0.35)
+        .setDepth(5).setAlpha(0.85),
+    );
+
     this.currentRenderer = new SlimeRenderer(this, curX, cardCy, slimeSz);
     this.currentRenderer.container.setDepth(4);
     this.currentRenderer.setPattern(this.level.palette, this.engine.actions);
@@ -855,6 +868,8 @@ export class Game extends Phaser.Scene {
       // A long-press that showed the tooltip is a question, not a move —
       // swallow the tap it rides in on.
       if (this.suppressNextTileTap) { this.suppressNextTileTap = false; return; }
+      // Won already (celebration playing) or leaving: no pickers, no actions.
+      if (this.winHandled || this.navigating) return;
       this.hideTooltip();
       if (slot.kind === 'paint') {
         this.showColorPicker(slot.mods);
@@ -963,12 +978,49 @@ export class Game extends Phaser.Scene {
     return shell.container;
   }
 
+  // ── Goal zoom popup ───────────────────────────────────────────────────────
+  // A big look at the goal pattern — tap anywhere to dismiss. Free (no move,
+  // no clock effect beyond the seconds spent looking).
+  private showGoalZoom() {
+    if (!this.level || this.winHandled || this.navigating || this.activeTutorial) return;
+    this.closeActivePopup();
+    playSfx('menuIn');
+    const { width, height } = this.scale;
+    const cx = width / 2, cy = height / 2;
+
+    const items: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.72).setInteractive();
+    overlay.on('pointerup', () => { playSfx('menuOut'); this.closeActivePopup(); });
+    items.push(overlay);
+
+    const slimeSz = Math.round(Math.min(width, height) * 0.72);
+    const zoom = new SlimeRenderer(this, cx, cy, slimeSz);
+    zoom.setPattern(this.level.palette, this.level.optimalSolution);
+    items.push(zoom.container);
+
+    items.push(this.add.text(cx, cy - slimeSz / 2 - 26, 'GOAL', {
+      fontFamily: PIXEL_FONT, fontSize: '14px', color: C.TEXT_BEIGE,
+      stroke: '#000000', strokeThickness: 4,
+    }).setOrigin(0.5));
+    items.push(this.add.text(cx, cy + slimeSz / 2 + 22, 'Tap anywhere to close', {
+      fontFamily: PIXELIFY, fontSize: '13px', color: '#B7A585',
+    }).setOrigin(0.5));
+
+    this.activePopup = this.add.container(0, 0, items).setDepth(50);
+    this.activePopup.setAlpha(0).setScale(0.94);
+    this.tweens.add({
+      targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 170, ease: 'Quad.easeOut',
+    });
+  }
+
   // ── Colour picker popup ───────────────────────────────────────────────────
   // The pot always offers the full 16-color rack (plus any legacy palette
   // color outside it). Palette defs win their color slot, so stored levels'
   // exact action ids stay authoritative; catalog ids resolve in every replay
   // via slimeSim's standard-catalog fallback.
   private showColorPicker(paintMods: ModifierDef[]) {
+    if (this.winHandled || this.navigating) return;
     this.closeActivePopup();
     playSfx('menuIn');
     const { width, height } = this.scale;
@@ -1065,6 +1117,7 @@ export class Game extends Phaser.Scene {
   // Like the paint pot, the pumpkin tile always offers all three sizes —
   // palette defs win their id slot, catalog ids resolve in replay.
   private showPumpkinPicker(pumpkinMods: ModifierDef[]) {
+    if (this.winHandled || this.navigating) return;
     this.closeActivePopup();
     playSfx('menuIn');
     const { width, height } = this.scale;
@@ -1092,7 +1145,7 @@ export class Game extends Phaser.Scene {
     // With a pumpkin already on, the title teaches the mechanic at the moment
     // it matters: tapping any other size swaps it in one move.
     const anyPumpkinWorn = (this.engine?.wornMaskIds ?? []).some((id) => id.startsWith('pumpkin-'));
-    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, anyPumpkinWorn ? 'Tap a size to swap' : 'Pumpkin size', {
+    items.push(this.add.text(pcx, pcy - popH / 2 + titleH / 2 + 4, anyPumpkinWorn ? 'Tap a size to swap' : 'Pumpkin Size', {
       fontFamily: PIXELIFY, fontSize: '15px', fontStyle: 'bold', color: C.DARK_BROWN,
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5));
@@ -1764,6 +1817,7 @@ export class Game extends Phaser.Scene {
         levelId: this.levelId, title, steps, timeMs: elapsed, stars, sparks, streakDays,
         nextLevelId: this.getNextLevelId(),
         actions: payload.actions,
+        optimalSteps: this.level?.optimalSteps,
         firstSplat, goalPalette, goalActions,
         walkthrough: this.isWalkthrough,
       }, 300, 320);
@@ -1798,7 +1852,9 @@ export class Game extends Phaser.Scene {
   // Reset wipes the slime back to white but the RUN continues: moves made are
   // kept (the reset costs one more), and the clock keeps ticking.
   private handleReset() {
-    if (!this.engine) return;
+    // winHandled/navigating: a reset tapped during the win celebration would
+    // wipe the celebrating slime and pop "Fresh start!" over the transition.
+    if (!this.engine || this.winHandled || this.navigating) return;
     playSfx('reset');
     this.engine.reset();
     this.currentRenderer?.setPattern(this.level?.palette ?? [], []);
