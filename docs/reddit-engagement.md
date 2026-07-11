@@ -193,46 +193,62 @@ the "Best Use of User Contributions" prize.
 ## 5. Fit Check Friday — weekly Splot fashion thread ✅ IMPLEMENTED
 
 **The gimmick.** The Shop already lets players dress Splot (colors, eyes, brows, hats,
-crowns) — but only the owner ever sees it. Every Friday the scheduler posts a **Fit
-Check** thread, and a "Show off my Splot" button (in the Shop / main menu) posts the
-player's current fit as a comment, e.g.:
+crowns) — but only the owner ever sees it. There is always **one live Fit Check
+thread** in the feed, and it **turns over every Thursday**. Opening that post drops
+the player straight into the dressing room (Shop), where a "Fit Check" button posts
+their current fit as an **image** comment (the actual rendered Splot, not just text),
+e.g.:
 
-> **u/fitfan's Splot walked in wearing:** Rainbow body · Cute Eyes · Kiss Mouth · Party Hat (⌐■‿■)
+> ![u/fitfan's Splot](rendered-splot.png)
+> *u/fitfan's Splot walked in wearing: Rainbow body · Cute Eyes · Kiss Mouth · Party Hat (⌐■‿■)*
+> *"drip check, no notes"*
 > *(Mega-Blob · 347 levels solved · 12-day streak — upvote the drip.)*
 
-The stats footer leads with the player's flair tier — the fit thread is where the
+The image is the hook — a rendered Splot stops the scroll in a way a text list never
+does. Players can add an optional **caption** and **photo URL** for memeability, and
+the stats footer leads with the player's flair tier, so the fit thread is where the
 Sparks economy gets to be socially visible.
 
-Highest-upvoted fit at Sunday midnight wins +500 Sparks and a special flair
-(`👑 Fit King/Queen of Week 27`), awarded by a second scheduled task.
+Every Thursday the top-upvoted fit wins +500 Sparks and a special flair
+(`👑 Fit King/Queen of Week 27`); the same task then deletes the old thread and posts
+a fresh one, announcing the champ on it.
 
 **Why it works on Reddit.** It's a recurring community ritual (the retention judges'
 favorite phrase), it makes the Sparks economy socially visible — people buy cosmetics
 to *show them off*, closing the loop from puzzle → Sparks → Shop → post — and upvote
-voting means the community runs the contest itself.
+voting means the community runs the contest itself. The always-one-live-thread + auto
+turnover keeps the feed clean and the contest unambiguous.
 
-**Implementation — shipped.**
-- Two scheduler tasks in `devvit.json` → `src/server/routes/scheduler.ts`:
-  `fitcheck-post` (`0 15 * * 5`) submits the ISO-week-labelled thread and stores
-  `fitcheck:current`/`fitcheck:week` (idempotent per week if the cron re-fires);
-  `fitcheck-award` (`0 0 * * 1`, Sunday midnight UTC) **deletes `fitcheck:current`
-  first** (a retry can't double-award), then scans the thread's top-sorted comments for
-  the highest-voted *registered* entry, grants +500 Sparks (balance, leaderboard, and
-  lifetime), stamps `fitcheck:won` for the `👑 Fit W{n}` flair badge, syncs flair, and
-  replies a crowning shout-out on the winning comment.
-- `POST /api/share/fit`: no request body — the loadout is read straight from the user
-  hash and formatted via the Shop catalog ("Rainbow body · Cute Eyes · Kiss Mouth ·
-  Party Hat"), with the levels-solved/streak footer line. 404 when no thread is live,
-  one entry per user per thread (`hSetNX fitcheck:carded:{postId}`), 20 s cooldown,
-  rollback on a failed submit. Fit comments are posted by the app account, so the
-  award task can't use comment authors — the endpoint records
-  `fitcheck:comments:{postId}` (commentId → username, 30-day TTL) as the entry
-  registry the award scan matches against.
-- Client: a "Fit Check" button under the Splot preview in the Shop (both orientations)
-  opens a confirm popup, then POSTs; per-status toasts for posted / not-logged-in
-  (`showLoginPrompt`) / no-thread-live / already-entered / cooldown.
-- Later polish (not required to ship): render a real PNG of the mascot via Phaser
-  `snapshot` and `showShareSheet` for off-Reddit sharing.
+**Implementation — shipped (image edition).**
+- **One** scheduler task in `devvit.json` → `src/server/routes/scheduler.ts`:
+  `fitcheck-cycle` (`0 * * * 4` — hourly on Thursdays, idempotent per calendar day via
+  `fitcheck:cycledOn`, so it retries within the day on a transient failure like the
+  daily task) calls `runFitCheckCycle` in `src/server/core/fitcheck.ts`. That one
+  function: **crowns** the current thread's highest-voted *registered* entry (+500
+  Sparks across balance / leaderboard / lifetime, `fitcheck:won` for the `👑 Fit W{n}`
+  flair badge, flair sync), **deletes** that post (`post.delete()`), opens a **fresh**
+  thread (`fitcheck:current` / `:week`), and **announces** last week's champ on it (the
+  old post is gone, so the shout-out lives on the new thread). `openFitCheckThread`
+  bootstraps a thread on install/upgrade so the ritual is live from day one.
+- `POST /api/share/fit` (`ShareFitRequest`): **image-first** — the client snapshots the
+  equipped Splot on a branded card, and the server rehosts it via `media.upload` into a
+  richtext IMAGE comment (degrades to a text-only fit only if the upload fails). The
+  loadout line is formatted via the Shop catalog ("Rainbow body · Cute Eyes · …"), with
+  the levels-solved/streak footer. Optional **caption** (≤140 char, sanitized) and
+  **photo URL** (http/https, embeds as a second image when Reddit accepts it, else
+  links) ride along. **A fit can only be posted from the live thread**: rejects (403)
+  unless `context.postId === fitcheck:current`. 401 when logged out, 404 when no thread
+  is live, one entry per user per thread (`hSetNX fitcheck:carded:{postId}`), 20 s
+  cooldown, rollback on a failed submit. Fit comments are posted by the app account, so
+  the endpoint records `fitcheck:comments:{postId}` (commentId → username, 30-day TTL)
+  as the entry registry the crown scan matches against.
+- Client: a Fit Check post routes boot straight into the Shop (`isFitCheckPost` reads
+  `postData.fitcheck`), which un-hides the "Fit Check" button under the Splot preview
+  (both orientations). Tapping it opens a compose sheet — a live fit card (the snapshot
+  region), caption + photo-URL fields, and Post — sized in two passes so it stays
+  balanced and readable on every viewport. Per-status toasts for posted / not-logged-in
+  (`showLoginPrompt`) / wrong-post / no-thread-live / already-entered / cooldown / bad
+  field.
 
 ---
 
@@ -244,7 +260,7 @@ voting means the community runs the contest itself.
 | 1 | Splat Card ✅ | shipped | Hook, virality | `POST /api/share/card` |
 | 3 | Splotter Flair ✅ | shipped | Retention, identity | `POST /api/user/flair` (+ extends `/api/complete`) |
 | 4 | Beat the Creator ✅ | shipped | User contributions | none (extends create/complete) |
-| 5 | Fit Check Friday ✅ | shipped | Retention, economy | `POST /api/share/fit` + 2 scheduler tasks |
+| 5 | Fit Check Friday ✅ | shipped | Retention, economy | `POST /api/share/fit` + 1 scheduler task |
 
 All five are live. They share the same plumbing (a comment/flair call inside the
 completion path), are demoable in a single judging session, and every one of them puts

@@ -3,6 +3,7 @@ import type { OnAppInstallRequest, TriggerResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
 import { LEVELS_VERSION } from '../../shared/levelData';
 import { GAME_POST_TITLE } from '../core/post';
+import { openFitCheckThread } from '../core/fitcheck';
 
 export const triggers = new Hono();
 
@@ -48,6 +49,9 @@ triggers.post('/on-app-upgrade', async (c) => {
     // the daily/fitcheck schedulers can't post without it.
     if (context.subredditName) {
       await redis.set('subreddit:name', context.subredditName);
+      // Bring existing installs up to the always-live Fit Check thread without
+      // waiting for the first Thursday cycle (idempotent when one already exists).
+      await openFitCheckThread(context.subredditName);
     }
     const wiped = await wipeProgressIfStale();
     return c.json<TriggerResponse>(
@@ -85,6 +89,10 @@ triggers.post('/on-app-install', async (c) => {
         backgroundColorDark: '#1a0a2eff',
       },
     });
+
+    // Open the first Fit Check thread right away so the weekly ritual is live
+    // from install (idempotent, best-effort — never blocks the welcome post).
+    await openFitCheckThread(subredditName);
 
     return c.json<TriggerResponse>(
       {

@@ -1,5 +1,5 @@
 import { GameObjects, Scene, Structs, TintModes, Tweens } from 'phaser';
-import { getLaunchLevelId } from '../launch';
+import { getLaunchLevelId, isFitCheckPost } from '../launch';
 import { warmLevelsDuringIdle } from '../levelWarmup';
 import { paintOverlayShine } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
@@ -492,6 +492,11 @@ export class Preloader extends Scene {
       this.time.delayedCall(200, () => {
         if (launchLevelId) {
           this.scene.start('Game', { levelId: launchLevelId });
+        } else if (isFitCheckPost()) {
+          // A Fit Check post opens straight into the dressing room, where the
+          // player dresses their Splot and drops the fit (Shop un-hides its
+          // Fit Check button on these posts).
+          this.scene.start('Shop');
         } else {
           this.scene.start('MainMenu');
         }

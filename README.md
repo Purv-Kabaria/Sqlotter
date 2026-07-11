@@ -290,7 +290,7 @@ All five shipped (see `docs/reddit-engagement.md` for design rationale):
 | **First Splat Crown** | The first-ever solver of a Sqlot can claim a one-time 👑 trophy comment (image card or text). Stored per level; claimed forever. |
 | **Splotter Flair** | Auto-synced subreddit flair showing streak 🔥 and lifetime-Sparks tier; opt-out per player. |
 | **Beat the Creator** | Every published community level is a public duel post: the creator's par is the challenge. |
-| **Fit Check Friday** | Weekly scheduler posts a fashion thread (Fri 15:00 UTC); players one-tap comment their current Splot loadout; Monday's cron crowns a winner. |
+| **Fit Check Friday** | Always one live fashion thread; opening it drops you into the dressing room to post your Splot as an **image** comment (with optional caption + photo URL). Every Thursday the cron crowns the top-voted fit, deletes the old thread, and posts a fresh one. |
 
 ---
 
@@ -446,7 +446,7 @@ Request/response types live in `src/shared/api.ts`.
 | `GET /api/levels/community?q=` | search/browse community levels |
 | `POST /api/share/card` | post a Splat Card comment (server re-verifies the run) |
 | `POST /api/share/first-splat` | claim the First Splat Crown |
-| `POST /api/share/fit` | comment your loadout on the live Fit Check thread |
+| `POST /api/share/fit` | post your Splot as an image on the live Fit Check thread (only from that thread) |
 
 ### Profile & shop
 
@@ -462,8 +462,8 @@ Request/response types live in `src/shared/api.ts`.
 
 - Menu (moderator): `/internal/menu/post-create`, `post-daily`, `reset-level-stats`,
   `reset-all-users`
-- Scheduler: `/internal/scheduler/daily-puzzle` (hourly), `fitcheck-post` (Fri 15:00
-  UTC), `fitcheck-award` (Mon 00:00 UTC)
+- Scheduler: `/internal/scheduler/daily-puzzle` (hourly), `fitcheck-cycle` (hourly on
+  Thursdays — crowns the week's fit, deletes the old thread, posts a fresh one)
 - Triggers: `/internal/triggers/on-app-install`, `on-app-upgrade`
 
 ---
@@ -497,7 +497,8 @@ ugc:plays                    HASH    levelId → play count
 duel:{levelId}[, :stats]     Beat-the-Creator post linkage
 
 fitcheck:current / :week     STRING  live thread id / week label
-fitcheck:comments:{postId}   entries for the weekly award
+fitcheck:cycledOn            STRING  YYYY-MM-DD of the last Thursday cycle (idempotence)
+fitcheck:comments:{postId}   HASH    commentId → username entry registry (crown scan)
 fitcheck:carded:{postId}     HASH    per-user "already posted" guard
 subreddit:name               STRING  persisted at install for the schedulers
 ```

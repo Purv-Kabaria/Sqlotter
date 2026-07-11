@@ -112,7 +112,8 @@ playable posts.
    developers.reddit.com/apps → Communities). Requires the approved version if
    the subreddit is over 200 members.
 3. The `on-app-install` trigger does the rest automatically: persists the
-   subreddit name for the schedulers and creates the welcome/game post.
+   subreddit name for the schedulers, creates the welcome/game post, and opens
+   the first Fit Check Friday thread.
 4. The hourly `daily-puzzle` cron then posts the daily **Sqlot** right after
    UTC midnight (`Sqlot 2026-07-10: …`). Moderator menu actions ("Post Daily
    Sqlotter Puzzle", "Create Sqlotter Post") cover manual posting.

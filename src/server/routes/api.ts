@@ -11,6 +11,7 @@ import type {
   ShareCardResponse,
   FirstSplatRequest,
   FirstSplatResponse,
+  ShareFitRequest,
   ShareFitResponse,
   FlairPrefRequest,
   FlairPrefResponse,
@@ -40,6 +41,7 @@ import { flairTierName, ROYAL_TIER_ITEM_ID } from '../../shared/flair';
 import { clearUserFlair, syncUserFlair } from '../core/flair';
 import { createDuelComment, recordDuelResult } from '../core/duel';
 import { cleanPostTitle, KAOMOJI } from '../core/post';
+import { FIT_AWARD_SPARKS } from '../core/fitcheck';
 import { isPostId } from '../core/tid';
 
 type Err = { status: 'error'; message: string };
@@ -732,10 +734,12 @@ api.post('/share/first-splat', async (c) => {
 });
 
 // ── /api/share/fit ────────────────────────────────────────────
-// Fit Check Friday: posts the player's current Splot loadout as a comment on
-// the live weekly Fit Check thread (created by the fitcheck-post scheduler
-// task, closed by fitcheck-award). One fit per player per thread; the
-// comment→player mapping is stored so the award task can find the winner.
+// Fit Check Friday: posts the player's Splot as an IMAGE comment on the live
+// weekly Fit Check thread. Accepted ONLY while the player is actually viewing
+// that thread (context.postId must equal fitcheck:current) — a fit can't be
+// dropped from anywhere else. One fit per player per thread; the comment→player
+// mapping is stored so the Thursday cycle can find the winner. Optional caption
+// + external photo URL ride along for memeability (both server-sanitized).
 function describeFit(equipped: Record<string, string>): string {
   const labelOf = (slot: string): string | undefined => {
     const itemId = equipped[slot];
@@ -755,7 +759,37 @@ function describeFit(equipped: Record<string, string>): string {
   return parts.join(' · ');
 }
 
+// Player's fit caption onto Reddit: one line, spoiler-tag delimiters stripped,
+// length-capped. A little longer than a Splat Card title — captions are the
+// meme, so give them room.
+function sanitizeFitCaption(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/>!|!</g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+}
+
+// Optional photo URL: http/https only, length-capped, and parseable — anything
+// else is dropped rather than posted. Returned normalized so the same string is
+// safe to hand to media.upload (embed) or drop into a richtext link.
+function normalizeFitPhotoUrl(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length < 8 || trimmed.length > 300) return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 api.post('/share/fit', async (c) => {
+  const { postId } = context;
   const username = (await reddit.getCurrentUsername()) ?? '';
   if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
 
@@ -763,6 +797,22 @@ api.post('/share/fit', async (c) => {
   if (!fitPostId || !isPostId(fitPostId)) {
     return c.json<Err>({ status: 'error', message: 'No Fit Check thread is live right now' }, 404);
   }
+  // A fit can only be dropped ON the Fit Check post — reject attempts routed
+  // from any other post (the client also hides the button off the thread).
+  if (postId !== fitPostId) {
+    return c.json<Err>({ status: 'error', message: 'Post your fit from the Fit Check thread' }, 403);
+  }
+
+  const body = await readJsonBody<ShareFitRequest>(c) ?? {};
+  const { imageDataUrl } = body;
+  if (imageDataUrl !== undefined
+    && (typeof imageDataUrl !== 'string'
+      || !imageDataUrl.startsWith(CARD_PNG_SIGNATURE)
+      || imageDataUrl.length > CARD_IMAGE_MAX_CHARS)) {
+    return c.json<Err>({ status: 'error', message: 'Invalid fit image' }, 400);
+  }
+  const caption  = sanitizeFitCaption(body.caption);
+  const photoUrl = normalizeFitPhotoUrl(body.photoUrl);
 
   // Anti-spam: a short per-user cooldown plus one fit per player per thread.
   const cooldownKey = `fit:cooldown:${username}`;
@@ -791,15 +841,57 @@ api.post('/share/fit', async (c) => {
   const tier = flairTierName(lifetime, allFields[`owned:${ROYAL_TIER_ITEM_ID}`] === '1');
   const statsBits = [tier, `${solved} ${solved === 1 ? 'level' : 'levels'} solved`];
   if (streak > 1) statsBits.push(`${streak}-day streak`);
-  const text = [
-    `**u/${username}'s Splot walked in wearing:** ${describeFit(equipped)} ${KAOMOJI.flawless}`,
-    `^(${statsBits.join(' · ')}. Upvote the drip! Top fit takes 500 Sparks and the crown on Sunday.)`,
-  ].join('\n\n');
+  const headline = `u/${username}'s Splot walked in wearing: ${describeFit(equipped)} ${KAOMOJI.flawless}`;
+  const statsLine = `${statsBits.join(' · ')}. Upvote the drip! Top fit takes ${FIT_AWARD_SPARKS} Sparks and the crown next Thursday.`;
+
+  // Plain-text fallback used when no (valid) image is attached or the upload is
+  // rejected — same voice as the image caption, plus the caption/photo lines.
+  const textParts = [`**${headline}**`];
+  if (caption)  textParts.push(`*"${caption}"*`);
+  if (photoUrl) textParts.push(`Fit inspo: ${photoUrl}`);
+  textParts.push(`^(${statsLine})`);
+  const text = textParts.join('\n\n');
 
   let commentId: string;
   try {
-    const comment = await reddit.submitComment({ id: fitPostId, text });
-    commentId = comment.id;
+    let commentIdWithImage = '';
+    if (imageDataUrl) {
+      try {
+        const splotAsset = await media.upload({ url: imageDataUrl, type: 'image' });
+        // Richtext img nodes take plain text captions (no markdown pass). Try to
+        // rehost the player's photo URL as a second inline image for max
+        // memeability; if Reddit refuses it (not an image, blocked domain), fall
+        // back to a clickable link so the URL still travels with the fit.
+        const document: object[] = [
+          { e: 'img', mediaUrl: splotAsset.mediaUrl, c: headline },
+        ];
+        if (caption) document.push({ e: 'par', c: [{ e: 'text', t: `"${caption}"` }] });
+        if (photoUrl) {
+          let embedded = false;
+          try {
+            const photoAsset = await media.upload({ url: photoUrl, type: 'image' });
+            document.push({ e: 'img', mediaUrl: photoAsset.mediaUrl, c: 'Fit inspo' });
+            embedded = true;
+          } catch {
+            // Not an image / not fetchable — link it instead of embedding.
+          }
+          if (!embedded) {
+            document.push({ e: 'par', c: [{ e: 'text', t: 'Fit inspo: ' }, { e: 'link', t: photoUrl, u: photoUrl }] });
+          }
+        }
+        document.push({ e: 'par', c: [{ e: 'text', t: statsLine }] });
+        const comment = await reddit.submitComment({ id: fitPostId, richtext: { document } });
+        commentIdWithImage = comment.id;
+      } catch {
+        // Upload or richtext rejected — degrade to the text-only fit below.
+      }
+    }
+    if (commentIdWithImage) {
+      commentId = commentIdWithImage;
+    } else {
+      const comment = await reddit.submitComment({ id: fitPostId, text });
+      commentId = comment.id;
+    }
   } catch {
     // Hand the entry back so the player can retry after a transient failure.
     await redis.hDel(`fitcheck:carded:${fitPostId}`, [username]);

@@ -1,17 +1,19 @@
 import { requestExpandedMode, context } from '@devvit/web/client';
-import { getLaunchLevelId } from './launch';
+import { getLaunchLevelId, isFitCheckPost } from './launch';
 import { getShopItem } from '../shared/shop';
 import type { InitResponse } from '../shared/api';
 
 const greeting  = document.getElementById('greeting')     as HTMLParagraphElement;
 const dailyInfo = document.getElementById('daily-info')   as HTMLParagraphElement;
 const startBtn  = document.getElementById('start-button') as HTMLButtonElement;
+const splashHint = document.querySelector('.splash-hint') as HTMLParagraphElement | null;
 const splotColor      = document.getElementById('splot-color')      as HTMLDivElement;
 const splotEye        = document.getElementById('splot-eye')        as HTMLImageElement;
 const splotEyebrow    = document.getElementById('splot-eyebrow')    as HTMLImageElement;
 const splotMouth      = document.getElementById('splot-mouth')      as HTMLImageElement;
 const splotAccessory  = document.getElementById('splot-accessory')  as HTMLImageElement;
 const launchLevelId = getLaunchLevelId();
+const fitCheckPost  = isFitCheckPost();
 
 // ── Splot appearance — the player's own equipped look, same fallbacks
 // SplotMascot's resting face uses (see applyEquipped in SplotMascot.ts), so
@@ -60,6 +62,11 @@ greeting.textContent = context.username
 if (launchLevelId) {
   setStartLabel('Play this level');
   dailyInfo.textContent = 'Community Sqlotter level!';
+} else if (fitCheckPost) {
+  // Fit Check thread — the expanded view opens straight into the dressing room.
+  setStartLabel('Dress your Splot');
+  dailyInfo.textContent = 'Fit Check Friday is live!';
+  if (splashHint) splashHint.textContent = 'Style your Splot and drop your fit — top vote wins Sparks!';
 }
 
 void (async () => {
@@ -74,7 +81,9 @@ void (async () => {
     if (initRes.ok) {
       const init = await initRes.json() as InitResponse;
       if (init.username) greeting.textContent = `Hey u/${init.username}!`;
-      if (init.sparks !== undefined) {
+      // The Fit Check thread keeps its own subtitle — don't overwrite it with
+      // the sparks count or (below) the daily label.
+      if (init.sparks !== undefined && !fitCheckPost) {
         dailyInfo.replaceChildren();
         const count = document.createElement('span');
         count.className = 'spark-num';
@@ -84,14 +93,14 @@ void (async () => {
       applyEquipped(init.equippedItems ?? {});
     }
 
-    if (!launchLevelId && dailyRes.ok) {
+    if (!launchLevelId && !fitCheckPost && dailyRes.ok) {
       const daily = await dailyRes.json() as { level?: { difficulty?: number } };
       const diff  = daily.level?.difficulty ?? 1;
       const label = DIFF_LABELS[diff] ?? 'Medium';
       dailyInfo.textContent = `Today's Sqlot: ${label}`;
     }
   } catch {
-    dailyInfo.textContent = "Today's Sqlot is waiting!";
+    if (!fitCheckPost) dailyInfo.textContent = "Today's Sqlot is waiting!";
   }
 })();
 

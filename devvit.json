@@ -58,13 +58,9 @@
         "endpoint": "/internal/scheduler/daily-puzzle",
         "cron": "0 * * * *"
       },
-      "fitcheck-post": {
-        "endpoint": "/internal/scheduler/fitcheck-post",
-        "cron": "0 15 * * 5"
-      },
-      "fitcheck-award": {
-        "endpoint": "/internal/scheduler/fitcheck-award",
-        "cron": "0 0 * * 1"
+      "fitcheck-cycle": {
+        "endpoint": "/internal/scheduler/fitcheck-cycle",
+        "cron": "0 * * * 4"
       }
     }
   },

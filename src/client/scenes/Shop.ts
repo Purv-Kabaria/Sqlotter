@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
-import { playSfx } from '../audio';
+import { playSfx, streamAudio } from '../audio';
+import { isFitCheckPost } from '../launch';
 import { SplotMascot } from '../components/SplotMascot';
 import {
   addBeigeButton, addBeigeButtonShell, addBeigeCard, addBeigeSolidCard, addDarkPanel, addDepthIcon, addPanel9,
@@ -9,7 +10,7 @@ import {
 import { SHOP_ITEMS } from '../../shared/shop';
 import type { ShopCategory, ShopItem } from '../../shared/shop';
 import { ROYAL_TIER_ITEM_ID } from '../../shared/flair';
-import type { BuyResponse, EquipResponse, ProfileResponse } from '../../shared/api';
+import type { BuyResponse, EquipResponse, ProfileResponse, ShareFitRequest } from '../../shared/api';
 import { DEFERRED_IMG } from './Preloader';
 
 const PIXELIFY = BODY_FONT;
@@ -97,6 +98,15 @@ export class Shop extends Phaser.Scene {
 
   // Fit Check Friday share — guards the POST against double-taps.
   private fitBusy = false;
+  // True only when the game was opened ON a live Fit Check post (postData
+  // carries the week). The "Fit Check" button is hidden otherwise, and the
+  // server rejects fits posted from anywhere else, so a fit can only be dropped
+  // on the thread it belongs to.
+  private onFitCheckPost = false;
+  // DOM <input> overlays for the fit compose popup (caption + photo URL) —
+  // not Phaser objects, so they're tracked here and torn down explicitly on
+  // popup close / resize / shutdown.
+  private fitInputs: HTMLInputElement[] = [];
 
   // Guards every scene.start(...) call — prevents double-tapping the home
   // button, and gates buyItem/equipItem's async continuations from rebuilding
@@ -146,6 +156,8 @@ export class Shop extends Phaser.Scene {
     this.selectedItemId = null;
     this.activePopup = null;
     this.fitBusy = false;
+    this.onFitCheckPost = false;
+    this.fitInputs = [];
     this.navigating = false;
     this.scrollMaskGfx = null;
     this.scrollContainer = null;
@@ -171,6 +183,11 @@ export class Shop extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.cameras.main.setBackgroundColor(C.BG);
     this.cameras.main.fadeIn(400, 10, 5, 14);
+    this.onFitCheckPost = isFitCheckPost();
+    // The Shop can be the very first scene on a Fit Check post (Preloader routes
+    // straight here), so kick off the deferred audio stream the menu usually
+    // owns — idempotent, no-ops once everything is already cached.
+    streamAudio(this);
 
     this.input.on('pointermove', this.onPointerMoveBound);
     this.input.on('pointerup', this.onPointerUpBound);
@@ -340,12 +357,14 @@ export class Shop extends Phaser.Scene {
     const splotSz = Math.min(panelW * 0.66, panelH * 0.48, 400);
     this.spawnSplot(splitX / 2, pad + panelH * 0.30, splotSz, els);
     // Fit Check share sits right under the mascot it shows off, in the gap
-    // between the preview and the detail card. Short landscape windows leave
-    // no such gap — skip it there rather than overlap (the button stays
-    // available on every portrait/tall layout).
+    // between the preview and the detail card. Only on a live Fit Check post,
+    // and only when the short landscape window actually leaves a gap (skip it
+    // rather than overlap — the button stays available on every taller layout).
     const fitY = pad + panelH * 0.30 + splotSz / 2 + 32;
     const detailTop = pad + panelH * 0.58;
-    if (fitY + 24 <= detailTop - 6) this.buildFitButton(splitX / 2, fitY, Math.min(170, panelW * 0.6), els);
+    if (this.onFitCheckPost && fitY + 24 <= detailTop - 6) {
+      this.buildFitButton(splitX / 2, fitY, Math.min(170, panelW * 0.6), els);
+    }
     this.buildDetailArea(splitX / 2, pad + panelH * 0.76, panelW * 0.84, panelH * 0.36, els);
 
     // Header row: home — SHOP title — sparks pill
@@ -396,10 +415,12 @@ export class Shop extends Phaser.Scene {
 
     const splotSz = Math.min(panelH * 0.76, panelW * 0.40, 300);
     this.spawnSplot(pad + panelW * 0.27, panelY + panelH * 0.02, splotSz, els);
-    // Fit Check share tucked under the mascot, inside the preview panel.
-    // Width capped by the Splot half of the panel so it can't reach into the
-    // detail area on narrow phones.
-    this.buildFitButton(pad + panelW * 0.27, panelY + panelH / 2 - 26, Math.min(150, panelW * 0.44), els);
+    // Fit Check share tucked under the mascot, inside the preview panel — only
+    // on a live Fit Check post. Width capped by the Splot half of the panel so
+    // it can't reach into the detail area on narrow phones.
+    if (this.onFitCheckPost) {
+      this.buildFitButton(pad + panelW * 0.27, panelY + panelH / 2 - 26, Math.min(150, panelW * 0.44), els);
+    }
     this.buildDetailArea(pad + panelW * 0.72, panelY, panelW * 0.50, panelH - 26, els);
 
     // Category tabs — one row spanning all categories
@@ -687,95 +708,240 @@ export class Shop extends Phaser.Scene {
     return shell.container;
   }
 
-  // ── Fit Check Friday: share the current loadout to this week's thread.
-  // The button lives under the Splot preview (the thing being shown off);
-  // a confirm popup gates the actual — public — Reddit comment. ────────────
+  // ── Fit Check Friday: drop your Splot on this week's thread. The button
+  // lives under the Splot preview (the thing being shown off) and only exists
+  // on a live Fit Check post (see the gated callers); tapping it opens the
+  // compose sheet below. ──────────────────────────────────────────────────
   private buildFitButton(cx: number, cy: number, width: number, els: Phaser.GameObjects.GameObject[]) {
     const btn = addBeigeButton(this, {
       x: cx, y: cy, width, height: 40,
       label: 'Fit Check', iconKey: 'icon-share', fontSize: 14, fontFamily: PIXELIFY, forceSmall: true,
-      onClick: () => this.showFitConfirm(),
+      onClick: () => this.showFitCompose(),
     }).setDepth(8);
     els.push(btn);
   }
 
-  private showFitConfirm() {
+  // Compose sheet: a shareable fit card (the equipped Splot on a branded backing
+  // that gets snapshotted into the comment image), an optional caption + photo
+  // URL for memeability, and the Post CTA. Sized in two passes — measure the
+  // stack, then hug it — so the panel stays vertically balanced (never
+  // top-heavy) and readable on every viewport from a short landscape strip to a
+  // tall phone.
+  private showFitCompose() {
     this.closeActivePopup();
     const { width, height } = this.scale;
     const cx = width / 2, cy = height / 2;
-    const popW = Math.min(width - 48, 340);
-    const popH = Math.min(height - 56, 250);
-    const items: Phaser.GameObjects.GameObject[] = [];
+    const maxW = Math.min(width - 24, 380);
+    const maxH = Math.min(height - 24, 600);
 
-    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.55).setInteractive();
+    // ── Pass 1: element sizes + total content height ──────────────────────
+    // Vertical stack, top to bottom: padTop, title, titleGap, card, cardGap,
+    // [label, labelGap, input] ×2 (with sectionGap after each), preButtonGap
+    // (replacing the last input's sectionGap), buttons, padBottom.
+    const padTop = 14, padBottom = 16;
+    const titleGap = 12, cardGap = 10, sectionGap = 8, labelGap = 4, preButtonGap = 14;
+    const titleFs = Math.max(15, Math.min(22, Math.round(maxW * 0.062)));
+    const labelFs = Math.max(11, Math.min(14, Math.round(maxW * 0.038)));
+    const inputH  = Math.round(Math.max(28, Math.min(34, maxH * 0.055)));
+    const btnH    = Math.round(Math.max(44, Math.min(56, maxH * 0.10)));
+    // Everything except the card is fixed height; the card takes the slack,
+    // clamped so it never crowds the inputs out on a short screen.
+    const nonCard = padTop + titleFs + titleGap + cardGap
+      + 2 * (labelFs + labelGap + inputH) + sectionGap  // two fields + gap between/after
+      + preButtonGap + btnH + padBottom;
+    const cardSz = Math.max(80, Math.min(maxW * 0.62, maxH - nonCard, 220));
+    const contentH = nonCard + cardSz;
+    const popH = Math.min(maxH, contentH);
+    const popW = maxW;
+    const popTop = cy - popH / 2;
+
+    // ── Pass 2: draw the stack top-down from popTop ───────────────────────
+    const items: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.6).setInteractive();
     overlay.on('pointerup', () => this.closeActivePopup());
     items.push(overlay);
+    items.push(addBeigeButtonShell(this, cx, cy, popW, popH, false).container);
 
-    const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
-    const content: Phaser.GameObjects.GameObject[] = [];
-
-    const titleFs = Math.max(14, Math.min(20, Math.round(popW * 0.065)));
-    content.push(this.add.text(0, -popH * 0.30, 'Fit Check Friday', {
+    let y = popTop + padTop;
+    items.push(this.add.text(cx, y + titleFs / 2, 'Fit Check Friday', {
       fontFamily: PIXELIFY, fontSize: `${titleFs}px`, color: C.TEXT_DARK, fontStyle: 'bold',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0.5));
+    }).setOrigin(0.5).setDepth(1));
+    y += titleFs + titleGap;
 
-    const descFs = Math.max(12, Math.min(16, Math.round(popW * 0.05)));
-    content.push(this.add.text(0, -popH * 0.02, "Post your Splot's current look to this week's Fit Check thread. Top-voted fit wins 500 Sparks!", {
-      fontFamily: PIXELIFY, fontSize: `${descFs}px`, color: C.TEXT_WARM,
-      align: 'center', wordWrap: { width: popW - 56 },
-    }).setOrigin(0.5));
+    // Fit card (snapshot region) — opaque backing so the PNG has no see-through
+    // corners; the SQLOTTER strip brands the shared image.
+    const cardCY = y + cardSz / 2;
+    const cardRect = { x: cx - cardSz / 2, y: cardCY - cardSz / 2, w: cardSz, h: cardSz };
+    items.push(this.add.rectangle(cx, cardCY, cardSz, cardSz, 0x2A1710)
+      .setStrokeStyle(3, 0x7A4A20).setDepth(1));
+    const composeSplot = new SplotMascot(this, cx, cardCY - cardSz * 0.05, cardSz * 0.7, this.equippedItems);
+    composeSplot.container.setDepth(2);
+    items.push(composeSplot.container);
+    items.push(this.add.text(cx, cardCY + cardSz / 2 - Math.max(9, cardSz * 0.06), 'SQLOTTER · FIT CHECK', {
+      fontFamily: NUM_FONT, fontSize: `${Math.max(7, Math.round(cardSz * 0.05))}px`, color: C.TEXT_BEIGE,
+    }).setOrigin(0.5).setDepth(3));
+    y += cardSz + cardGap;
 
-    shell.addContent(content);
-    items.push(shell.container);
+    // Optional caption + photo URL (DOM <input> overlays)
+    const inputW = Math.min(popW - 40, 320);
+    const addField = (label: string, placeholder: string, maxLen: number): HTMLInputElement => {
+      items.push(this.add.text(cx, y + labelFs / 2, label, {
+        fontFamily: PIXELIFY, fontSize: `${labelFs}px`, color: C.TEXT_WARM,
+      }).setOrigin(0.5).setDepth(1));
+      y += labelFs + labelGap;
+      const input = this.createFitInput(cx, y + inputH / 2, inputW, inputH, placeholder, maxLen);
+      y += inputH + sectionGap;
+      return input;
+    };
+    const captionInput = addField('Say something (optional)', 'e.g. drip check, no notes', 140);
+    const photoInput   = addField('Photo URL (optional)', 'https://…', 300);
+    y += preButtonGap - sectionGap;
 
+    // Cancel / Post
     const btnGap = 12;
-    const btnPad = Math.max(20, popW * 0.07);
+    const btnPad = Math.max(16, popW * 0.06);
     const btnW = (popW - btnPad * 2 - btnGap) / 2;
-    const btnH = Math.max(46, Math.min(64, Math.round(popH * 0.22)));
     const btnFs = Math.max(13, Math.round(btnH * 0.30));
-    const btnY = cy + popH / 2 - btnH * 0.9;
+    const btnCY = y + btnH / 2;
     items.push(addBeigeButton(this, {
-      x: cx - btnW / 2 - btnGap / 2, y: btnY, width: btnW, height: btnH,
+      x: cx - btnW / 2 - btnGap / 2, y: btnCY, width: btnW, height: btnH,
       label: 'Cancel', fontSize: btnFs, fontFamily: PIXELIFY,
       onClick: () => this.closeActivePopup(),
     }));
     items.push(addBeigeButton(this, {
-      x: cx + btnW / 2 + btnGap / 2, y: btnY, width: btnW, height: btnH,
-      label: 'Post it!', iconKey: 'icon-share', fontSize: btnFs, fontFamily: PIXELIFY, forceSmall: true,
-      onClick: () => { this.closeActivePopup(); void this.postFit(); },
+      x: cx + btnW / 2 + btnGap / 2, y: btnCY, width: btnW, height: btnH,
+      label: 'Post fit', iconKey: 'icon-share', fontSize: btnFs, fontFamily: PIXELIFY, forceSmall: true,
+      onClick: () => {
+        const caption  = captionInput.value.trim();
+        const photoUrl = photoInput.value.trim();
+        // postFit snapshots the card BEFORE tearing the sheet down.
+        void this.postFit(cardRect, caption, photoUrl);
+      },
     }));
 
-    this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0).setScale(0.9);
-    this.tweens.add({ targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1, duration: 180, ease: 'Back.easeOut' });
+    // Fade only (no scale) so the DOM inputs, positioned at final coords, stay
+    // pinned to their Phaser labels through the entrance.
+    this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0);
+    this.tweens.add({ targets: this.activePopup, alpha: 1, duration: 160, ease: 'Quad.easeOut' });
   }
 
-  // The endpoint distinguishes "not logged in" (401), "no thread live" (404),
-  // "already entered this week" (409), and cooldown (429) — each gets its own
-  // friendly line instead of one generic failure toast.
-  private async postFit() {
+  // A beige DOM <input> laid over the canvas, mapped from world coords to screen
+  // (same technique as the Splat Card caption). Tracked in fitInputs for teardown.
+  private createFitInput(cx: number, cyCenter: number, w: number, h: number, placeholder: string, maxLen: number): HTMLInputElement {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = placeholder;
+    input.maxLength = maxLen;
+    // Keep pointer events off Phaser's window-level listeners, or a tap on the
+    // field would also hit the dim overlay and close the sheet.
+    for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend']) {
+      input.addEventListener(ev, (e) => e.stopPropagation());
+    }
+
+    const canvas = this.game.canvas;
+    const rect   = canvas.getBoundingClientRect();
+    const sx     = rect.width  / this.scale.width;
+    const sy     = rect.height / this.scale.height;
+
+    Object.assign(input.style, {
+      position:     'fixed',
+      padding:      '0 8px',
+      boxSizing:    'border-box',
+      background:   '#FFF6DF',
+      color:        '#3A1A08',
+      border:       '2px solid #7A4A20',
+      borderRadius: '6px',
+      outline:      'none',
+      zIndex:       '100',
+      fontFamily:   'Arial, sans-serif',
+      left:         `${rect.left + (cx - w / 2) * sx}px`,
+      top:          `${rect.top  + (cyCenter - h / 2) * sy}px`,
+      width:        `${w * sx}px`,
+      height:       `${h * sy}px`,
+      // Floored at 13px so the field text stays readable when the canvas is
+      // letterboxed smaller than the reference resolution.
+      fontSize:     `${Math.max(13, Math.round(13 * Math.min(sx, sy)))}px`,
+    });
+
+    (canvas.parentElement ?? document.body).appendChild(input);
+    this.fitInputs.push(input);
+    return input;
+  }
+
+  private clearFitInputs() {
+    for (const el of this.fitInputs) el.remove();
+    this.fitInputs = [];
+  }
+
+  // Grabs the fit card as a PNG data URI on the next rendered frame — best
+  // effort, mirroring the Splat Card / crown snapshot: a null result still
+  // posts, just without the image.
+  private snapshotFit(x: number, y: number, w: number, h: number): Promise<string | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: string | null) => { if (!settled) { settled = true; resolve(value); } };
+      try {
+        this.game.renderer.snapshotArea(Math.round(x), Math.round(y), Math.round(w), Math.round(h), (snap) => {
+          finish(snap instanceof HTMLImageElement && snap.src.startsWith('data:image/png;base64,') ? snap.src : null);
+        });
+      } catch {
+        finish(null);
+      }
+      this.time.delayedCall(2000, () => finish(null));
+    });
+  }
+
+  // Snapshots the card, tears down the sheet, then POSTs image + caption + photo.
+  // The endpoint distinguishes not-logged-in (401), wrong post (403), no thread
+  // live (404), already entered (409), cooldown (429), and a bad field (400) —
+  // each gets its own friendly line.
+  private async postFit(cardRect: Rect, caption: string, photoUrl: string) {
     if (this.fitBusy) return;
     this.fitBusy = true;
-    // The round-trip posts a Reddit comment and can take seconds — say so
-    // instead of leaving the tap feeling ignored.
+    // The round-trip uploads an image and posts a Reddit comment — it can take
+    // several seconds, so acknowledge the tap immediately.
     this.showToast('Posting your fit…', C.GREEN);
+
+    // Snapshot while the card is still on screen, then dismiss the sheet.
+    let imageDataUrl: string | undefined;
+    const src = await this.snapshotFit(cardRect.x, cardRect.y, cardRect.w, cardRect.h);
+    // Stay under the server's 1.5M-char cap with margin to spare.
+    if (src !== null && src.length <= 1_400_000) imageDataUrl = src;
+    this.closeActivePopup();
+    if (this.navigating) { this.fitBusy = false; return; }
+
+    const body: ShareFitRequest = {};
+    if (imageDataUrl) body.imageDataUrl = imageDataUrl;
+    if (caption) body.caption = caption;
+    if (photoUrl) body.photoUrl = photoUrl;
+
     try {
-      const res = await fetch('/api/share/fit', { method: 'POST', signal: AbortSignal.timeout(6000) });
+      const res = await fetch('/api/share/fit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000),
+      });
       if (this.navigating) return;
       if (res.ok) {
         playSfx('confirm');
-        this.showToast('Fit posted — good luck on Sunday!', C.GREEN);
+        this.showToast('Fit posted — good luck!', C.GREEN);
         this.splot?.setExpression('excited', 1500);
         this.splot?.playAppliedFlash();
       } else if (res.status === 401) {
         this.showToast('Log in to join Fit Check Friday!', '#ffb347');
         try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
+      } else if (res.status === 403) {
+        this.showToast('Open the Fit Check post to drop your fit!', '#ffb347');
       } else if (res.status === 404) {
-        this.showToast('No Fit Check live — come back Friday!', '#ffb347');
+        this.showToast('No Fit Check live — check back soon!', '#ffb347');
       } else if (res.status === 409) {
         this.showToast("You already posted this week's fit!", '#ffb347');
       } else if (res.status === 429) {
         this.showToast('Easy there — try again in a moment!', '#ffb347');
+      } else if (res.status === 400) {
+        this.showToast('Could not post — check your photo URL.', C.RED);
       } else {
         this.showToast('Could not post your fit.', C.RED);
       }
@@ -1320,6 +1486,9 @@ export class Shop extends Phaser.Scene {
   }
 
   private closeActivePopup() {
+    // The compose sheet's caption/photo fields are DOM overlays, not part of the
+    // popup container — pull them first so they can't linger over the canvas.
+    this.clearFitInputs();
     if (!this.activePopup) return;
     const p = this.activePopup;
     this.activePopup = null;
@@ -1401,6 +1570,7 @@ export class Shop extends Phaser.Scene {
     this.tweens.killAll();
     this.time.removeAllEvents();
     this.clearToasts();
+    this.clearFitInputs();
     this.scrollMaskGfx?.destroy();
     this.scrollMaskGfx = null;
   }

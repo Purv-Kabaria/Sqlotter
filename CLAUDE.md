@@ -338,7 +338,7 @@ daily-post:{YYYY-MM-DD}  string → Reddit post id (idempotence guard)
 ```
 ugc:index (ZSET) · ugc:titles (search) · ugc:plays (royalty counter)
 level:first-completer · level:first-stats · level:crowned
-duel:{levelId}[, :stats] · fitcheck:current / :week / :comments:{postId} / :carded:{postId}
+duel:{levelId}[, :stats] · fitcheck:current / :week / :cycledOn / :comments:{postId} / :carded:{postId}
 levels:version · subreddit:name
 ```
 
@@ -519,7 +519,8 @@ POST /api/progress                → ProgressSaveRequest (wip attempt; empty ac
 GET  /api/progress/:levelId       → ProgressGetResponse (restore an unfinished attempt)
 POST /api/share/card              → ShareCardRequest (Splat Card comment)
 POST /api/share/first-splat       → FirstSplatRequest (crown claim)
-POST /api/share/fit               → Fit Check Friday comment
+POST /api/share/fit               → ShareFitRequest (Fit Check IMAGE comment; only
+                                    accepted while viewing the live thread)
 ```
 
 ### Type conventions
@@ -598,6 +599,39 @@ post lands right after UTC midnight and any transient failure retries within the
 6. **Uniqueness walk**: from `DAILY_EPOCH_MS` onward each Sqlot is generated against
    the shape/recipe keys of the entire campaign plus every prior Sqlot — never a
    re-skin of a campaign level or an earlier daily (validated out 730 days)
+
+---
+
+## Fit Check Friday System
+
+A weekly Splot-fashion contest. There is always **exactly one live thread** in the
+feed, and it **turns over every Thursday**. All the moving parts live in
+`src/server/core/fitcheck.ts`; the cron route (`/internal/scheduler/fitcheck-cycle`,
+`0 * * * 4` — hourly on Thursdays) just calls `runFitCheckCycle`.
+
+**The Thursday cycle** (`runFitCheckCycle`, idempotent per calendar day via
+`fitcheck:cycledOn`, so it runs once per Thursday but retries within the day on a
+transient failure — same discipline as the daily task):
+1. Crown the current thread's top-voted registered fit: +500 Sparks (balance,
+   negated `lb:global:sparks`, `sparks:lifetime`), stamp `fitcheck:won`, sync flair
+2. **Delete** that post (`post.delete()`)
+3. Open a **fresh** thread (`fitcheck:current` / `:week`) and announce last week's
+   champ ON it (the old post is gone, so the shout-out has to live on the new one)
+
+`openFitCheckThread` bootstraps a thread on install/upgrade (idempotent — skips when
+one is already live) so the ritual is live from day one without waiting for Thursday.
+
+**Entries** (`POST /api/share/fit`, `ShareFitRequest`): a fit is **image-first** —
+the client snapshots the equipped Splot on a branded card and the server rehosts it
+via `media.upload` into a richtext IMAGE comment (degrades to text only if the
+upload fails). Optional player **caption** and **photo URL** ride along for
+memeability (both server-sanitized; the photo URL embeds as a second image when
+Reddit accepts it, else links). A fit can **only be posted from the live thread**:
+the endpoint rejects (403) unless `context.postId === fitcheck:current`. One fit per
+player per thread (`fitcheck:carded:{postId}`), 20s cooldown. The client only shows
+the "Fit Check" button when the game was opened on a Fit Check post (`isFitCheckPost`,
+read from `postData.fitcheck`) — which also routes boot straight into the Shop
+(the dressing room).
 
 ---
 

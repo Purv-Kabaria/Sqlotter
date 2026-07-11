@@ -2,6 +2,7 @@ import { context } from '@devvit/web/client';
 
 type LaunchPostData = {
   levelId?: unknown;
+  fitcheck?: unknown;
 };
 
 export function getLaunchLevelId(): string | null {
@@ -16,5 +17,18 @@ export function getLaunchLevelId(): string | null {
     return trimmed;
   } catch {
     return null;
+  }
+}
+
+// True when the current post is a live Fit Check thread (its postData carries a
+// `fitcheck` week label). Drives the boot route straight into the dressing room
+// (Shop) and un-hides the Shop's "Fit Check" button — a fit can only be posted
+// from here, matching the server's context.postId check on /api/share/fit.
+export function isFitCheckPost(): boolean {
+  try {
+    const postData: LaunchPostData | undefined = context.postData;
+    return typeof postData?.fitcheck === 'string';
+  } catch {
+    return false;
   }
 }

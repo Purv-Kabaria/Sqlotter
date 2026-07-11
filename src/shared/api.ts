@@ -90,9 +90,22 @@ export type FirstSplatRequest = {
 export type FirstSplatResponse = { posted: boolean };
 
 // ── Fit Check Friday ──────────────────────────────────────
-// Posts the player's current Splot loadout as a comment on the live weekly
-// Fit Check thread (404 when none is live). No request body: the server
-// reads the equipped record straight from the user hash.
+// Posts the player's current Splot as an IMAGE comment on the live weekly Fit
+// Check thread. Only accepted while the player is actually viewing that thread
+// (the server matches context.postId against the live fitcheck post), so a fit
+// can only be dropped on a Fit Check post. The optional caption + photo URL
+// ride along for memeability — the server sanitizes both.
+export type ShareFitRequest = {
+  // PNG data URI snapshot of the player's fit card — same validation and
+  // media.upload() path as ShareCardRequest's image. The comment is image-first.
+  imageDataUrl?: string;
+  // Player's own words about the fit (≤ 140 chars; the server sanitizes it).
+  caption?: string;
+  // Optional external photo URL (http/https, ≤ 300 chars) — embedded inline
+  // when Reddit accepts it, linked otherwise.
+  photoUrl?: string;
+};
+
 export type ShareFitResponse = { posted: boolean };
 
 // ── Splotter Flair opt-in/out ─────────────────────────────
