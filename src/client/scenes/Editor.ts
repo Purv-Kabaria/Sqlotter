@@ -422,9 +422,15 @@ export class Editor extends Phaser.Scene {
     const totalW = iconSz + 8 + title.width;
     const startX = centered ? width / 2 - totalW / 2 : 10 + backSz + 10;
     // In landscape the DOM inputs occupy the header's right half — the
-    // wordmark shrinks rather than running underneath them (maxRight).
+    // wordmark shrinks rather than running underneath them (maxRight). The
+    // shrink drops the FONT SIZE, never setScale: resampling the baked text
+    // bitmap under pixelArt's NEAREST filtering renders it blurry.
     const maxTextW = maxRight - (startX + iconSz + 8);
-    if (title.width > maxTextW && maxTextW > 0) title.setScale(maxTextW / title.width);
+    let titleFs = Math.round(11 * t);
+    while (titleFs > 7 && maxTextW > 0 && title.width > maxTextW) {
+      titleFs -= 1;
+      title.setFontSize(titleFs);
+    }
     const icon = addDepthIcon(this, startX + iconSz / 2, this.hh / 2 - 1, 'icon-pencil', iconSz, iconSz).setDepth(11);
     title.setX(startX + iconSz + 8);
     this.uiObjs.push(title, icon);
@@ -589,12 +595,13 @@ export class Editor extends Phaser.Scene {
       const row = Math.floor(i / nCols);
       const x = (col - (nCols - 1) / 2) * (tw + TILE_GAP);
       const y = (row - (mode.rows - 1) / 2) * (th + TILE_GAP);
-      grid.add(this.buildGridTile(x, y, tw, th, slot, useCompact));
+      grid.add(this.buildGridTile(x, y, tw, th, slot, useCompact, scale));
     });
   }
 
   private buildGridTile(
     x: number, y: number, w: number, h: number, slot: GridSlot, compact: boolean,
+    gridScale: number,
   ): Phaser.GameObjects.Container {
     const onClick = () => {
       if (slot.kind === 'paint') this.showColorPicker();
@@ -639,15 +646,27 @@ export class Editor extends Phaser.Scene {
       // 12px design: the grid block scales itself to fit (0.5-1.5×), and at
       // tablet scale the old 10px design left tiles mostly empty beige with a
       // squint-sized label in the corner.
+      //
+      // The grid container's block scale resamples everything in it — fine
+      // for the pixel-art icons, but a text bitmap scaled under pixelArt's
+      // NEAREST filtering renders blurry. So the label bakes at its FINAL
+      // pixel size (design 12px × grid scale) and inverse-scales back into
+      // the container's design units: same display size, crisp glyphs.
+      const labelFs = Math.max(6, Math.round(12 * gridScale));
       const labelTxt = this.add.text(-w / 2 + 28, 0, label, {
         fontFamily: PIXELIFY,
-        fontSize: '12px',
+        fontSize: `${labelFs}px`,
         color: C.DARK_BROWN,
-        wordWrap: { width: w - 34 },
-      }).setOrigin(0, 0.5);
-      // Single words don't wrap, they spill — a measured clamp catches the
-      // labels ("Underwear", "Pumpkin...") that still land on the border art.
-      if (labelTxt.width > w - 34) labelTxt.setScale((w - 34) / labelTxt.width);
+        wordWrap: { width: (w - 34) * gridScale },
+      }).setOrigin(0, 0.5).setScale(1 / gridScale);
+      // Single words don't wrap, they spill — shrink the FONT (not setScale,
+      // which is the blur this block exists to avoid) until the label fits
+      // the tile face ("Underwear", "Pumpkin..." land on the border art).
+      let fitFs = labelFs;
+      while (fitFs > 6 && labelTxt.width > (w - 34) * gridScale) {
+        fitFs -= 1;
+        labelTxt.setFontSize(fitFs);
+      }
       content.push(labelTxt);
     }
 

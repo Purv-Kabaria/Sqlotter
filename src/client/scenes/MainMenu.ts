@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { showLoginPrompt } from '@devvit/web/client';
 import { applyStoredSettings, isMusicOn, isSfxOn, playSfx, setMusicOn, setSfxOn, startMusic, streamAudio } from '../audio';
 import { SplotMascot } from '../components/SplotMascot';
+import { HomeTour } from '../components/HomeTour';
 import { addBeigeBadge, addBeigeButton, addBeigeButtonShell, addDepthIcon, addPanel9, BODY_FONT, PIXEL_FONT } from '../components/PixelUI';
 import { warmPaintSwatches } from '../components/overlayShine';
 import type { InitResponse } from '../../shared/api';
@@ -18,6 +19,11 @@ const C = {
   HEADER_BG: 0x232323,
   TEXT_DARK: '#3A1A08',
 } as const;
+
+// The welcome tour fires at most once per page load: guests have no Redis
+// profile to remember `guideSeen` in, and even for logged-in players a failed
+// mark-seen POST must not replay the tour on the very next visit home.
+let tourDoneThisSession = false;
 
 export class MainMenu extends Phaser.Scene {
   private bgLayers: Phaser.GameObjects.Image[] = [];
@@ -37,6 +43,10 @@ export class MainMenu extends Phaser.Scene {
   // and gates loadUserData()'s async continuation from rebuilding the UI
   // after the player has already navigated away.
   private navigating = false;
+  // First-visit welcome tour: spotlight bounds recorded during layout (keyed
+  // by button label / 'splot' / 'help'), and the live tour if one is open.
+  private tourRects = new Map<string, Phaser.Geom.Rectangle>();
+  private tour: HomeTour | null = null;
 
   constructor() { super('MainMenu'); }
 
@@ -53,6 +63,8 @@ export class MainMenu extends Phaser.Scene {
     this.activePopup = null;
     this.flairBusy   = false;
     this.navigating = false;
+    this.tourRects = new Map();
+    this.tour = null;
   }
 
   create() {
@@ -77,6 +89,7 @@ export class MainMenu extends Phaser.Scene {
     // Continue the curated-level build Preloader started — by the time the
     // player taps Play, LevelSelect should get the full set for free.
     warmLevelsDuringIdle(this);
+    this.maybeStartTour();
   }
 
   // Streams the assets only Shop/Editor need while the player reads the menu —
@@ -120,7 +133,69 @@ export class MainMenu extends Phaser.Scene {
       } else if (prev.sparks !== fresh.sparks) {
         this.sparksText?.setText(`${fresh.sparks}`);
       }
+      // First open with an empty cache: create()'s check had no userData yet,
+      // so the fresh init decides whether the welcome tour fires.
+      this.maybeStartTour();
     } catch { /* offline / playtest fallback */ }
+  }
+
+  // ── First-visit welcome tour ──────────────────────────────────────────────
+  // A new player lands here knowing nothing — the tour walks every button as
+  // a short story told by Splot, then offers the Splash Course. It only ever
+  // fires when /api/init says this player hasn't dismissed it (guests get a
+  // per-session flag instead: no profile to remember them by, and localStorage
+  // is off-limits on Devvit).
+  private maybeStartTour() {
+    if (tourDoneThisSession || this.tour || this.navigating) return;
+    if (!this.userData) return; // wait for /api/init — loadUserData re-calls
+    if (this.userData.guideSeen) {
+      tourDoneThisSession = true;
+      return;
+    }
+    // Let the camera fade-in finish before dimming the screen.
+    this.time.delayedCall(500, () => {
+      if (tourDoneThisSession || this.tour || this.navigating) return;
+      if (this.userData?.guideSeen) return;
+      playSfx('menuIn');
+      this.openTour(0);
+    });
+  }
+
+  private openTour(startStep: number) {
+    this.closeActivePopup();
+    this.tour = new HomeTour(this, {
+      startStep,
+      getRect: (key) => this.tourRects.get(key) ?? null,
+      onDone: (startCourse) => this.finishTour(startCourse),
+      // Splot reacts to his own tour — a squish whenever the spotlight lands
+      // on him (intro, rules, and the Splat Card brag), excitement throughout.
+      onStep: (target) => {
+        if (target === 'splot') {
+          playSfx('squish');
+          this.mascot?.playSquishAnim();
+          this.mascot?.setExpression('excited', 1800);
+        }
+      },
+    });
+  }
+
+  private finishTour(startCourse: boolean) {
+    tourDoneThisSession = true;
+    this.tour?.destroy();
+    this.tour = null;
+    if (this.userData) {
+      this.userData = { ...this.userData, guideSeen: true };
+      setCachedUserData(this.userData);
+    }
+    // Best-effort persistence — the session flag above already guarantees the
+    // tour won't replay this page load even if the POST is lost.
+    if (this.userData?.username) {
+      void fetch('/api/user/guide-seen', { method: 'POST' }).catch(() => {});
+    }
+    // The tour's happy ending lands on the Splash Course world page (world 0
+    // in LevelSelect) — the player leaves the tour looking at the lessons,
+    // not back where they started.
+    if (startCourse) this.goToScene('LevelSelect', { world: 0 });
   }
 
   private buildBackground() {
@@ -157,6 +232,14 @@ export class MainMenu extends Phaser.Scene {
   }
 
   private buildUI() {
+    // A rebuild invalidates every recorded spotlight bound — tear the tour
+    // down with the old layout and reopen it at the same step against the new
+    // one (resize mid-tour, or loadUserData's structural rebuild).
+    const tourResumeStep = this.tour ? this.tour.step : null;
+    this.tour?.destroy();
+    this.tour = null;
+    this.tourRects.clear();
+
     this.mascot?.stopIdleAnims();
     this.mascot = null;
     this.uiLayer?.destroy(true);
@@ -172,6 +255,8 @@ export class MainMenu extends Phaser.Scene {
     }
 
     this.uiLayer = this.add.container(0, 0, elements);
+
+    if (tourResumeStep !== null) this.openTour(tourResumeStep);
   }
 
   // ── Portrait ─────────────────────────────────────────────────────────────
@@ -195,6 +280,7 @@ export class MainMenu extends Phaser.Scene {
     // the sound toggles matter to guests too (flair stays login-gated inside).
     els.push(this.buildIconButton(8 + pillH / 2, titleH / 2, pillH, 'icon-help',
       () => this.startWalkthrough()).setDepth(12));
+    this.tourRects.set('help', new Phaser.Geom.Rectangle(8, titleH / 2 - pillH / 2, pillH, pillH));
     els.push(this.buildIconButton(8 + pillH + 8 + pillH / 2, titleH / 2, pillH, 'icon-settings',
       () => this.showSettingsPopup()).setDepth(12));
 
@@ -297,6 +383,7 @@ export class MainMenu extends Phaser.Scene {
     cornerX -= pillH + 8;
     els.push(this.buildIconButton(cornerX, pillTop + pillH / 2, pillH,
       'icon-help', () => this.startWalkthrough()).setDepth(12));
+    this.tourRects.set('help', new Phaser.Geom.Rectangle(cornerX - pillH / 2, pillTop, pillH, pillH));
 
     // SQLOTTER title — placed below the pill's row with guaranteed clearance.
     let logoBottom = pillTop + pillH;
@@ -357,6 +444,10 @@ export class MainMenu extends Phaser.Scene {
       this.mascot?.setExpression('excited', 1200);
     });
 
+    // The welcome tour's opening spotlight — Splot introducing himself.
+    this.tourRects.set('splot',
+      new Phaser.Geom.Rectangle(x - size * 0.55, y - size * 0.55, size * 1.1, size * 1.1));
+
     els.push(this.mascot.container);
   }
 
@@ -401,6 +492,8 @@ export class MainMenu extends Phaser.Scene {
       new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains,
     );
     button.on('pointerup', () => this.showSparksInfo());
+    // Welcome-tour spotlight bounds — the Sparks-economy step points here.
+    this.tourRects.set('sparks', new Phaser.Geom.Rectangle(rightX - w, y - h / 2, w, h));
     return { container: button, width: w };
   }
 
@@ -641,6 +734,9 @@ export class MainMenu extends Phaser.Scene {
           onClick: () => this.goToScene(def.scene, def.data),
         });
         btn.setDepth(8).setAlpha(0);
+        // Welcome-tour spotlight bounds, keyed by label (HomeTour's script
+        // references these same labels).
+        this.tourRects.set(def.label, new Phaser.Geom.Rectangle(bx - w / 2, y, w, row.h));
         this.tweens.add({ targets: btn, alpha: 1, duration: 240, delay });
         delay += 50;
         els.push(btn);
@@ -704,6 +800,8 @@ export class MainMenu extends Phaser.Scene {
 
   shutdown() {
     this.navigating = true;
+    this.tour?.destroy();
+    this.tour = null;
     this.activePopup?.destroy(true);
     this.activePopup = null;
     this.mascot?.stopIdleAnims();

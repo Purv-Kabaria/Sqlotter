@@ -315,6 +315,7 @@ Fields (flat, per-concern — no JSON blobs):
   owned:{itemId}       ← "1"
   flair:optOut / flair:last / fitcheck:won / created / lb:seeded
   sound:sfxOff / sound:musicOff ← "1" = off (absent defaults on)
+  guide:seen           ← "1" home-page welcome tour dismissed (never replays)
 Spendable balance lives separately: sparks:{username} (STRING counter).
 ```
 
@@ -515,6 +516,7 @@ POST /api/user/buy                → BuyRequest → BuyResponse (server-priced)
 POST /api/user/equip              → EquipRequest → EquipResponse
 POST /api/user/flair              → FlairPrefRequest → FlairPrefResponse
 POST /api/user/settings           → SoundSettingsRequest → SoundSettingsResponse
+POST /api/user/guide-seen         → GuideSeenResponse (home welcome tour dismissed)
 POST /api/progress                → ProgressSaveRequest (wip attempt; empty actions clear)
 GET  /api/progress/:levelId       → ProgressGetResponse (restore an unfinished attempt)
 POST /api/share/card              → ShareCardRequest (Splat Card comment)

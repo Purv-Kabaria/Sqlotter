@@ -15,6 +15,9 @@ export type InitResponse = {
   // Sound preferences (default on; Redis-backed for logged-in players).
   sfxEnabled?: boolean;
   musicEnabled?: boolean;
+  // First-visit welcome tour on the home page: true once dismissed, so a
+  // returning player never sees it again (guests fall back to a session flag).
+  guideSeen?: boolean;
   count?: number;
 };
 
@@ -115,6 +118,9 @@ export type FlairPrefResponse = { enabled: boolean };
 // ── Sound settings (SFX / music toggles on the home page) ─
 export type SoundSettingsRequest  = { sfx: boolean; music: boolean };
 export type SoundSettingsResponse = { sfx: boolean; music: boolean };
+
+// ── Welcome tour (first-visit home page guide) ────────────
+export type GuideSeenResponse = { seen: boolean };
 
 // ── In-progress attempts (persistent levels) ──────────────
 // Backing out of a level must not wipe the work: the client saves the live

@@ -17,6 +17,7 @@ import type {
   FlairPrefResponse,
   SoundSettingsRequest,
   SoundSettingsResponse,
+  GuideSeenResponse,
   ProgressSaveRequest,
   ProgressSaveResponse,
   ProgressGetResponse,
@@ -217,6 +218,7 @@ api.get('/init', async (c) => {
     let flairEnabled = true;
     let sfxEnabled = true;
     let musicEnabled = true;
+    let guideSeen = false;
 
     if (username) {
       // Registry write, board seeding, and the two profile reads are all
@@ -229,15 +231,16 @@ api.get('/init', async (c) => {
         redis.zAdd('users:all', { score: Date.now(), member: username }),
         seedGlobalBoards(username),
         redis.get(`sparks:${username}`),
-        redis.hMGet(`user:${username}`, ['daily:streak', 'equipped', 'flair:optOut', 'sound:sfxOff', 'sound:musicOff']),
+        redis.hMGet(`user:${username}`, ['daily:streak', 'equipped', 'flair:optOut', 'sound:sfxOff', 'sound:musicOff', 'guide:seen']),
       ]);
-      const [streakRaw, equippedRaw, flairOptOut, sfxOff, musicOff] = profileFields;
+      const [streakRaw, equippedRaw, flairOptOut, sfxOff, musicOff, guideSeenRaw] = profileFields;
       sparks = parseInt(sparksRaw ?? '0', 10);
       streakDays = parseInt(streakRaw ?? '0', 10);
       equippedItems = parseStringRecord(equippedRaw ?? undefined);
       flairEnabled = flairOptOut !== '1';
       sfxEnabled = sfxOff !== '1';
       musicEnabled = musicOff !== '1';
+      guideSeen = guideSeenRaw === '1';
     }
 
     return c.json<InitResponse>({
@@ -252,6 +255,7 @@ api.get('/init', async (c) => {
       flairEnabled,
       sfxEnabled,
       musicEnabled,
+      guideSeen,
     });
   } catch (e) {
     return c.json<Err>({ status: 'error', message: String(e) }, 500);
@@ -1146,6 +1150,18 @@ api.post('/user/settings', async (c) => {
     'sound:musicOff': body.music ? '0' : '1',
   });
   return c.json<SoundSettingsResponse>({ sfx: body.sfx, music: body.music });
+});
+
+// ── /api/user/guide-seen ──────────────────────────────────────
+// One-shot: the home page's first-visit welcome tour marks itself done here
+// so it never replays for this player. No body — the only state is "seen".
+// Guests never reach this route (the client keeps a session flag for them).
+api.post('/user/guide-seen', async (c) => {
+  const username = (await reddit.getCurrentUsername()) ?? '';
+  if (!username) return c.json<Err>({ status: 'error', message: 'Not logged in' }, 401);
+
+  await redis.hSet(`user:${username}`, { 'guide:seen': '1' });
+  return c.json<GuideSeenResponse>({ seen: true });
 });
 
 // ── /api/progress ─────────────────────────────────────────
