@@ -402,13 +402,15 @@ export class MainMenu extends Phaser.Scene {
       });
     }
 
-    // Streak badge (optional), stacked below the logo.
+    // Streak badge (optional), stacked below the logo. Scale it with the
+    // viewport so a desktop's big header doesn't leave it looking like a typo.
     const streakDays = this.userData?.streakDays ?? 0;
     let contentBottom = logoBottom + 8;
     if (streakDays > 0) {
-      const streakY = logoBottom + 16 + 17;
-      els.push(this.buildStreakBadge(rightCx, streakY, streakDays).setDepth(5));
-      contentBottom = streakY + 17;
+      const streakH = Math.max(34, Math.min(52, Math.round(h * 0.06)));
+      const streakY = logoBottom + 18 + streakH / 2;
+      els.push(this.buildStreakBadge(rightCx, streakY, streakDays, streakH).setDepth(5));
+      contentBottom = streakY + streakH / 2;
     }
 
     // Pre-compute button group dimensions for vertical centering
@@ -761,18 +763,38 @@ export class MainMenu extends Phaser.Scene {
     this.goToScene('Game', { levelId: 'w00-l01', walkthrough: true });
   }
 
-  private buildStreakBadge(x: number, y: number, days: number): Phaser.GameObjects.Container {
+  // Height-scaled so a desktop's big header doesn't dwarf a fixed 34px pill.
+  // The count reads in the crisp numeric face (Press Start 2P, NUM_FONT) — the
+  // rounded Pixelify digits are genuinely hard to tell apart — with a warm
+  // accent; the "day streak!" words stay in Pixelify, which reads fine as text.
+  private buildStreakBadge(x: number, y: number, days: number, pillH = 34): Phaser.GameObjects.Container {
     // addBeigeCard's 'ui-flat-slot' texture is ~80% transparent — over this
     // scene's dark right-column rectangle it reads as almost-black, making
     // TEXT_DARK unreadable. addBeigeBadge uses the opaque button-open slices
     // instead (same fix as buildSparksPill's fallback below the 65px floor).
-    const pillW = 160, pillH = 34;
-    const bg   = addBeigeBadge(this, 0, 0, pillW, pillH);
-    const icon = addDepthIcon(this, -pillW / 2 + 14, 0, 'icon-fire', 14, 14);
-    const txt  = this.add.text(-pillW / 2 + 28, 0, `${days} day streak!`, {
-      fontFamily: PIXELIFY, fontSize: '12px', color: C.TEXT_DARK,
+    const wordFs  = Math.max(12, Math.round(pillH * 0.40));
+    const numFs   = Math.max(10, Math.round(pillH * 0.32));  // Press Start 2P runs tall
+    const iconSz  = Math.max(14, Math.round(pillH * 0.46));
+    const padL    = Math.round(pillH * 0.42);
+    const gap     = 8;
+
+    const num = this.add.text(0, 0, `${days}`, {
+      fontFamily: NUM_FONT, fontSize: `${numFs}px`, color: '#C24A16',
+      shadow: { offsetX: 1, offsetY: 1, color: '#F4C88A', blur: 0, fill: true },
     }).setOrigin(0, 0.5);
-    return this.add.container(x, y, [bg, icon, txt]);
+    const rest = this.add.text(0, 0, ' day streak!', {
+      fontFamily: PIXELIFY, fontSize: `${wordFs}px`, fontStyle: 'bold', color: C.TEXT_DARK,
+    }).setOrigin(0, 0.5);
+    const textW  = num.width + rest.width;
+    const pillW  = Math.round(padL + iconSz + gap + textW + padL * 0.8);
+
+    const bg   = addBeigeBadge(this, 0, 0, pillW, pillH);
+    const icon = addDepthIcon(this, -pillW / 2 + padL + iconSz / 2, 0, 'icon-fire', iconSz, iconSz);
+    let tx = -pillW / 2 + padL + iconSz + gap;
+    num.setPosition(tx, 0);
+    tx += num.width;
+    rest.setPosition(tx, 0);
+    return this.add.container(x, y, [bg, icon, num, rest]);
   }
 
   private repositionBgLayers(width: number, height: number) {

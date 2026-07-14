@@ -315,18 +315,23 @@ export class HomeTour {
     const shell = addBeigeButtonShell(scene, width / 2, panelY, popW, popH, false);
     const content: Phaser.GameObjects.GameObject[] = [];
 
-    content.push(scene.add.text(-popW / 2 + 18, -popH / 2 + 14, 'Splot', {
+    // Name and page counter share one header baseline, symmetric padding on
+    // both edges — no more mismatched sizes stranded in opposite corners.
+    const headerY = -popH / 2 + 27;
+    content.push(scene.add.text(-popW / 2 + 18, headerY, 'Splot', {
       fontFamily: BODY_FONT,
       fontSize: '16px',
       fontStyle: 'bold',
       color: '#3A1A08',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
-    }).setOrigin(0, 0));
-    content.push(scene.add.text(popW / 2 - 16, -popH / 2 + 18, `${this.index + 1}/${STEPS.length}`, {
+    }).setOrigin(0, 0.5));
+    // Counter digits stay in the crisp numeric face — Pixelify's rounded
+    // digits blur into each other, which is why numbers live in Press Start 2P.
+    content.push(scene.add.text(popW / 2 - 18, headerY, `${this.index + 1}/${STEPS.length}`, {
       fontFamily: PIXEL_FONT,
-      fontSize: '8px',
-      color: '#75604C',
-    }).setOrigin(1, 0));
+      fontSize: '10px',
+      color: '#8A6B4A',
+    }).setOrigin(1, 0.5));
     body.setPosition(-popW / 2 + 18, -popH / 2 + 16 + 22 + 6);
     content.push(body);
 

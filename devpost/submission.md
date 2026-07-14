@@ -5,10 +5,10 @@ Hook hackathon. Copy each section into the matching field on Devpost. I pulled e
 fact from the actual code and docs in this repo, so the numbers and feature names are
 real, not filler. Swap in your own voice where you want, but the substance is accurate.
 
-Two things Devpost requires that I cannot fill in for you: the demo video and the two
-"try it out" links (your app listing on developer.reddit.com and a live post in a real
-subreddit running the game). I left clear placeholders for both and a script you can
-read straight into a screen recording.
+The "try it out" links are filled in below with the real, verified URLs (app listing,
+live game post, subreddit, and source repo). The one thing left that only you can do
+is the demo video — there's a script further down you can read straight into a screen
+recording.
 
 ---
 
@@ -153,14 +153,47 @@ devvit, devvit-web, phaser, typescript, hono, redis, vite, reddit-api
 
 ---
 
-## Links (fill these in before submitting)
+## Links — matched to the Devpost form fields
 
-Try it out, app listing: paste your developer.reddit.com app URL here
+**"Try it out" links** (add all of these):
 
-Try it out, live demo: paste the URL of a real post in your test or launch subreddit
-where judges can actually play the game
+```
+https://www.reddit.com/r/sqlotter/comments/1ushb6h/sqlotter_paint_the_slime_mind_the_goggles_beat/
+https://www.reddit.com/r/sqlotter/
+https://developers.reddit.com/apps/sqlotter
+https://github.com/Purv-Kabaria/Sqlotter
+```
 
-Source code: paste your GitHub repo URL here if the hackathon asks for it
+**developers.reddit.com app page:**
+
+```
+https://developers.reddit.com/apps/sqlotter
+```
+
+Version 0.0.12 was submitted for public review on July 13, 2026. Until Reddit
+approves it, this page shows 403 to anyone who isn't the app owner — you'll get
+an email when it flips. The game itself is live and playable regardless.
+
+**Link to test post** (pinned game post in r/sqlotter, playable logged-out —
+verified from a fresh logged-out browser):
+
+```
+https://www.reddit.com/r/sqlotter/comments/1ushb6h/sqlotter_paint_the_slime_mind_the_goggles_beat/
+```
+
+Backup test posts, in case the form allows more than one or a judge wants
+variety — these are live Daily Sqlots that posted automatically at 00:01 UTC:
+
+```
+https://www.reddit.com/r/sqlotter/comments/1uuvqj0/sqlot_20260713_the_chaotic_pumpkin_caper/
+https://www.reddit.com/r/sqlotter/comments/1utzqdx/sqlot_20260712_the_smug_squish_parade/
+```
+
+**Source code** (public repo):
+
+```
+https://github.com/Purv-Kabaria/Sqlotter
+```
 
 ---
 

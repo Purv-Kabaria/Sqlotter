@@ -204,6 +204,11 @@ export class Game extends Phaser.Scene {
   private guidePanel: Phaser.GameObjects.Container | null = null;
   private guideHighlight: Phaser.GameObjects.Rectangle | null = null;
   private guideFlashTimer: Phaser.Time.TimerEvent | null = null;
+  // Bottom edge of the Time/Moves HUD row — the coach panel sits in the free
+  // space between here and the palette so it never covers the stat pills.
+  // Set by buildGameArea; portrait guided lessons drop the in-area mascot so
+  // this gap is Splot-free (he speaks through the coach panel instead).
+  private guideAnchorY = 0;
 
   // Modifier tooltip (hover on desktop, long-press on touch)
   private modTooltip: Phaser.GameObjects.Container | null = null;
@@ -582,15 +587,23 @@ export class Game extends Phaser.Scene {
       ? { x: 10, y: HEADER_H + 10, w: width - 20, h: pal.y - HEADER_H - 20 }
       : { x: 14, y: HEADER_H + 10, w: pal.x - 28, h: height - HEADER_H - 24 };
 
+    // Guided lessons reserve a band above the palette for the coach panel, so
+    // the card block lays out (and centers) in the space ABOVE that band and the
+    // panel never has to sit on the Goal/Current or Time/Moves rows. Landscape
+    // docks the panel to the screen bottom instead, so it reserves nothing.
+    const guideBand = (isPortrait && this.guideStep >= 0)
+      ? Math.min(150, Math.round(area.h * 0.30)) : 0;
+    const layoutH = area.h - guideBand;
+
     const gapX   = Math.max(14, Math.round(area.w * 0.04));
     const rowGap = 10;
-    const labelH = Math.max(38, Math.min(48, Math.round(area.h * 0.14)));
+    const labelH = Math.max(38, Math.min(48, Math.round(layoutH * 0.14)));
     const statH  = labelH;
     // Portrait caps the cards a touch lower than landscape so tablets keep
     // enough leftover height below the block for the mascot.
     const cardSz = Math.max(66, Math.min(
       Math.floor((area.w - gapX) / 2),
-      area.h - labelH - statH - rowGap * 2,
+      layoutH - labelH - statH - rowGap * 2,
       isPortrait ? 272 : 300,
     ));
     const blockW = cardSz * 2 + gapX;
@@ -599,12 +612,14 @@ export class Game extends Phaser.Scene {
     // Splot gets whatever height the block leaves over (capped so he doesn't
     // dwarf the cards). Block + mascot are centered together as one group, so
     // he's a designed part of the layout rather than leftover-strip garnish.
-    const splotSz   = Math.min(150, area.h - blockH - 16);
-    const showSplot = splotSz >= 52;
+    // Guided lessons drop him: Splot speaks through the coach panel, which
+    // wants that same below-block room and must not sit on top of his art.
+    const splotSz   = Math.min(150, layoutH - blockH - 16);
+    const showSplot = splotSz >= 52 && this.guideStep < 0;
     const groupH    = blockH + (showSplot ? 8 + splotSz : 0);
 
     const left   = area.x + (area.w - blockW) / 2;
-    const top    = area.y + Math.max(0, (area.h - groupH) / 2);
+    const top    = area.y + Math.max(0, (layoutH - groupH) / 2);
     const goalX  = left + cardSz / 2;
     const curX   = left + cardSz + gapX + cardSz / 2;
     const cardCy = top + cardSz / 2;
@@ -642,6 +657,8 @@ export class Game extends Phaser.Scene {
     this.buildPill(curX,  labelY, cardSz, labelH, 'Current');
     this.timerText = this.buildPill(goalX, statY, cardSz, statH, `Time: ${this.timeLabel()}`);
     this.stepsText = this.buildPill(curX, statY, cardSz, statH, `Moves: ${this.stepsLabel(this.engine.steps)}`);
+    // The coach panel docks below this row (guided lessons only).
+    this.guideAnchorY = statY + statH / 2;
 
     // Stars-at-stake indicator, tucked into the Moves pill's right end. Tight
     // pills (small phones) skip it — the n/limit label still carries the rule.
@@ -1600,39 +1617,58 @@ export class Game extends Phaser.Scene {
     const pal = this.paletteRect(width, height);
     const popW = Math.min((isPortrait ? width : pal.x - 14) - 24, 340);
     const popCx = isPortrait ? width / 2 : (pal.x - 14) / 2 + 14;
-    const contentX = popCx - popW / 2 + 40;
-    // The course is optional — a standing Skip lives on the panel's right
-    // edge, so the text column ends before it.
-    const skipW = 58;
 
-    const txt = this.add.text(contentX, 0, message, {
+    const padX = 16, padY = 11;
+    const skipW = 56, skipH = 34;   // header height rides the Skip button
+    const headerH = skipH;
+    const innerL = popCx - popW / 2 + padX;
+
+    // Body text spans the full inner width beneath the header row — no more
+    // squeezing it into a narrow column beside a vertically-floating icon.
+    const txt = this.add.text(innerL, 0, message, {
       fontFamily: PIXELIFY, fontSize: '13px', color,
-      wordWrap: { width: popW - 56 - skipW - 8 }, lineSpacing: 3,
+      wordWrap: { width: popW - padX * 2 }, lineSpacing: 3,
     }).setOrigin(0, 0);
-    const stepH = showStep ? 14 : 0;
-    const contentH = stepH + txt.height;
-    const popH = Math.max(46, contentH + 18);
-    const popY = isPortrait ? pal.y - popH / 2 - 6 : height - 14 - popH / 2;
-    const top = popY - contentH / 2;
-    txt.setY(top + stepH);
+
+    const popH = padY + headerH + 8 + Math.round(txt.height) + padY;
+    // Portrait floats the panel in the gap between the HUD stat row and the
+    // palette so it never covers the Time/Moves pills; if that gap is too short
+    // the panel bottom-docks to the palette (its top may tuck under the pills,
+    // but the palette itself stays clear). Landscape hugs the bottom of the play
+    // column — Splot is hidden while guided, so nothing sits under it there.
+    const bottomCy = pal.y - 6 - popH / 2;
+    const topCy    = this.guideAnchorY + 6 + popH / 2;
+    const popY = isPortrait
+      ? (bottomCy >= topCy
+          ? Phaser.Math.Clamp((this.guideAnchorY + pal.y) / 2, topCy, bottomCy)
+          : bottomCy)
+      : height - 14 - popH / 2;
+    const topY = popY - popH / 2;
+    const headerCy = topY + padY + headerH / 2;
 
     const items: Phaser.GameObjects.GameObject[] = [
       addDarkPanel(this, popCx, popY, popW, popH),
     ];
-    const icon = this.add.image(popCx - popW / 2 + 23, popY, 'icon-sparkle')
-      .setDisplaySize(18, 18).setTint(0xFFD700);
-    items.push(icon);
-    if (showStep && this.level) {
-      items.push(this.add.text(contentX, top, `STEP ${this.guideStep + 1}/${this.level.optimalSolution.length}`, {
-        fontFamily: PIXEL_FONT, fontSize: '8px', color: '#FFD700',
-      }).setOrigin(0, 0));
-    }
-    items.push(txt);
+
+    // Header row: sparkle + STEP/label pinned left, standing Skip pinned right.
+    items.push(this.add.image(innerL + 8, headerCy, 'icon-sparkle')
+      .setDisplaySize(16, 16).setTint(0xFFD700));
+    const tag = showStep && this.level
+      ? `STEP ${this.guideStep + 1}/${this.level.optimalSolution.length}`
+      : 'SPLOT';
+    items.push(this.add.text(innerL + 22, headerCy, tag, {
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#FFD27A',
+    }).setOrigin(0, 0.5));
     items.push(addBeigeButton(this, {
-      x: popCx + popW / 2 - skipW / 2 - 8, y: popY, width: skipW, height: 36,
-      label: 'Skip', fontSize: 11, fontFamily: PIXELIFY,
+      x: popCx + popW / 2 - padX - skipW / 2, y: headerCy, width: skipW, height: skipH,
+      label: 'Skip', fontSize: 11, fontFamily: PIXELIFY, forceSmall: true,
       onClick: () => this.skipCourse(),
     }));
+
+    // Body text sits below the header row.
+    txt.setY(topY + padY + headerH + 8);
+    items.push(txt);
+
     this.guidePanel = this.add.container(0, 0, items).setDepth(40);
   }
 

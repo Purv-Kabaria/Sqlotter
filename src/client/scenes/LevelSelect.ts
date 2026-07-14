@@ -492,19 +492,29 @@ export class LevelSelect extends Phaser.Scene {
     label: string, fontSize: number, stars: number, onClick?: () => void,
   ): Phaser.GameObjects.Container {
     const shell = addBeigeButtonShell(this, cx, cy, w, h, false, onClick);
-    const labelTxt = this.add.text(0, -h * 0.14, label, {
+    const labelTxt = this.add.text(0, -h * 0.15, label, {
       fontFamily: PIXELIFY, fontSize: `${fontSize}px`, color: '#3A1A08',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5);
-    const starSz = Math.max(10, Math.min(15, Math.round(h * 0.20)));
-    const gap = 3;
+    const starSz = Math.max(11, Math.min(16, Math.round(h * 0.22)));
+    const gap = Math.max(3, Math.round(starSz * 0.22));
     const rowW = starSz * 3 + gap * 2;
-    const pips: Phaser.GameObjects.GameObject[] = [];
+    const rowY = h * 0.23;
+    // Gold-on-beige is two warm tones: the unlit pips were near-invisible and
+    // even the lit ones were low-contrast. A dark inset tray behind the row
+    // makes both states read at a glance — bright gold for earned stars, dim
+    // gold for the ones still on the table.
+    const trayPadX = Math.round(starSz * 0.5);
+    const trayH = starSz + Math.round(starSz * 0.5);
+    const tray = this.add.graphics();
+    tray.fillStyle(0x1E0E02, 0.55);
+    tray.fillRoundedRect(-rowW / 2 - trayPadX, rowY - trayH / 2, rowW + trayPadX * 2, trayH, trayH / 2);
+    const pips: Phaser.GameObjects.GameObject[] = [tray];
     for (let s = 0; s < 3; s++) {
       const lit = s < stars;
-      pips.push(this.add.image(-rowW / 2 + starSz / 2 + s * (starSz + gap), h * 0.22, 'icon-star')
+      pips.push(this.add.image(-rowW / 2 + starSz / 2 + s * (starSz + gap), rowY, 'icon-star')
         .setDisplaySize(starSz, starSz)
-        .setTint(lit ? 0xFFD700 : 0x6B5344).setAlpha(lit ? 1 : 0.55));
+        .setTint(lit ? 0xFFD54A : 0x8E7C52).setAlpha(lit ? 1 : 0.8));
     }
     shell.addContent([labelTxt, ...pips]);
     return shell.container;
