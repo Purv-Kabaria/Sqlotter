@@ -606,8 +606,11 @@ api.post('/share/card', async (c) => {
         // Same richtext document shape as /api/share/first-splat below, plus
         // the caption/stats/footer lines the plain-text card also carries.
         // No recipe node — solutions stay secret on both paths.
+        // The card image + caption are the player's own content — post as
+        // them so it's natively reportable and attributed to the real author.
         await reddit.submitComment({
           id: postId,
+          runAs: 'USER',
           richtext: {
             document: [
               // Richtext nodes are plain text (no markdown pass) — strip the
@@ -625,7 +628,7 @@ api.post('/share/card', async (c) => {
       }
     }
     if (!postedWithImage) {
-      await reddit.submitComment({ id: postId, text });
+      await reddit.submitComment({ id: postId, text, runAs: 'USER' });
     }
   } catch {
     // Hand the card back so the player can retry after a transient failure.
@@ -711,8 +714,11 @@ api.post('/share/first-splat', async (c) => {
         const asset = await media.upload({ url: imageDataUrl, type: 'image' });
         // Plain richtext document object (submitComment accepts it directly) —
         // element shapes match what @devvit/shared-types' RichTextBuilder emits.
+        // The embedded level title is the creator's own text — post as the
+        // claiming player so the comment stays reportable/attributable.
         await reddit.submitComment({
           id: postId,
+          runAs: 'USER',
           richtext: {
             document: [
               { e: 'img', mediaUrl: asset.mediaUrl, c: headline },
@@ -726,7 +732,7 @@ api.post('/share/first-splat', async (c) => {
       }
     }
     if (!postedWithImage) {
-      await reddit.submitComment({ id: postId, text: `**${headline}**\n\n${footer}` });
+      await reddit.submitComment({ id: postId, text: `**${headline}**\n\n${footer}`, runAs: 'USER' });
     }
   } catch {
     // Hand the crown back so the player can retry after a transient failure.
@@ -884,7 +890,10 @@ api.post('/share/fit', async (c) => {
           }
         }
         document.push({ e: 'par', c: [{ e: 'text', t: statsLine }] });
-        const comment = await reddit.submitComment({ id: fitPostId, richtext: { document } });
+        // The fit image, caption, and photo URL are all the player's own
+        // content — post as them so it's natively reportable and attributed
+        // to the real submitter, not the app account.
+        const comment = await reddit.submitComment({ id: fitPostId, richtext: { document }, runAs: 'USER' });
         commentIdWithImage = comment.id;
       } catch {
         // Upload or richtext rejected — degrade to the text-only fit below.
@@ -893,7 +902,7 @@ api.post('/share/fit', async (c) => {
     if (commentIdWithImage) {
       commentId = commentIdWithImage;
     } else {
-      const comment = await reddit.submitComment({ id: fitPostId, text });
+      const comment = await reddit.submitComment({ id: fitPostId, text, runAs: 'USER' });
       commentId = comment.id;
     }
   } catch {
@@ -1309,12 +1318,23 @@ api.post('/level/create', async (c) => {
     // Beat the Creator: the post title is a challenge, not an announcement,
     // and the post carries an app-maintained duel scoreboard comment.
     const moves = `${level.optimalSteps} ${level.optimalSteps === 1 ? 'move' : 'moves'}`;
+    // The hint is also creator-written free text and is shown to other
+    // players in-game (Game.ts) — fold it into the same reportable post
+    // rather than leaving it as a webview-only string with no Reddit-native
+    // attribution.
+    const ugcText = level.hint ? `${level.title}\n\nHint: ${level.hint}` : level.title;
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',
       // cleanPostTitle: no-emoji rule — the embedded level title is user text.
       title: cleanPostTitle(`u/${username} built “${level.title}” in ${moves}. Beat that.`),
       entry: 'default',
       postData: { levelId },
+      // The level (including its title/hint) is the creator's own content —
+      // post it as them, not the app account, so it carries real Reddit
+      // attribution and is natively reportable to the actual author.
+      runAs: 'USER',
+      userGeneratedContent: { text: ugcText },
+      textFallback: { text: `u/${username} built a Sqlotter level: “${level.title}” (${moves})${level.hint ? `\n\nHint: ${level.hint}` : ''}` },
       styles: {
         heightPixels: 512,
         backgroundColor: '#1a0a2eff',
