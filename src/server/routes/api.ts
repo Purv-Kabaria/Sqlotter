@@ -1234,6 +1234,16 @@ api.post('/level/create', async (c) => {
   const username = (await reddit.getCurrentUsername()) ?? '';
   if (!username) return c.json<Err>({ status: 'error', message: 'Login required to create levels' }, 401);
 
+  // A client-side publish timeout (Editor.ts aborts at 15s) can fire even
+  // after this handler already created the post — a confused retry must not
+  // mint a second Reddit post + duel comment for the same level. Checked here
+  // (fast reject), set below once validation passes and a real post is about
+  // to go out — an input-validation error must never cost the cooldown.
+  const cooldownKey = `create:cooldown:${username}`;
+  if (await redis.get(cooldownKey)) {
+    return c.json<Err>({ status: 'error', message: 'Publishing too fast, wait a moment' }, 429);
+  }
+
   const body = await readJsonBody<LevelCreateRequest>(c);
   if (!body) return c.json<Err>({ status: 'error', message: 'Invalid JSON body' }, 400);
   const { title, difficulty, palette, optimalSteps, solution, hint } = body;
@@ -1277,6 +1287,9 @@ api.post('/level/create', async (c) => {
   if (!verifyLevelIntegrity(candidate) || !isValidSolution(candidate, solution)) {
     return c.json<Err>({ status: 'error', message: 'The recorded solution is not a valid goal (finish bare, with paint on Splot)' }, 400);
   }
+
+  await redis.set(cooldownKey, '1');
+  await redis.expire(cooldownKey, 30);
 
   const levelId = `ugc-${username}-${Date.now()}`;
   const level: LevelData = {
