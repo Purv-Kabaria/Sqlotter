@@ -275,11 +275,14 @@ All 128×128. `char-blush` and `char-cry` are effect overlays toggled by `setVis
 
 | File | Key | Shop ID | Price |
 |------|-----|---------|-------|
-| `character/accessories/horns.png`     | `char-acc-horns`     | `acc-horns`     | 130 ✦ |
-| `character/accessories/party-hat.png` | `char-acc-party-hat` | `acc-party-hat` | 80 ✦  |
-| `character/accessories/crown.png`     | `char-acc-crown`     | `acc-crown`     | 200 ✦ |
-| `character/accessories/cap.png`       | `char-acc-cap`       | `acc-cap`       | 60 ✦  |
-| `character/accessories/hat.png`       | `char-acc-hat`       | `acc-hat`       | 150 ✦ |
+| `character/accessories/horns.png`     | `char-acc-horns`     | `acc-horns`     | 325 ✦   |
+| `character/accessories/party-hat.png` | `char-acc-party-hat` | `acc-party-hat` | 200 ✦   |
+| `character/accessories/crown.png`     | `char-acc-crown`     | `acc-crown`     | 25,000 ✦ (Golden Crown — also unlocks the Royal Slime flair tier) |
+| `character/accessories/cap.png`       | `char-acc-cap`       | `acc-cap`       | 150 ✦   |
+| `character/accessories/hat.png`       | `char-acc-hat`       | `acc-hat`       | 375 ✦   |
+
+Prices are defined once in `src/shared/shop.ts` (`SHOP_ITEMS`) — treat that file as
+authoritative and this table as a pointer to it, not a second source of truth.
 
 All 128×128. Accessories are hidden by default (`setVisible(false)`) and shown only when equipped.
 

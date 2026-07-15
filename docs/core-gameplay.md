@@ -203,6 +203,15 @@ the user hash via `POST /api/progress`); re-entering restores it (strict
 replay via `LevelEngine.restore`, so a log that no longer replays is
 dropped). Cleared on completion. Guided lessons and previews stay ephemeral.
 
+**Goal zoom is a free inspection, clock included**: `LevelEngine.pause()` /
+`resume()` shift `startTime` forward by however long the full-screen goal
+popup was open, so `elapsedMs()` reads as if the popup never happened —
+the same trick the tutorial-modal hold uses (rebuilding a fresh engine at
+dismissal). The Game scene calls `pause()` when the popup opens and
+`resume()` when it closes; no other action needs this, since every other
+popup (pickers, refusal messages) is fast enough that its cost was never
+worth engineering around.
+
 **Daily streak** — consecutive-day daily completions increment `daily:streak`.
 
 ---
@@ -235,6 +244,8 @@ move, and taps the sim would refuse anyway (a 4th wear in Full Outfit) get the
 real refusal so the rule lands. Reset restarts the script. The course is OPTIONAL:
 lessons never lock, World 1 is never gated behind them, the coach panel carries a
 standing Skip button, and the course page ends in a "Skip to World 1" tile.
+See `docs/onboarding.md` for the guided-step state machine itself (and the
+separate home-screen welcome tour that precedes it).
 `curatedLevels.ts` also
 generates worlds 1–24 on first access
 (`getCuratedLevels()`, memoized) with a fixed-seed PRNG — identical on client and

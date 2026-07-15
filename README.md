@@ -181,7 +181,7 @@ simultaneously. The puzzle is ordering plus the outfit and goggle economy.
 
 ## 4. Level Sources
 
-### Campaign: 25 worlds, 400 levels
+### Campaign: 25 worlds, 389 levels
 
 `src/shared/curatedLevels.ts` builds the whole campaign deterministically from a fixed
 seed — identical on client and server, no build step, generated lazily on first access
@@ -212,7 +212,7 @@ wipes level progress when it changes.
 - **Worlds 22–24 (finale)**: mechanic-dense closers — Bullseye Bay, Opacity Ocean,
   Splotter's Sanctum.
 
-Three mechanisms keep 400 levels varied and fair:
+Three mechanisms keep all 389 levels varied and fair:
 
 1. **Structural uniqueness** — every accepted goal's `structureKey` (the pattern
    majority-downsampled to 16×16 blocks, colors relabeled) must be new across the
@@ -270,9 +270,13 @@ palette, and can attach a hint.
 Recordings are capped at `MAX_SOLUTION_STEPS` (60 — a roomy anti-abuse bound, not a
 design cap), enforced while recording and re-verified server-side — so **every
 published level is provably solvable**, and the recording's length is its advertised
-par. Publishing requires the recording to end bare with paint on the slime. The server
-stores the level (90-day TTL), indexes it for search, and posts a **Beat the Creator**
-challenge post to the subreddit.
+par. Publishing requires the recording to end bare with paint on the slime. Every
+level needs a real, creator-typed name (no default) that's **unique among that
+creator's own levels** (case/space-folded, so near-duplicates collide too), and
+publishing is rate-limited to once per 30 seconds per account so a slow request
+retried by an impatient client can't double-post — see `docs/user-creation.md`. The
+server stores the level (90-day TTL), indexes it for search, and posts a
+**Beat the Creator** challenge post to the subreddit.
 
 Discovery: the **Find** button (home page) opens the level finder — search community
 levels by title or creator (`GET /api/levels/community?q=`), browse the newest, or
@@ -296,16 +300,27 @@ All five shipped (see `docs/reddit-engagement.md` for design rationale):
 
 ## 8. Sparks, Stars & the Shop
 
-**Stars** (`calcStars`): steps ≤ par → ★★★ · ≤ 2×par → ★★ · else ★.
+**Stars** (`calcStars`): the player is never shown bare par — every level advertises a
+move **limit** of `par + buffer`, where `buffer = max(2, ceil(par/2))` (par 5 → limit
+8). Steps ≤ limit → ★★★ · ≤ limit + buffer → ★★ · ≤ limit + 2×buffer → ★ · else 0 stars
+(the level still completes and still pays base Sparks — there's no failure state).
 
-**Sparks** are awarded server-side on a player's **first completion** of each level:
+**Sparks** are TIME-driven and awarded server-side on a player's **first completion**
+of each level (`POST /api/complete`):
 
 | Event | Sparks |
 |-------|--------|
-| Complete a level | 10 |
-| … at par (3★) | +20 |
-| … a Sqlot (daily) | +15 |
-| … first on Reddit to solve it | +30 |
+| Complete a level (any moves/time) | 10 |
+| Speed bonus — linear, full under ~30s, zero by 5 min (`timeSparksBonus`) | up to +15 |
+| Finished within the move limit (3★) | +10 |
+| Matched par exactly (or better) | +10 |
+| A Sqlot (daily) | +15 |
+| First on Reddit to solve it | +30 |
+
+Matching par exactly always implies 3 stars too (par ≤ limit by construction), so a
+flawless par-or-better clear stacks both move bonuses (+20) on top of the base and
+speed bonuses; a merely-3-star clear (within the buffer but over par) only gets the
+first +10.
 
 **The Shop** customizes Splot (cosmetic only — never gameplay):
 
@@ -375,6 +390,11 @@ Every scene uses `Phaser.Scale.RESIZE` with a resize handler and is verified fro
 280×480 phones up to desktop. Reference resolution 1024×768, scale factor
 `min(w/1024, h/768, 1)`.
 
+A first-time visitor to `MainMenu` gets an eleven-step **welcome tour** (Splot
+narrating each button before it's ever tapped) that ends with a choice to jump
+straight into the Splash Course or explore freely; it never replays after being
+dismissed (`guide:seen`) except via the "?" help button. See `docs/onboarding.md`.
+
 ---
 
 ## 11. Technical Architecture
@@ -442,7 +462,7 @@ Request/response types live in `src/shared/api.ts`.
 
 | Route | Purpose |
 |-------|---------|
-| `POST /api/level/create` | publish a UGC level (re-verifies the recording) |
+| `POST /api/level/create` | publish a UGC level — re-verifies the recording, requires a unique (per-creator) title, 30s publish cooldown |
 | `GET /api/levels/community?q=` | search/browse community levels |
 | `POST /api/share/card` | post a Splat Card comment (server re-verifies the run) |
 | `POST /api/share/first-splat` | claim the First Splat Crown |
@@ -453,9 +473,13 @@ Request/response types live in `src/shared/api.ts`.
 | Route | Purpose |
 |-------|---------|
 | `GET /api/user/profile` | profile, stars per level, flair pref |
-| `POST /api/user/buy` | buy a shop item (server-priced) |
+| `POST /api/user/buy` | buy a shop item (server-priced; `equip: true` buys and wears it in one round trip) |
 | `POST /api/user/equip` | equip an owned item |
 | `POST /api/user/flair` | flair sync opt-in/out |
+| `POST /api/user/settings` | SFX/music toggle persistence |
+| `POST /api/user/guide-seen` | marks the home-page welcome tour dismissed, forever |
+| `POST /api/progress` | save a persistent attempt's live action log + banked time |
+| `GET /api/progress/:levelId` | restore an unfinished attempt |
 | `GET /api/leaderboard/global?type=` | sparks / moves / played |
 
 ### Internal (declared in devvit.json)
@@ -475,10 +499,17 @@ All values are strings; parse on read, stringify on write.
 ```
 user:{username}              HASH    sparks:lifetime, daily:streak, daily:lastDate,
                                      done:{levelId}, stars:{levelId}, equipped,
-                                     owned:{itemId}, flair:optOut, flair:last,
-                                     fitcheck:won, created, lb:seeded
+                                     unlocked (JSON array), owned:{itemId},
+                                     wip:{levelId} (JSON {a,t} in-progress attempt),
+                                     flair:optOut, flair:last, fitcheck:won,
+                                     sound:sfxOff, sound:musicOff, guide:seen,
+                                     created, lb:seeded
 sparks:{username}            STRING  spendable Sparks balance
 users:all                    ZSET    permanent player registry (join time)
+lb:global:solved             ZSET    per-user distinct-levels-solved count — an
+                                     internal enumeration registry (moderator reset
+                                     tools, upgrade-wipe), NOT one of the 3 public
+                                     boards below (see docs/server-architecture.md §2)
 
 level:{levelId}              STRING  JSON LevelData — dailies TTL 30d, UGC TTL 90d
 level:first-completer        HASH    levelId → first solver
@@ -494,14 +525,28 @@ lb:global:sparks|moves|played  ZSET  negated scores (see §9)
 ugc:index                    ZSET    community level ids by publish time
 ugc:titles                   HASH    levelId → title/creator search registry
 ugc:plays                    HASH    levelId → play count
-duel:{levelId}[, :stats]     Beat-the-Creator post linkage
+creator-titles:{username}    HASH    normalized title → levelId (per-creator
+                                     uniqueness claim, see docs/user-creation.md)
+create:cooldown:{username}   STRING  30s publish rate limit (self-expiring)
+duel:{levelId}[, :stats]     Beat-the-Creator post linkage (stats: attempts,
+                                     matched, bestTimeMs, bestTimeUser)
 
+carded:{levelId}             HASH    username → '1' (one Splat Card per level per user)
+carded:cooldown:{username}   STRING  20s Splat Card rate limit
+crown:cooldown:{username}    STRING  20s First Splat Crown rate limit
+fit:cooldown:{username}      STRING  20s Fit Check rate limit
 fitcheck:current / :week     STRING  live thread id / week label
 fitcheck:cycledOn            STRING  YYYY-MM-DD of the last Thursday cycle (idempotence)
 fitcheck:comments:{postId}   HASH    commentId → username entry registry (crown scan)
 fitcheck:carded:{postId}     HASH    per-user "already posted" guard
+
+install:welcomed             STRING  welcome post id (idempotence guard on install)
 subreddit:name               STRING  persisted at install for the schedulers
 ```
+
+See `docs/server-architecture.md` for the Redis *patterns* behind this schema —
+atomic claims via `hSetNX`, self-expiring cooldown strings, and why some concepts
+(item ownership, level titles) get two separate keys instead of one.
 
 ---
 
@@ -584,12 +629,18 @@ for logged-in players.
 | Doc | Contents |
 |-----|----------|
 | [`docs/core-gameplay.md`](docs/core-gameplay.md) | The sim in depth: rules, coverage, scoring, level generation |
+| [`docs/server-architecture.md`](docs/server-architecture.md) | Hono/Redis engineering patterns: atomic claims, cooldowns, the verify-everything discipline |
+| [`docs/user-creation.md`](docs/user-creation.md) | The Editor → publish → Beat the Creator pipeline, title uniqueness, duels |
+| [`docs/reddit-engagement.md`](docs/reddit-engagement.md) | The five shareability features |
+| [`docs/retention.md`](docs/retention.md) | The interlocking return loops built on one Sparks economy |
+| [`docs/onboarding.md`](docs/onboarding.md) | The welcome tour and the guided Splash Course step engine |
+| [`docs/phaser.md`](docs/phaser.md) | The engine-level tour: why Phaser, and how it's used |
 | [`docs/slime-rendering.md`](docs/slime-rendering.md) | How SlimeRenderer composites patterns from real PNGs |
 | [`docs/splot-mascot.md`](docs/splot-mascot.md) | The mascot layer stack, expressions, customization |
+| [`docs/audio.md`](docs/audio.md) | The sound director: event map, boot-path split, settings |
 | [`docs/ui-components.md`](docs/ui-components.md) | Icons, text, responsive layout math |
 | [`docs/9-slicing.md`](docs/9-slicing.md) | The 9-slice panel/button system |
 | [`docs/assets.md`](docs/assets.md) | Full asset catalog with texture keys |
-| [`docs/reddit-engagement.md`](docs/reddit-engagement.md) | The five shareability features |
 | [`docs/deployment.md`](docs/deployment.md) | Launch/deploy guide |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | Agent/contributor instructions |
 

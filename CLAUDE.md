@@ -213,7 +213,9 @@ coach panel has a standing Skip button, and the course page ends in a "Skip to
 World 1" tile. **Tooltips**: every palette tile shows a one-line blurb
 on hover (desktop) or long-press (touch — the release is swallowed, never a move).
 **Goal zoom**: tapping the goal card (corner magnifier badge) opens a full-screen
-look at the pattern — a free inspection, never a move.
+look at the pattern — a free inspection, never a move, and the run clock pauses
+for as long as the popup is open (`LevelEngine.pause()`/`resume()`) so lingering
+on it never costs time-based Sparks either.
 
 ### Simulation Model (src/shared/slimeSim.ts)
 The slime is a 64×64 cell grid. `BODY_MASK` marks body cells; `MASK_BITMAPS[maskId]`
@@ -312,7 +314,8 @@ Fields (flat, per-concern — no JSON blobs):
   wip:{levelId}        ← JSON {a: actions, t: timeMs} unfinished attempt
                          (persistent levels; cleared on completion)
   equipped             ← JSON Record<slot, itemId>
-  owned:{itemId}       ← "1"
+  unlocked             ← JSON string[] of owned Shop item ids (client-facing list)
+  owned:{itemId}       ← "1" (atomic hSetNX purchase-claim guard; see server-architecture.md §4)
   flair:optOut / flair:last / fitcheck:won / created / lb:seeded
   sound:sfxOff / sound:musicOff ← "1" = off (absent defaults on)
   guide:seen           ← "1" home-page welcome tour dismissed (never replays)
@@ -325,6 +328,9 @@ lb:global:sparks   lifetime Sparks     (zAdd on award)
 lb:global:moves    cumulative moves    (zIncrBy per completion)
 lb:global:played   total completions   (zIncrBy per completion)
 users:all          permanent player registry (score = join time)
+lb:global:solved   distinct levels solved per user — INTERNAL ONLY, not one of the
+                   3 public boards above; used by moderator reset menu actions and
+                   the upgrade-progress-wipe trigger as an enumerable player registry
 ```
 Scores are stored NEGATED so a plain ascending zRange yields "highest first,
 A-Z tiebreak". Un-negate on read (see GET /api/leaderboard/global).
@@ -338,10 +344,18 @@ daily-post:{YYYY-MM-DD}  string → Reddit post id (idempotence guard)
 ### Community / engagement
 ```
 ugc:index (ZSET) · ugc:titles (search) · ugc:plays (royalty counter)
+creator-titles:{username} (HASH, normalized title → levelId — per-creator
+  uniqueness claim) · create:cooldown:{username} (30s publish rate limit)
 level:first-completer · level:first-stats · level:crowned
+carded:{levelId} (HASH, username → "1") · carded:cooldown:{username} (20s)
+crown:cooldown:{username} (20s) · fit:cooldown:{username} (20s)
 duel:{levelId}[, :stats] · fitcheck:current / :week / :cycledOn / :comments:{postId} / :carded:{postId}
-levels:version · subreddit:name
+levels:version · install:welcomed (welcome-post idempotence guard) · subreddit:name
 ```
+
+See `docs/server-architecture.md` for the Redis *patterns* behind this schema (atomic
+claims via `hSetNX`, self-expiring cooldown strings, rollback-on-Reddit-failure, and
+the verify-everything-server-side discipline every mutating route follows).
 
 ---
 
@@ -510,6 +524,8 @@ POST /api/complete                → { levelId, timeMs, actions } → CompleteR
 GET  /api/levels/list             → LevelsListResponse (campaign)
 GET  /api/levels/community?q=     → CommunityLevelsResponse (search/browse UGC)
 POST /api/level/create            → LevelCreateRequest → LevelCreateResponse
+                                    (title must be unique per-creator, 409 if not;
+                                     30s per-account publish cooldown, 429 if too fast)
 GET  /api/leaderboard/global?type=sparks|moves|played → LeaderboardResponse
 GET  /api/user/profile            → ProfileResponse
 POST /api/user/buy                → BuyRequest → BuyResponse (server-priced)

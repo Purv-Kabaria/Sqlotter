@@ -145,6 +145,45 @@ baked mask bitmaps in `maskData.ts`), so "it worked in the Editor" and "it valid
 the server" are guaranteed to agree. This is what lets publishing be **instant and
 unmoderated** without letting a broken or unsolvable level through.
 
+### Every level needs a real, unique name
+
+The title field has no default — the Editor ships with `titleValue = ''`, and
+`validateRecording()` refuses both Test Play and Publish with "Give your level a
+name!" until the creator types something (Editor.ts:966). Server-side, the title is
+re-checked (1–60 chars) and then checked for uniqueness **against that creator's own
+other levels only** — a level's name only has to be distinct from the same author's
+back catalog, not the whole subreddit's:
+
+```ts
+const namesKey = `creator-titles:${username}`;
+const titleKey = title.trim().toLowerCase().replace(/\s+/g, ' ');   // case/space-folded
+if (await redis.hSetNX(namesKey, titleKey, 'pending') !== 1) {
+  return reject(409, 'You already have a level with that name — pick a different one');
+}
+```
+
+`hSetNX` makes the claim atomic (two simultaneous publishes of the same title from
+the same account can't both succeed), and folding case + collapsing whitespace before
+hashing means `"My Level"` and `"my  level"` collide as the same name. The claim is
+written as a placeholder (`'pending'`) *before* the level id exists, then overwritten
+with the real `levelId` once it's minted — see `docs/server-architecture.md` §4 for
+why level ownership uses this two-shape pattern (an atomic per-key claim plus a
+separate enumerable record) rather than one.
+
+### Publish cooldown — retries can't double-post
+
+`POST /api/level/create` also guards a 30-second per-user cooldown
+(`create:cooldown:{username}`), checked *before* any validation runs and set *after*
+validation passes — an input-validation error (bad title, invalid palette) never
+costs the player their publish window, only an accepted, real publish attempt does.
+This exists because the client's own publish request has a 15-second abort timeout
+(Editor.ts:1032): a request that's slow but eventually succeeds server-side, followed
+by the player retrying after their client gave up, must not mint a second Reddit post
+and a second duel comment for what is really one level. Both the title-uniqueness
+rejection (409) and the cooldown rejection (429) surface to the player as the plain
+error message from the response body (`showFeedback`, Editor.ts:1048) — there's no
+special-cased UI for either, just the generic "publish failed, here's why" toast.
+
 ### Storage + indexing
 
 - `level:{ugc-<user>-<timestamp>}` → the `LevelData` JSON, with a **90-day TTL** (UGC is
