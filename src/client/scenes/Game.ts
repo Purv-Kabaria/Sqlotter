@@ -287,7 +287,7 @@ export class Game extends Phaser.Scene {
   private showLoading() {
     const { width, height } = this.scale;
     this.loadingText = this.add.text(width / 2, height / 2, 'Loading...', {
-      fontFamily: PIXEL_FONT, fontSize: '10px', color: C.TEXT_BEIGE,
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: C.TEXT_BEIGE,
     }).setOrigin(0.5).setDepth(20);
     this.tweens.add({ targets: this.loadingText, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
   }
@@ -942,7 +942,9 @@ export class Game extends Phaser.Scene {
       worn = (this.engine?.wornMaskIds ?? []).some((id) => id.startsWith('pumpkin-'));
       content.push(addDepthIcon(this, 0, -cell * 0.07, 'icon-pumpkin', iconSz, iconSz));
       content.push(this.add.text(0, cell * 0.27, '25 50 75', {
-        fontFamily: PIXEL_FONT, fontSize: `${Math.max(6, Math.round(cell * 0.09))}px`, color: C.DARK_BROWN,
+        // Press Start 2P only bakes crisp at 8-multiples (no DPR scaling in
+        // Phaser 4) — floor at 8, not 6, so the smallest tiles don't blur.
+        fontFamily: PIXEL_FONT, fontSize: `${Math.max(8, Math.round(cell * 0.09))}px`, color: C.DARK_BROWN,
       }).setOrigin(0.5));
     } else {
       const mod = slot.mod;
@@ -954,7 +956,9 @@ export class Game extends Phaser.Scene {
 
       if (label) {
         content.push(this.add.text(0, cell * 0.30, label, {
-          fontFamily: PIXEL_FONT, fontSize: `${Math.max(6, Math.round(cell * 0.11))}px`,
+          // Same 8px floor as the pumpkin caption above — Press Start 2P
+          // blurs below its 8-multiple grid on phones.
+          fontFamily: PIXEL_FONT, fontSize: `${Math.max(8, Math.round(cell * 0.11))}px`,
           color: disabled ? '#9A7A5A' : C.DARK_BROWN,
         }).setOrigin(0.5));
       }
@@ -1836,7 +1840,7 @@ export class Game extends Phaser.Scene {
     const saving: { txt: Phaser.GameObjects.Text | null } = { txt: null };
     const savingTimer = this.time.delayedCall(1100, () => {
       saving.txt = this.add.text(this.scale.width / 2, this.scale.height - 28, 'Tallying your Sparks...', {
-        fontFamily: PIXEL_FONT, fontSize: '10px', color: C.TEXT_BEIGE,
+        fontFamily: PIXEL_FONT, fontSize: '8px', color: C.TEXT_BEIGE,
       }).setOrigin(0.5).setDepth(40);
       this.tweens.add({ targets: saving.txt, alpha: 0.4, duration: 600, yoyo: true, repeat: -1 });
     });

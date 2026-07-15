@@ -319,7 +319,7 @@ export class MainMenu extends Phaser.Scene {
     const usernameY = splotY + Math.round(splotSz * 0.58);
     if (username) {
       els.push(this.add.text(cx, usernameY, username, {
-        fontFamily: PIXELIFY, fontSize: '18px', color: C.TEXT_DARK,
+        fontFamily: PIXELIFY, fontSize: '16px', color: C.TEXT_DARK,
         shadow: { offsetX: 1, offsetY: 1, color: '#C8A870', blur: 0, fill: true },
       }).setOrigin(0.5).setDepth(6));
     }
@@ -523,7 +523,7 @@ export class MainMenu extends Phaser.Scene {
     const shell = addBeigeButtonShell(this, cx, cy, popW, popH, false);
     items.push(shell.container);
     const title = this.add.text(cx, cy - popH / 2 + 26, 'Sparks', {
-      fontFamily: PIXELIFY, fontSize: '19px', color: C.TEXT_DARK, fontStyle: 'bold',
+      fontFamily: PIXELIFY, fontSize: '16px', color: C.TEXT_DARK, fontStyle: 'bold',
       shadow: { offsetX: 1, offsetY: 1, color: '#7A4A20', blur: 0, fill: true },
     }).setOrigin(0.5);
     const sparkSz = 20;

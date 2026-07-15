@@ -233,7 +233,7 @@ export class LevelComplete extends Phaser.Scene {
       const streakY = statsY + 46;
       const streak = this.add.text(0, streakY, `${streakDays} day streak!`, {
         fontFamily: PIXEL_FONT,
-        fontSize: '10px',
+        fontSize: '8px',
         color: '#ffb347',
         stroke: '#1a0a2e',
         strokeThickness: 3,
@@ -282,7 +282,7 @@ export class LevelComplete extends Phaser.Scene {
     let btnW  = Math.min((panelW - 24) / 3, 110);
     let navCx = cx;
     const btnY = singleRow
-      ? panelBottom + room / 2
+      ? Math.min(panelBottom + room / 2, height - 26)
       : Math.min(panelBottom + (canShare ? Math.min(98, room * 0.68) : 50), height - 26);
 
     if (canShare) {
@@ -510,7 +510,7 @@ export class LevelComplete extends Phaser.Scene {
     const levelName = visual.title.length > 24 ? `${visual.title.slice(0, 23)}...` : visual.title;
     if (levelName) {
       card.add(this.add.text(0, -cardH / 2 + 43, `"${levelName}"`, {
-        fontFamily: PIXEL_FONT, fontSize: '11px', color: '#241C33',
+        fontFamily: PIXEL_FONT, fontSize: '8px', color: '#241C33',
       }).setOrigin(0.5));
     }
 
@@ -529,7 +529,7 @@ export class LevelComplete extends Phaser.Scene {
     const statY = cardH / 2 - 60;
     const statLabel = `${visual.steps} ${visual.steps === 1 ? 'move' : 'moves'} · ${timeStr}`;
     const statTxt = this.add.text(0, statY, statLabel, {
-      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#2B1400',
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#2B1400',
     }).setOrigin(0, 0.5);
     const statIconSz = 13, statGap = 6;
     const statGroupW = statIconSz + statGap + statTxt.width;
@@ -549,7 +549,7 @@ export class LevelComplete extends Phaser.Scene {
     card.add(captionText);
 
     const brand = this.add.text(0, cardH / 2 - 10, 'SQLOTTER · SPLAT CARD', {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: '#2B1400',
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#2B1400',
     }).setOrigin(0.5);
     const sparkL = this.add.image(-brand.width / 2 - 12, cardH / 2 - 10, 'icon-spark').setDisplaySize(10, 10);
     const sparkR = this.add.image(brand.width / 2 + 12, cardH / 2 - 10, 'icon-spark').setDisplaySize(10, 10);
@@ -752,7 +752,7 @@ export class LevelComplete extends Phaser.Scene {
     // used elsewhere on this card. Reaches ~5.9:1 against the terracotta —
     // this card is the exact image the scene exports and posts to Reddit.
     card.add(this.add.text(0, -cardH / 2 + 62, `"${levelName}"`, {
-      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#241C33',
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#241C33',
     }).setOrigin(0.5));
 
     // Splot presents the solved slime
@@ -783,7 +783,7 @@ export class LevelComplete extends Phaser.Scene {
     const crownStatY = cardH / 2 - 60;
     const crownStatLabel = `${info.steps} ${info.steps === 1 ? 'move' : 'moves'} · ${timeStr}`;
     const crownStatTxt = this.add.text(0, crownStatY, crownStatLabel, {
-      fontFamily: PIXEL_FONT, fontSize: '11px', color: '#2B1400',
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#2B1400',
     }).setOrigin(0, 0.5);
     const crownStatIconSz = 13, crownStatGap = 6;
     const crownStatGroupW = crownStatIconSz + crownStatGap + crownStatTxt.width;
@@ -794,7 +794,7 @@ export class LevelComplete extends Phaser.Scene {
 
     // Branding strip — this card IS the shared image, so sign it
     const brand = this.add.text(0, cardH / 2 - 26, 'SQLOTTER · FIRST SPLAT CROWN', {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color: '#2B1400',
+      fontFamily: PIXEL_FONT, fontSize: '8px', color: '#2B1400',
     }).setOrigin(0.5);
     const sparkL = this.add.image(-brand.width / 2 - 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(12, 12);
     const sparkR = this.add.image(brand.width / 2 + 14, cardH / 2 - 26, 'icon-spark').setDisplaySize(12, 12);
@@ -957,7 +957,7 @@ export class LevelComplete extends Phaser.Scene {
   private showToast(msg: string, color: string) {
     const { width, height } = this.scale;
     const txt = this.add.text(0, 0, msg, {
-      fontFamily: PIXEL_FONT, fontSize: '9px', color,
+      fontFamily: PIXEL_FONT, fontSize: '8px', color,
     }).setOrigin(0.5);
     const bg = addDarkPanel(this, 0, 0, Math.ceil(txt.width) + 28, 34);
     // Depth 70: toasts must stay readable above the crown overlay's dim (60).

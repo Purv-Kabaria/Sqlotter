@@ -329,7 +329,7 @@ export class HomeTour {
     // digits blur into each other, which is why numbers live in Press Start 2P.
     content.push(scene.add.text(popW / 2 - 18, headerY, `${this.index + 1}/${STEPS.length}`, {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
+      fontSize: '8px',
       color: '#8A6B4A',
     }).setOrigin(1, 0.5));
     body.setPosition(-popW / 2 + 18, -popH / 2 + 16 + 22 + 6);

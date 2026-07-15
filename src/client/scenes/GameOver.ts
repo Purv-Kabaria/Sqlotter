@@ -23,7 +23,7 @@ export class GameOver extends Phaser.Scene {
 
     this.add.text(cx, cy + 10, 'Something went wrong', {
       fontFamily: PIXEL_FONT,
-      fontSize: '10px',
+      fontSize: '8px',
       color: '#ff4444',
       stroke: '#1a0a2e',
       strokeThickness: 3,
