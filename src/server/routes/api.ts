@@ -284,10 +284,14 @@ api.get('/daily', async (c) => {
   // real one an hour later.
   try {
     const level = generateDailyLevel(today);
-    await redis.set(`level:${level.id}`, JSON.stringify(level));
-    await redis.set(`daily:${today}`, level.id);
-    await redis.expire(`level:${level.id}`, 60 * 60 * 24 * 30);
-    await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
+    // set()'s inline expiration option folds the TTL into the same write —
+    // no separate expire() round trip — and the two independent keys (level
+    // JSON, day→id pointer) go together in one batch.
+    const expiration = new Date(Date.now() + 60 * 60 * 24 * 30 * 1000);
+    await Promise.all([
+      redis.set(`level:${level.id}`, JSON.stringify(level), { expiration }),
+      redis.set(`daily:${today}`, level.id, { expiration }),
+    ]);
     return c.json<DailyResponse>({ levelId: level.id, level, date: today });
   } catch {
     // Last resort: rotate curated levels by day-of-year (no streak credit,
@@ -355,9 +359,13 @@ api.post('/complete', async (c) => {
   const steps = effectiveSteps(actions);
   const stars = calcStars(steps, level.optimalSteps);
   const userKey  = `user:${username}`;
-  const isFirstCompletion = await redis.hSetNX(userKey, `done:${levelId}`, '1') === 1;
-  // The finished attempt's persisted wip copy is now noise — drop it.
-  await redis.hDel(userKey, [`wip:${levelId}`]);
+  // done:/wip: are independent writes — one round trip instead of two.
+  const [doneClaimed] = await Promise.all([
+    redis.hSetNX(userKey, `done:${levelId}`, '1'),
+    // The finished attempt's persisted wip copy is now noise — drop it.
+    redis.hDel(userKey, [`wip:${levelId}`]),
+  ]);
+  const isFirstCompletion = doneClaimed === 1;
 
   if (isFirstCompletion) {
     await redis.zIncrBy('lb:global:solved', username, 1);
@@ -368,15 +376,18 @@ api.post('/complete', async (c) => {
   // distinct levels solved. Scores are stored negated so an ascending zRange
   // (ties broken by member A-Z) yields "highest total first, alphabetical on
   // a tie" without a reversed-tiebreak zRevRange would give (see the read side
-  // in GET /leaderboard/global for the corresponding un-negation).
-  await redis.zIncrBy('lb:global:moves', username, -steps);
-  await redis.zIncrBy('lb:global:played', username, -1);
+  // in GET /leaderboard/global for the corresponding un-negation). Independent
+  // sorted sets — one round trip for both.
+  await Promise.all([
+    redis.zIncrBy('lb:global:moves', username, -steps),
+    redis.zIncrBy('lb:global:played', username, -1),
+  ]);
 
   let streakDays: number | undefined;
   const dailyDate = dailyDateFromLevel(level);
   if (isFirstCompletion && dailyDate) {
-    const lastDailyDate = await redis.hGet(userKey, 'daily:lastDate');
-    const previousStreak = parseInt((await redis.hGet(userKey, 'daily:streak')) ?? '0', 10);
+    const [lastDailyDate, streakRaw] = await redis.hMGet(userKey, ['daily:lastDate', 'daily:streak']);
+    const previousStreak = parseInt(streakRaw ?? '0', 10);
 
     // Only a daily at least as recent as the last one counts toward the streak.
     // Back-filling an OLD daily (an earlier post solved late) must NOT reset the
@@ -432,47 +443,57 @@ api.post('/complete', async (c) => {
       firstSplat = (await redis.hGet('level:crowned', levelId)) === undefined;
     }
   }
+  // Sparks balance and this level's prior star record are unrelated reads —
+  // one round trip for both instead of two.
   const sparksKey = `sparks:${username}`;
-  const newSparks = sparksEarned > 0
-    ? await redis.incrBy(sparksKey, sparksEarned)
-    : parseInt((await redis.get(sparksKey)) ?? '0', 10);
+  const [newSparks, prevStarsStr] = await Promise.all([
+    sparksEarned > 0
+      ? redis.incrBy(sparksKey, sparksEarned)
+      : redis.get(sparksKey).then((v) => parseInt(v ?? '0', 10)),
+    redis.hGet(userKey, `stars:${levelId}`),
+  ]);
   // Only need to touch the leaderboard when the balance actually changed —
   // if it didn't, this user's last sync (from an earlier completion or a
   // purchase) is still accurate.
   if (sparksEarned > 0) {
-    await redis.zAdd('lb:global:sparks', { score: -newSparks, member: username });
-    // Lifetime Sparks never go down (purchases don't touch them) — this is
-    // what the Splotter Flair tier ladder ranks on.
-    await redis.hIncrBy(userKey, 'sparks:lifetime', sparksEarned);
+    await Promise.all([
+      redis.zAdd('lb:global:sparks', { score: -newSparks, member: username }),
+      // Lifetime Sparks never go down (purchases don't touch them) — this is
+      // what the Splotter Flair tier ladder ranks on.
+      redis.hIncrBy(userKey, 'sparks:lifetime', sparksEarned),
+    ]);
   }
 
-  // Persist best star rating for this level
-  const prevStarsStr = await redis.hGet(userKey, `stars:${levelId}`);
-  const prevStars    = prevStarsStr ? parseInt(prevStarsStr, 10) : 0;
-  const bestStars    = Math.max(stars, prevStars) as Stars;
+  const prevStars = prevStarsStr ? parseInt(prevStarsStr, 10) : 0;
+  const bestStars = Math.max(stars, prevStars) as Stars;
 
   await redis.hSet(userKey, {
     [`stars:${levelId}`]: String(bestStars),
   });
 
   // Beat the Creator: bump this UGC level's duel counters and, on milestones,
-  // refresh the scoreboard comment on its post. Best-effort inside.
+  // refresh the scoreboard comment on its post — independent of the creator
+  // royalty check below (different keys entirely), so they run together.
+  // Both are best-effort inside (recordDuelResult never throws).
   if (levelId.startsWith('ugc-')) {
-    await recordDuelResult(level, username, steps, timeMs);
-
-    // Creator royalty (see the Sparks economy): every 10th DISTINCT player to
-    // clear a community level earns its creator +5 passive Sparks. Counting
-    // first completions only means replaying can't farm it, and the creator's
-    // own clear can at most contribute one play.
-    if (isFirstCompletion && level.authorName && level.authorName !== username) {
-      const plays = await redis.hIncrBy('ugc:plays', levelId, 1);
-      if (plays % 10 === 0) {
-        await creditSparks(level.authorName, 5);
-        // Lifetime Sparks feed the flair tier ladder — refresh the creator's
-        // flair too (self-throttling + best-effort inside).
-        await syncUserFlair(level.authorName);
-      }
-    }
+    await Promise.all([
+      recordDuelResult(level, username, steps, timeMs),
+      (async () => {
+        // Creator royalty (see the Sparks economy): every 10th DISTINCT player
+        // to clear a community level earns its creator +5 passive Sparks.
+        // Counting first completions only means replaying can't farm it, and
+        // the creator's own clear can at most contribute one play.
+        if (isFirstCompletion && level.authorName && level.authorName !== username) {
+          const plays = await redis.hIncrBy('ugc:plays', levelId, 1);
+          if (plays % 10 === 0) {
+            await creditSparks(level.authorName, 5);
+            // Lifetime Sparks feed the flair tier ladder — refresh the
+            // creator's flair too (self-throttling + best-effort inside).
+            await syncUserFlair(level.authorName);
+          }
+        }
+      })(),
+    ]);
   }
 
   // Splotter Flair: self-throttling (only writes to Reddit when the flair
@@ -559,8 +580,7 @@ api.post('/share/card', async (c) => {
   if (claimed !== 1) {
     return c.json<Err>({ status: 'error', message: 'Card already posted for this level' }, 409);
   }
-  await redis.set(cooldownKey, '1');
-  await redis.expire(cooldownKey, 20);
+  await redis.set(cooldownKey, '1', { expiration: new Date(Date.now() + 20_000) });
 
   const steps = effectiveSteps(actions);
   const stars = calcStars(steps, level.optimalSteps);
@@ -690,8 +710,7 @@ api.post('/share/first-splat', async (c) => {
   if (claimed !== 1) {
     return c.json<Err>({ status: 'error', message: 'Crown already claimed' }, 409);
   }
-  await redis.set(cooldownKey, '1');
-  await redis.expire(cooldownKey, 20);
+  await redis.set(cooldownKey, '1', { expiration: new Date(Date.now() + 20_000) });
 
   // UGC titles are user text — keep them to a single line.
   const safeTitle = level.title.replace(/[\r\n]+/g, ' ').trim();
@@ -833,8 +852,7 @@ api.post('/share/fit', async (c) => {
   if (claimed !== 1) {
     return c.json<Err>({ status: 'error', message: 'Fit already posted this week' }, 409);
   }
-  await redis.set(cooldownKey, '1');
-  await redis.expire(cooldownKey, 20);
+  await redis.set(cooldownKey, '1', { expiration: new Date(Date.now() + 20_000) });
 
   const userKey = `user:${username}`;
   const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
@@ -915,8 +933,12 @@ api.post('/share/fit', async (c) => {
   // fit hashes outlive the thread by well over the award delay, then expire.
   const entriesKey = `fitcheck:comments:${fitPostId}`;
   await redis.hSet(entriesKey, { [commentId]: username });
-  await redis.expire(entriesKey, 60 * 60 * 24 * 30);
-  await redis.expire(`fitcheck:carded:${fitPostId}`, 60 * 60 * 24 * 30);
+  // fitcheck:carded was already created by the earlier hSetNX claim, so its
+  // expire is independent of entriesKey's — the two run together.
+  await Promise.all([
+    redis.expire(entriesKey, 60 * 60 * 24 * 30),
+    redis.expire(`fitcheck:carded:${fitPostId}`, 60 * 60 * 24 * 30),
+  ]);
 
   return c.json<ShareFitResponse>({ posted: true });
 });
@@ -1006,8 +1028,10 @@ api.get('/user/profile', async (c) => {
   }
 
   const userKey  = `user:${username}`;
-  const sparks   = parseInt((await redis.get(`sparks:${username}`)) ?? '0', 10);
-  const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
+  // Independent reads (the sparks counter, the user hash) — one round trip.
+  const [sparksRaw, allFieldsRaw] = await Promise.all([redis.get(`sparks:${username}`), redis.hGetAll(userKey)]);
+  const sparks = parseInt(sparksRaw ?? '0', 10);
+  const allFields: Record<string, string> = allFieldsRaw ?? {};
 
   const completedLevels: string[] = [];
   const levelStars: Record<string, number> = {};
@@ -1311,18 +1335,18 @@ api.post('/level/create', async (c) => {
     return c.json<Err>({ status: 'error', message: 'You already have a level with that name — pick a different one' }, 409);
   }
 
-  await redis.set(cooldownKey, '1');
-  await redis.expire(cooldownKey, 30);
-
   const levelId = `ugc-${username}-${Date.now()}`;
   const level: LevelData = {
     ...candidate,
     id: levelId,
   };
-  await redis.hSet(namesKey, { [titleKey]: levelId });
-
-  await redis.set(`level:${levelId}`, JSON.stringify(level));
-  await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 90); // 90-day TTL
+  // Three independent writes (cooldown claim, title-name claim, level JSON) —
+  // set()'s inline expiration option skips the separate expire() round trip.
+  await Promise.all([
+    redis.set(cooldownKey, '1', { expiration: new Date(Date.now() + 30_000) }),
+    redis.hSet(namesKey, { [titleKey]: levelId }),
+    redis.set(`level:${levelId}`, JSON.stringify(level), { expiration: new Date(Date.now() + 60 * 60 * 24 * 90 * 1000) }), // 90-day TTL
+  ]);
 
   // Track user's created levels
   const userKey = `user:${username}`;

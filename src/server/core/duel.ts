@@ -56,8 +56,7 @@ export async function createDuelComment(level: LevelData, postId: string): Promi
     });
     // Pin it when the app account has the rights; a regular comment works too.
     try { await comment.distinguish(true); } catch { /* app is not a mod here */ }
-    await redis.set(`duel:${level.id}`, comment.id);
-    await redis.expire(`duel:${level.id}`, DUEL_TTL_SECONDS);
+    await redis.set(`duel:${level.id}`, comment.id, { expiration: new Date(Date.now() + DUEL_TTL_SECONDS * 1000) });
   } catch {
     // No scoreboard — the duel silently degrades to a plain level post.
   }

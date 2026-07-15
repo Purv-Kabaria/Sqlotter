@@ -37,10 +37,11 @@ menu.post('/post-daily', async (c) => {
     const level   = generateDailyLevel(today);
     const levelId = level.id;
 
-    await redis.set(`level:${levelId}`, JSON.stringify(level));
-    await redis.set(`daily:${today}`, levelId);
-    await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 30);
-    await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
+    const expiration = new Date(Date.now() + 60 * 60 * 24 * 30 * 1000);
+    await Promise.all([
+      redis.set(`level:${levelId}`, JSON.stringify(level), { expiration }),
+      redis.set(`daily:${today}`, levelId, { expiration }),
+    ]);
 
     const post = await reddit.submitCustomPost({
       subredditName: context.subredditName ?? '',

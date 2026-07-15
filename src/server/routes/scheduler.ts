@@ -23,11 +23,13 @@ schedulerRoutes.post('/daily-puzzle', async (c) => {
     const levelId = level.id;
 
     if (!(await redis.get(`daily:${today}`))) {
-      await redis.set(`level:${levelId}`, JSON.stringify(level));
-      await redis.set(`daily:${today}`, levelId);
-      // Expiry so stale levels are auto-cleaned after 30 days
-      await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 30);
-      await redis.expire(`daily:${today}`, 60 * 60 * 24 * 30);
+      // set()'s inline expiration folds the 30-day auto-clean TTL into the
+      // same write; the two independent keys go together in one batch.
+      const expiration = new Date(Date.now() + 60 * 60 * 24 * 30 * 1000);
+      await Promise.all([
+        redis.set(`level:${levelId}`, JSON.stringify(level), { expiration }),
+        redis.set(`daily:${today}`, levelId, { expiration }),
+      ]);
       console.log(`Daily puzzle generated: ${levelId} for ${today}`);
     }
 
@@ -48,8 +50,7 @@ schedulerRoutes.post('/daily-puzzle', async (c) => {
             backgroundColorDark: '#1a0a2eff',
           },
         });
-        await redis.set(`daily-post:${today}`, post.id);
-        await redis.expire(`daily-post:${today}`, 60 * 60 * 24 * 30);
+        await redis.set(`daily-post:${today}`, post.id, { expiration: new Date(Date.now() + 60 * 60 * 24 * 30 * 1000) });
         console.log(`Daily puzzle posted: ${post.id} for ${today}`);
       }
     }
