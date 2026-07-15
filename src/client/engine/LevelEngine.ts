@@ -32,6 +32,7 @@ export class LevelEngine {
   private state: SimState;
   private actionIds: string[] = [];
   private startTime: number;
+  private pausedAt: number | null = null;
 
   constructor(level: LevelData) {
     this.goal = replaySim(level.palette, level.optimalSolution) ?? createSimState();
@@ -109,6 +110,19 @@ export class LevelEngine {
   }
 
   elapsedMs(): number {
-    return Date.now() - this.startTime;
+    return (this.pausedAt ?? Date.now()) - this.startTime;
+  }
+
+  // The goal-zoom inspection is documented as free — pausing here shifts
+  // startTime forward by the paused span on resume, the same trick the
+  // tutorial-modal hold uses (a fresh engine built at dismissal time).
+  pause(): void {
+    this.pausedAt ??= Date.now();
+  }
+
+  resume(): void {
+    if (this.pausedAt === null) return;
+    this.startTime += Date.now() - this.pausedAt;
+    this.pausedAt = null;
   }
 }

@@ -186,6 +186,9 @@ export class Game extends Phaser.Scene {
   private areaObjs: Phaser.GameObjects.GameObject[] = [];
 
   private activePopup: Phaser.GameObjects.Container | null = null;
+  // True while activePopup is the goal-zoom inspection — closeActivePopup
+  // resumes the engine's clock only in that case (pickers never pause it).
+  private goalZoomOpen = false;
   // Set while the tutorial modal is up. Unlike the pickers (transient, safe
   // to close on resize), the tutorial must survive rotation — its dismissal
   // starts the attempt clock, so closing it on rotate would silently start
@@ -1029,6 +1032,9 @@ export class Game extends Phaser.Scene {
       targets: this.activePopup, alpha: 1, scaleX: 1, scaleY: 1,
       duration: 170, ease: 'Quad.easeOut',
     });
+    // Free inspection means free of time too — paused until closeActivePopup.
+    this.goalZoomOpen = true;
+    this.engine?.pause();
   }
 
   // ── Colour picker popup ───────────────────────────────────────────────────
@@ -1220,6 +1226,10 @@ export class Game extends Phaser.Scene {
   // Sound: dismissals whoosh (menuOut) at their call sites — not here, where a
   // swatch pick would stack a whoosh onto the action sound that follows it.
   private closeActivePopup() {
+    if (this.goalZoomOpen) {
+      this.goalZoomOpen = false;
+      this.engine?.resume();
+    }
     if (!this.activePopup) return;
     const p = this.activePopup;
     this.activePopup = null;
