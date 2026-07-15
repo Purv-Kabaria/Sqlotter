@@ -148,8 +148,9 @@ export async function runFitCheckCycle(subredditName: string): Promise<void> {
         id: newPostId,
         text: `♛ **Last week's Fit Check crown** goes to u/${winner.username} (${winner.week}): +${FIT_AWARD_SPARKS} Sparks and the Fit crown flair. New week, new fits — drop yours below! ${KAOMOJI.cheer}`,
       });
-    } catch {
+    } catch (e) {
       // The Sparks and flair already landed; the shout-out is a bonus.
+      console.error('Fit Check shout-out comment failed:', e);
     }
   }
   await redis.set(KEY_CYCLED, today);

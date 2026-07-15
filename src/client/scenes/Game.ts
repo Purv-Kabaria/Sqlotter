@@ -1389,7 +1389,7 @@ export class Game extends Phaser.Scene {
       playSfx('refuse');
       this.showConflictPopup(msg);
       this.showRefusalCross(mod);
-      this.splot?.setExpression('pain', 900);
+      this.splot?.playConflict();
       return;
     }
 

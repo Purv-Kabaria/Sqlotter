@@ -78,17 +78,25 @@ triggers.post('/on-app-install', async (c) => {
     }
     await redis.set('levels:version', LEVELS_VERSION);
 
-    // Create the initial welcome post
-    const post = await reddit.submitCustomPost({
-      subredditName,
-      title: GAME_POST_TITLE,
-      entry: 'default',
-      styles: {
-        heightPixels: 512,
-        backgroundColor: '#1a0a2eff',
-        backgroundColorDark: '#1a0a2eff',
-      },
-    });
+    // Create the initial welcome post — guarded so a platform retry of this
+    // trigger (the post below already landed once, then something later in
+    // this handler failed) can't post a second welcome thread.
+    const welcomedKey = 'install:welcomed';
+    let postId = await redis.get(welcomedKey);
+    if (!postId) {
+      const post = await reddit.submitCustomPost({
+        subredditName,
+        title: GAME_POST_TITLE,
+        entry: 'default',
+        styles: {
+          heightPixels: 512,
+          backgroundColor: '#1a0a2eff',
+          backgroundColorDark: '#1a0a2eff',
+        },
+      });
+      postId = post.id;
+      await redis.set(welcomedKey, postId);
+    }
 
     // Open the first Fit Check thread right away so the weekly ritual is live
     // from install (idempotent, best-effort — never blocks the welcome post).
@@ -97,7 +105,7 @@ triggers.post('/on-app-install', async (c) => {
     return c.json<TriggerResponse>(
       {
         status: 'success',
-        message: `Sqlotter post created in r/${subredditName} (id: ${post.id}, trigger: ${input.type})`,
+        message: `Sqlotter post created in r/${subredditName} (id: ${postId}, trigger: ${input.type})`,
       },
       200,
     );
