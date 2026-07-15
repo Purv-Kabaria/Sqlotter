@@ -1347,7 +1347,12 @@ export class Shop extends Phaser.Scene {
     }
   }
 
-  private async buyItem(item: ShopItem) {
+  // `equipAfter`: buying a cosmetic should immediately wear it — that's why
+  // the player bought it, and Splot is already previewing the look. This used
+  // to be a second, sequential /api/user/equip call (and a second full UI
+  // rebuild) after the buy landed; the server now folds both into one request
+  // via BuyRequest.equip, so a purchase is one round trip, one rebuild.
+  private async buyItem(item: ShopItem, equipAfter = false) {
     if (this.pendingItemIds.has(item.id)) return;
     this.pendingItemIds.add(item.id);
     try {
@@ -1360,7 +1365,7 @@ export class Shop extends Phaser.Scene {
       const res = await fetch('/api/user/buy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId: item.id }),
+        body: JSON.stringify({ itemId: item.id, equip: equipAfter }),
         signal: AbortSignal.timeout(8000),
       });
       // The player may have tapped Home while this request was in flight —
@@ -1376,6 +1381,11 @@ export class Shop extends Phaser.Scene {
       playSfx('confirm');
       this.sparks = data.sparks;
       this.unlockedItems = new Set(data.unlockedItems);
+      if (data.equippedItems) {
+        this.equippedItems = data.equippedItems;
+        this.splot?.refresh(this.previewedEquipment());
+        this.splot?.playAppliedFlash();
+      }
       this.storeProfileCache();
       this.showToast(`Got ${item.label}!`, C.GREEN);
       this.buildUI();
@@ -1384,17 +1394,6 @@ export class Shop extends Phaser.Scene {
       this.splot?.setExpression('sad', 1200);
     } finally {
       this.pendingItemIds.delete(item.id);
-    }
-  }
-
-  // Buying a cosmetic should immediately wear it — that's why the player
-  // bought it, and Splot is already previewing the look. Quiet equip so the
-  // player only sees the single "Got X!" toast.
-  private async buyThenEquip(item: ShopItem) {
-    await this.buyItem(item);
-    if (this.navigating) return;
-    if (this.isOwned(item) && this.equippedItems[item.slot] !== item.id) {
-      await this.equipItem(item, true);
     }
   }
 
@@ -1488,7 +1487,7 @@ export class Shop extends Phaser.Scene {
       x: cx + btnW / 2 + btnGap / 2, y: btnY, width: btnW, height: btnH,
       label: canAfford ? 'Buy' : 'Need more', fontSize: btnFs, fontFamily: PIXELIFY,
       disabled: !canAfford,
-      onClick: () => { this.closeActivePopup(); void this.buyThenEquip(item); },
+      onClick: () => { this.closeActivePopup(); void this.buyItem(item, true); },
     }));
 
     this.activePopup = this.add.container(0, 0, items).setDepth(60).setAlpha(0).setScale(0.9);

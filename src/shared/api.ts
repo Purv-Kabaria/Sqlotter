@@ -146,8 +146,10 @@ export type ProfileResponse = UserProfile & {
 export type EquipRequest  = { itemId: string; slot: string };
 export type EquipResponse = { equippedItems: Record<string, string> };
 
-export type BuyRequest  = { itemId: string };
-export type BuyResponse = { sparks: number; unlockedItems: string[] };
+// equip: buy-then-wear in one round trip — the common "buy it, wear it"
+// path used to be two sequential requests (and two full UI rebuilds).
+export type BuyRequest  = { itemId: string; equip?: boolean };
+export type BuyResponse = { sparks: number; unlockedItems: string[]; equippedItems?: Record<string, string> };
 
 // ── Level creation (UGC) ──────────────────────────────────
 // The recorded solution doubles as the goal: replaying it through the shared

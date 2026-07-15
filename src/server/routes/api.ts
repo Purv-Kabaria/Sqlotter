@@ -1083,17 +1083,32 @@ api.post('/user/buy', async (c) => {
   if (!item) return c.json<Err>({ status: 'error', message: 'Unknown item' }, 400);
 
   const sparksKey = `sparks:${username}`;
-  const allFields: Record<string, string> = (await redis.hGetAll(userKey)) ?? {};
+  // Independent reads — one round trip instead of two.
+  const [allFieldsRaw, sparksRaw] = await Promise.all([redis.hGetAll(userKey), redis.get(sparksKey)]);
+  const allFields = allFieldsRaw ?? {};
   const unlocked = parseStringArray(allFields['unlocked']);
-  const sparks = parseInt((await redis.get(sparksKey)) ?? '0', 10);
+  const sparks = parseInt(sparksRaw ?? '0', 10);
+  const equipped = parseStringRecord(allFields['equipped']);
+
+  // Bundles an optional equip onto whichever response path returns below, so
+  // the common "buy it, wear it" tap is one request (and one client-side UI
+  // rebuild) instead of two sequential ones.
+  const withEquip = async (unlockedItems: string[], sparksNow: number): Promise<BuyResponse> => {
+    if (body.equip !== true) return { sparks: sparksNow, unlockedItems };
+    equipped[item.slot] = item.id;
+    await redis.hSet(userKey, { equipped: JSON.stringify(equipped) });
+    if (item.slot === 'color') await syncUserFlair(username);
+    return { sparks: sparksNow, unlockedItems, equippedItems: equipped };
+  };
+
   if (item.price === 0 || unlocked.includes(item.id) || allFields[`owned:${item.id}`] === '1') {
-    return c.json<BuyResponse>({ sparks, unlockedItems: unlocked });
+    return c.json<BuyResponse>(await withEquip(unlocked, sparks));
   }
   if (sparks < item.price) return c.json<Err>({ status: 'error', message: 'Insufficient Sparks' }, 402);
 
   const claimed = await redis.hSetNX(userKey, `owned:${item.id}`, '1');
   if (claimed !== 1) {
-    return c.json<BuyResponse>({ sparks, unlockedItems: unlocked });
+    return c.json<BuyResponse>(await withEquip(unlocked, sparks));
   }
 
   const newSparks = await redis.incrBy(sparksKey, -item.price);
@@ -1115,7 +1130,7 @@ api.post('/user/buy', async (c) => {
     await syncUserFlair(username);
   }
 
-  return c.json<BuyResponse>({ sparks: newSparks, unlockedItems: unlocked });
+  return c.json<BuyResponse>(await withEquip(unlocked, newSparks));
 });
 
 // ── /api/user/flair ───────────────────────────────────────────
