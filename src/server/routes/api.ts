@@ -1288,6 +1288,14 @@ api.post('/level/create', async (c) => {
     return c.json<Err>({ status: 'error', message: 'The recorded solution is not a valid goal (finish bare, with paint on Splot)' }, 400);
   }
 
+  // No two of this creator's OWN levels may share a name (case/space folded,
+  // so "My Level" and "my  level" collide too) — hSetNX makes the claim atomic.
+  const namesKey = `creator-titles:${username}`;
+  const titleKey = title.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (await redis.hSetNX(namesKey, titleKey, 'pending') !== 1) {
+    return c.json<Err>({ status: 'error', message: 'You already have a level with that name — pick a different one' }, 409);
+  }
+
   await redis.set(cooldownKey, '1');
   await redis.expire(cooldownKey, 30);
 
@@ -1296,6 +1304,7 @@ api.post('/level/create', async (c) => {
     ...candidate,
     id: levelId,
   };
+  await redis.hSet(namesKey, { [titleKey]: levelId });
 
   await redis.set(`level:${levelId}`, JSON.stringify(level));
   await redis.expire(`level:${levelId}`, 60 * 60 * 24 * 90); // 90-day TTL

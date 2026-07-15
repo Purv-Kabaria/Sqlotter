@@ -156,7 +156,7 @@ const TILE_W = 86, TILE_H = 44, TILE_SQ = 48, TILE_GAP = 6;
 export class Editor extends Phaser.Scene {
   // The recorded action-id sequence — solution AND goal in one.
   private actions: string[] = [];
-  private titleValue = 'My Custom Level';
+  private titleValue = '';
   private hintValue = '';
   // Creator-chosen decoy count (0-3): unused stencils/colors padded into the
   // published palette so it doesn't spell out the recipe.
@@ -217,7 +217,7 @@ export class Editor extends Phaser.Scene {
     // instead of resurrecting a stale recording.
     this.sys.settings.data = {};
     this.actions    = draft ? [...draft.actions] : [];
-    this.titleValue = draft?.title ?? 'My Custom Level';
+    this.titleValue = draft?.title ?? '';
     this.hintValue  = draft?.hint ?? '';
     this.decoyCount = draft?.decoyCount ?? 2;
     this.uiObjs     = [];
@@ -960,8 +960,10 @@ export class Editor extends Phaser.Scene {
   }
 
   // Goals must be bare slimes — a level can't be finished while stencils are
-  // still on, so a recording that ends worn isn't a valid goal either.
+  // still on, so a recording that ends worn isn't a valid goal either. Every
+  // level needs its own real, creator-typed name — no silent default.
   private validateRecording(): string | null {
+    if (!(this.titleInput?.value ?? this.titleValue).trim()) return 'Give your level a name!';
     if (this.actions.length === 0) return 'Paint something to build a goal first!';
     if (!this.actions.some((id) => id.startsWith('paint-'))) return 'Goals need at least one splash of paint!';
     const { worn } = replayOps(EDITOR_DEFS, this.actions);
@@ -980,7 +982,7 @@ export class Editor extends Phaser.Scene {
     // The draft rides along so the preview's exits (win or back) can hand the
     // recording back to a fresh Editor instead of wiping it.
     const draft: EditorDraft = {
-      title: (this.titleInput?.value ?? this.titleValue).trim() || 'My Custom Level',
+      title: (this.titleInput?.value ?? this.titleValue).trim(),
       hint: this.hintInput?.value ?? this.hintValue,
       actions: [...this.actions],
       decoyCount: this.decoyCount,
@@ -1009,7 +1011,7 @@ export class Editor extends Phaser.Scene {
     }
     this.publishing = true;
     this.showFeedback('Publishing your level…', false);
-    const title = (this.titleInput?.value ?? '').trim() || 'My Custom Level';
+    const title = (this.titleInput?.value ?? '').trim();
     this.titleValue = title;
     const hint = (this.hintInput?.value ?? '').trim().slice(0, 160);
 
