@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { showLoginPrompt } from '@devvit/web/client';
 import { playSfx } from '../audio';
 import type { ModifierDef } from '../../shared/types';
 import { isBreakableMask, MAX_WORN, replayOps, standardPaints } from '../../shared/slimeSim';
@@ -1036,6 +1037,7 @@ export class Editor extends Phaser.Scene {
       if (res.status === 401) {
         this.publishing = false;
         this.showFeedback('Log in to publish levels!', true);
+        try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
         return;
       }
       if (!res.ok) {

@@ -31,7 +31,7 @@ export type HomeTourStep = {
 const STEPS: HomeTourStep[] = [
   {
     target: 'splot',
-    text: 'Oh! A new splotter! I\'m Splot — resident slime, part-time canvas, full-time fashion icon. Welcome to Sqlotter!',
+    text: 'Oh! A new splotter! I\'m Splot — resident slime, part-time canvas, full-time fashion icon. Welcome to Sqlotter, right here in your subreddit\'s feed!',
   },
   {
     target: 'splot',
@@ -59,7 +59,7 @@ const STEPS: HomeTourStep[] = [
   },
   {
     target: 'Shop',
-    text: 'The Shop is where Sparks go: colors, faces and hats — for me! And every week the subreddit\'s Fit Check thread crowns its best-dressed Splot by upvote. Dress accordingly.',
+    text: 'The Shop is where Sparks go: colors, faces and hats — for me! Every week the subreddit posts a Fit Check thread — open it from the feed and a Fit Check button appears right here so you can drop your look in as a real, upvotable comment.',
   },
   {
     target: 'Ranking',

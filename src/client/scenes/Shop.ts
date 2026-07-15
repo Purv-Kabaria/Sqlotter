@@ -1320,6 +1320,11 @@ export class Shop extends Phaser.Scene {
       // The player may have tapped Home while this request was in flight —
       // don't rebuild UI/touch the scene after it's already shut down.
       if (this.navigating) return;
+      if (res.status === 401) {
+        this.showToast('Log in to dress Splot!', C.RED);
+        try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
+        return;
+      }
       if (!res.ok) {
         this.showToast('Could not equip that item.', C.RED);
         this.splot?.setExpression('sad', 1200);
@@ -1361,6 +1366,11 @@ export class Shop extends Phaser.Scene {
       // The player may have tapped Home while this request was in flight —
       // don't rebuild UI/touch the scene after it's already shut down.
       if (this.navigating) return;
+      if (res.status === 401) {
+        this.showToast('Log in to claim items!', C.RED);
+        try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
+        return;
+      }
       if (!res.ok) { this.showToast('Purchase failed.', C.RED); return; }
       const data: BuyResponse = await res.json();
       playSfx('confirm');

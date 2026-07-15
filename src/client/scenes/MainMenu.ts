@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { showLoginPrompt } from '@devvit/web/client';
+import { showLoginPrompt, showToast } from '@devvit/web/client';
 import { applyStoredSettings, isMusicOn, isSfxOn, playSfx, setMusicOn, setSfxOn, startMusic, streamAudio } from '../audio';
 import { SplotMascot } from '../components/SplotMascot';
 import { HomeTour } from '../components/HomeTour';
@@ -687,14 +687,26 @@ export class MainMenu extends Phaser.Scene {
     els: Phaser.GameObjects.GameObject[],
     mode: 'portrait' | 'landscape',
   ) {
-    type BtnDef = { label: string; icon: string; scene: string; data?: Record<string, unknown> };
+    type BtnDef = {
+      label: string; icon: string; scene: string; data?: Record<string, unknown>;
+      // Gated per the documented nav flow (Create/Shop require an account) —
+      // checked against cached /api/init state so a guest never lands on a
+      // scene that can't do anything for them.
+      loginMessage?: string;
+    };
     const PLAY:    BtnDef = { label: 'Play',    icon: 'icon-play',   scene: 'LevelSelect' };
     const DAILY:   BtnDef = { label: 'Daily Sqlot', icon: 'icon-timer', scene: 'Game', data: { levelId: 'daily' } };
-    const CREATE:  BtnDef = { label: 'Create',  icon: 'icon-pencil', scene: 'Editor' };
+    const CREATE:  BtnDef = {
+      label: 'Create', icon: 'icon-pencil', scene: 'Editor',
+      loginMessage: 'Log in to create your own levels!',
+    };
     // Level Finder — jumps straight to LevelSelect's finder page (search bar
     // over curated worlds + community levels).
     const FIND:    BtnDef = { label: 'Find',    icon: 'icon-people', scene: 'LevelSelect', data: { page: 'finder' } };
-    const SHOP:    BtnDef = { label: 'Shop',    icon: 'icon-price',  scene: 'Shop' };
+    const SHOP:    BtnDef = {
+      label: 'Shop', icon: 'icon-price', scene: 'Shop',
+      loginMessage: 'Log in to visit the Shop!',
+    };
     const RANKING: BtnDef = { label: 'Ranking', icon: 'icon-trophy', scene: 'Leaderboard' };
 
     const ff = PIXELIFY;
@@ -733,7 +745,14 @@ export class MainMenu extends Phaser.Scene {
           x: bx, y: y + row.h / 2,
           width: w, height: row.h,
           label: def.label, iconKey: def.icon, fontSize: row.fs, fontFamily: ff,
-          onClick: () => this.goToScene(def.scene, def.data),
+          onClick: () => {
+            if (def.loginMessage && !this.userData?.username) {
+              try { showToast(def.loginMessage); } catch { /* outside Reddit iframe */ }
+              try { showLoginPrompt(); } catch { /* outside Reddit iframe */ }
+              return;
+            }
+            this.goToScene(def.scene, def.data);
+          },
         });
         btn.setDepth(8).setAlpha(0);
         // Welcome-tour spotlight bounds, keyed by label (HomeTour's script

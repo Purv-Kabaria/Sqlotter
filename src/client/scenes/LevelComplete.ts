@@ -308,9 +308,12 @@ export class LevelComplete extends Phaser.Scene {
     // Row order: Levels (back out) on the LEFT, Ranks center, and the
     // forward action — Next / Ready! / Home / All Done! — on the RIGHT, where
     // a "continue" button is expected to live. Levels is world-aware: it
-    // returns to the page this level actually lives on (finder for UGC).
+    // returns to the page this level actually lives on (finder for UGC). A
+    // daily isn't part of any world page — same "came from home" case the
+    // forward button already special-cases below.
     this.buildBtn(navCx - btnGap, btnY, btnW, 44, 'Levels', 'icon-play', () => {
-      this.goToScene('LevelSelect', this.levelSelectTarget(levelId));
+      if (levelId.startsWith('daily-')) this.goToScene('MainMenu');
+      else this.goToScene('LevelSelect', this.levelSelectTarget(levelId));
     });
     this.buildBtn(navCx, btnY, btnW, 44, 'Ranks', 'icon-trophy', () => {
       this.goToScene('Leaderboard', { levelId });

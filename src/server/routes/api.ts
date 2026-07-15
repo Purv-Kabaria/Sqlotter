@@ -1356,7 +1356,10 @@ api.post('/level/create', async (c) => {
 // the ugc:titles registry (one hGetAll) instead of fetching level JSONs.
 api.get('/levels/community', async (c) => {
   const limitStr = c.req.query('limit') ?? '20';
-  const limit = Math.min(parseInt(limitStr, 10) || 20, 50);
+  // Math.max(1, ...) matters: a zero/negative/non-numeric limit would otherwise
+  // reach Array.slice(0, limit) below, where a negative count means "all but
+  // the last N" instead of "none" — confusing, not just under-filled.
+  const limit = Math.max(1, Math.min(parseInt(limitStr, 10) || 20, 50));
   const q = (c.req.query('q') ?? '').trim().toLowerCase().slice(0, 60);
 
   const total = await redis.zCard('ugc:index');
